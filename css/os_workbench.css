@@ -1,0 +1,320 @@
+/* ----------------------------------------------------------------
+   os_workbench.css — 🛠️ 工作檯（需求者 / 指導者 / 執行者）
+   setup bar + 任務清單 + 工作日誌卡片 + composer。掛在 control_center app 視窗內。
+   ---------------------------------------------------------------- */
+
+.wb-root {
+    --wb-rae:    #8a72c4;
+    --wb-claude: #d9683a;
+    --wb-codex:  #3a78c8;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    background: #eef0f4;
+    color: #1f2430;
+    font-family: 'Microsoft JhengHei', 'PingFang TC', 'Helvetica Neue', Arial, sans-serif;
+    position: relative;
+}
+
+/* ===== header ===== */
+.wb-header {
+    flex: 0 0 auto;
+    padding: 13px 18px 11px;
+    background: #ffffff;
+    border-bottom: 1px solid #dfe2e8;
+}
+.wb-title { font-size: 17px; font-weight: 800; letter-spacing: 0.5px; }
+.wb-sub   { font-size: 11px; color: #8a909c; margin-top: 2px; }
+.wb-close {
+    position: absolute;
+    top: 10px; right: 12px;
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    border: 1px solid #d4d8e0;
+    background: #ffffff;
+    color: #8a909c;
+    font-size: 14px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+    z-index: 4;
+}
+.wb-close:hover { background: #f3504220; color: #d95122; border-color: #d95122; }
+
+/* ===== setup bar ===== */
+.wb-setup {
+    flex: 0 0 auto;
+    background: #f7f8fa;
+    border-bottom: 1px solid #dfe2e8;
+    padding: 9px 14px 10px;
+}
+.wb-dir {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid #d4d8e0;
+    border-radius: 9px;
+    padding: 7px 11px;
+    font-size: 12.5px;
+    font-family: 'Cascadia Code', Consolas, monospace;
+    color: #2b313d;
+    background: #ffffff;
+    outline: none;
+}
+.wb-dir:focus { border-color: #3a78c8; }
+.wb-setup-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 7px;
+}
+.wb-roles { font-size: 12px; color: #6a7180; }
+.wb-roles b { color: #2b313d; }
+.wb-swap {
+    border: 1px solid #d4d8e0;
+    background: #ffffff;
+    color: #4a5060;
+    border-radius: 8px;
+    padding: 4px 10px;
+    font-size: 11.5px;
+    cursor: pointer;
+    transition: background 0.12s;
+}
+.wb-swap:hover { background: #e9ebef; }
+
+/* ===== 任務清單 ===== */
+.wb-tasks {
+    flex: 0 0 auto;
+    max-height: 38%;
+    overflow-y: auto;
+    background: #ffffff;
+    border-bottom: 1px solid #dfe2e8;
+    padding: 10px 14px 12px;
+}
+.wb-tasks-empty {
+    text-align: center;
+    color: #9aa0ac;
+    font-size: 12.5px;
+    line-height: 1.7;
+    padding: 14px 8px;
+}
+.wb-tasks-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 7px;
+}
+.wb-tasks-title { font-size: 13px; font-weight: 800; }
+.wb-tasks-prog  {
+    font-size: 12px; font-weight: 700; color: #3a78c8;
+    font-family: 'Cascadia Code', Consolas, monospace;
+}
+.wb-tasks-list { display: flex; flex-direction: column; gap: 5px; }
+.wb-task {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    padding: 6px 9px;
+    border-radius: 8px;
+    background: #f4f5f7;
+    font-size: 12.8px;
+    line-height: 1.5;
+}
+.wb-task-icon { flex: 0 0 auto; }
+.wb-task-text { color: #2b313d; word-break: break-word; }
+.wb-task-done    { background: #e7f3ec; }
+.wb-task-done .wb-task-text { color: #6a7d70; text-decoration: line-through; }
+.wb-task-doing   { background: #fdf3df; }
+.wb-task-doing .wb-task-text { font-weight: 700; }
+
+.wb-approve {
+    width: 100%;
+    margin-top: 10px;
+    height: 38px;
+    border: none;
+    border-radius: 10px;
+    background: #2f9d5b;
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 800;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.15s;
+    animation: wb-approve-pop 0.25s ease-out;
+}
+.wb-approve:hover { background: #28854d; }
+@keyframes wb-approve-pop {
+    from { transform: scale(0.96); opacity: 0; }
+    to   { transform: scale(1); opacity: 1; }
+}
+
+/* ===== 工作日誌 feed ===== */
+.wb-log {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 12px 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+}
+.wb-log-empty {
+    margin: auto;
+    color: #9aa0ac;
+    font-size: 12.5px;
+}
+
+.wb-card {
+    display: flex;
+    gap: 10px;
+    background: #ffffff;
+    border: 1px solid #e3e6ec;
+    border-left-width: 3px;
+    border-radius: 13px;
+    padding: 11px 13px;
+    box-shadow: 0 1px 3px rgba(31,36,48,0.06);
+    max-width: 680px;
+    width: 100%;
+    box-sizing: border-box;
+    align-self: center;
+    animation: wb-card-in 0.22s ease-out;
+}
+@keyframes wb-card-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.wb-card-rae    { border-left-color: var(--wb-rae); }
+.wb-card-claude { border-left-color: var(--wb-claude); }
+.wb-card-codex  { border-left-color: var(--wb-codex); }
+
+.wb-card-avatar {
+    flex: 0 0 auto;
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    background: #f0f1f4;
+}
+.wb-card-rae    .wb-card-avatar { background: #8a72c422; }
+.wb-card-claude .wb-card-avatar { background: #d9683a22; }
+.wb-card-codex  .wb-card-avatar { background: #3a78c822; }
+
+.wb-card-main { flex: 1 1 auto; min-width: 0; }
+.wb-card-head { display: flex; align-items: baseline; gap: 7px; margin-bottom: 3px; }
+.wb-card-name { font-size: 13px; font-weight: 700; }
+.wb-card-rae    .wb-card-name { color: var(--wb-rae); }
+.wb-card-claude .wb-card-name { color: var(--wb-claude); }
+.wb-card-codex  .wb-card-name { color: var(--wb-codex); }
+.wb-card-role {
+    font-size: 10.5px;
+    color: #ffffff;
+    background: #aab0bc;
+    border-radius: 5px;
+    padding: 1px 6px;
+}
+.wb-card-rae    .wb-card-role { background: var(--wb-rae); }
+.wb-card-claude .wb-card-role { background: var(--wb-claude); }
+.wb-card-codex  .wb-card-role { background: var(--wb-codex); }
+.wb-card-time { font-size: 11px; color: #a7adb8; margin-left: auto; }
+.wb-card-body {
+    font-size: 13.2px;
+    line-height: 1.62;
+    color: #2b313d;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.wb-card-pending { border-left-style: dashed; }
+.wb-card-pending .wb-card-body:empty::before {
+    content: '思考中…';
+    color: #aab0bc;
+    font-style: italic;
+}
+.wb-card-pending .wb-card-avatar { animation: wb-pulse 1.1s ease-in-out infinite; }
+@keyframes wb-pulse {
+    0%,100% { opacity: 1; }
+    50%     { opacity: 0.45; }
+}
+
+/* ===== composer ===== */
+.wb-composer {
+    flex: 0 0 auto;
+    background: #ffffff;
+    border-top: 1px solid #dfe2e8;
+    padding: 10px 14px 12px;
+}
+.wb-input {
+    width: 100%;
+    box-sizing: border-box;
+    resize: none;
+    border: 1px solid #d4d8e0;
+    border-radius: 12px;
+    padding: 9px 12px;
+    font-size: 13.5px;
+    line-height: 1.5;
+    font-family: inherit;
+    color: #1f2430;
+    background: #f7f8fa;
+    outline: none;
+    transition: border-color 0.15s;
+}
+.wb-input:focus { border-color: #3a78c8; background: #ffffff; }
+.wb-composer-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 9px;
+}
+.wb-reset {
+    width: 34px; height: 36px;
+    border-radius: 9px;
+    border: 1px solid #d4d8e0;
+    background: #f4f5f7;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0;
+    transition: background 0.12s;
+}
+.wb-reset:hover { background: #f350421a; border-color: #d95122; }
+.wb-run {
+    flex: 1 1 auto;
+    height: 36px;
+    border: none;
+    border-radius: 10px;
+    background: #3a6ea8;
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.wb-run:hover { background: #315d8e; }
+.wb-run.wb-run-stop { background: #d34a3a; }
+.wb-run.wb-run-stop:hover { background: #b93e30; }
+
+/* ===== toast ===== */
+.wb-toast {
+    position: absolute;
+    left: 50%; bottom: 96px;
+    transform: translateX(-50%) translateY(8px);
+    background: rgba(31,36,48,0.94);
+    color: #ffffff;
+    font-size: 12.5px;
+    padding: 8px 16px;
+    border-radius: 20px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s, transform 0.2s;
+    z-index: 5;
+    max-width: 80%;
+    text-align: center;
+}
+.wb-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ===== 手機 ===== */
+@media (max-width: 560px) {
+    .wb-tasks { max-height: 32%; }
+    .wb-log { padding: 9px 7px 13px; }
+    .wb-card { padding: 9px 10px; gap: 8px; }
+    .wb-card-avatar { width: 32px; height: 32px; font-size: 16px; }
+}

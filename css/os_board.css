@@ -1,0 +1,227 @@
+/* ========================================
+ * os_board.css — 📝 留言板樣式
+ * 便利貼 / 軟木板風格，配合 Aurelia 暖色調
+ * ======================================== */
+
+.ob-container {
+    width: 100%;
+    height: 100%;
+    padding: 16px;
+    box-sizing: border-box;
+    background: linear-gradient(135deg, #f4ead7 0%, #e7d5b3 100%);
+    color: #3d2010;
+    font-family: 'Playfair Display', Georgia, 'Songti TC', 'Microsoft JhengHei', serif;
+    overflow: auto;
+}
+
+.ob-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+    position: relative;
+    padding-right: 72px;
+}
+
+.ob-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: #3d2010;
+}
+
+.ob-sub {
+    font-size: 11px;
+    color: #896645;
+    font-weight: 400;
+}
+
+.ob-refresh,
+.ob-close {
+    position: absolute;
+    top: -4px;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 1px solid #EAB05C;
+    background: transparent;
+    color: #896645;
+    cursor: pointer;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: all 0.2s;
+    font-family: inherit;
+}
+
+.ob-refresh { right: 36px; }
+.ob-close   { right: 0; }
+
+.ob-refresh:hover,
+.ob-close:hover {
+    background: rgba(217, 81, 34, 0.15);
+    color: #D95122;
+    border-color: #D95122;
+}
+
+.ob-board {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 14px;
+    align-content: start;
+}
+
+.ob-note {
+    background: #fffae0;
+    border: 1px solid rgba(137, 102, 69, 0.18);
+    border-radius: 6px;
+    padding: 12px 14px 14px;
+    box-shadow: 0 3px 8px rgba(60, 40, 20, 0.12),
+                inset 0 0 0 1px rgba(255, 255, 255, 0.4);
+    transform: rotate(-0.5deg);
+    transition: transform 0.15s, box-shadow 0.15s;
+    position: relative;
+}
+
+.ob-note:nth-child(2n) { background: #ffe9e0; transform: rotate( 0.7deg); }
+.ob-note:nth-child(3n) { background: #e6f1ff; transform: rotate(-0.3deg); }
+.ob-note:nth-child(4n) { background: #e8f5e0; transform: rotate( 0.4deg); }
+.ob-note:nth-child(5n) { background: #fbe5f7; transform: rotate(-0.6deg); }
+
+.ob-note:hover {
+    transform: rotate(0deg) scale(1.02);
+    box-shadow: 0 6px 14px rgba(60, 40, 20, 0.18),
+                inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+    z-index: 1;
+}
+
+.ob-note-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 8px;
+    border-bottom: 1px dashed rgba(137, 102, 69, 0.3);
+    padding-bottom: 6px;
+}
+
+.ob-note-author {
+    font-size: 12px;
+    font-weight: 700;
+    color: #3d2010;
+}
+
+.ob-note-time {
+    font-size: 10px;
+    color: #896645;
+    font-family: 'Cascadia Code', Consolas, monospace;
+}
+
+.ob-note-body {
+    font-size: 13px;
+    line-height: 1.55;
+    color: #3d2010;
+    word-wrap: break-word;
+}
+
+.ob-note-body p { margin: 0 0 6px; }
+.ob-note-body p:last-child { margin-bottom: 0; }
+
+.ob-note-body code {
+    background: rgba(137, 102, 69, 0.12);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-family: 'Cascadia Code', Consolas, monospace;
+    font-size: 12px;
+}
+
+.ob-note-body pre {
+    background: rgba(60, 40, 20, 0.06);
+    padding: 8px 10px;
+    border-radius: 4px;
+    overflow: auto;
+    font-size: 11px;
+    margin: 6px 0;
+}
+
+.ob-note-body pre code {
+    background: transparent;
+    padding: 0;
+    border-radius: 0;
+}
+
+.ob-note-body a {
+    color: #D95122;
+    text-decoration: none;
+    border-bottom: 1px dotted #D95122;
+}
+
+.ob-note-body blockquote {
+    margin: 6px 0;
+    padding: 2px 0 2px 10px;
+    border-left: 3px solid rgba(137, 102, 69, 0.3);
+    color: #5d3d20;
+}
+
+.ob-note-body ul,
+.ob-note-body ol {
+    margin: 4px 0;
+    padding-left: 20px;
+}
+
+.ob-note-body h1,
+.ob-note-body h2,
+.ob-note-body h3 {
+    font-size: 14px;
+    margin: 8px 0 4px;
+    color: #3d2010;
+    font-weight: 700;
+}
+
+.ob-empty {
+    padding: 50px 20px;
+    text-align: center;
+    color: #896645;
+    font-size: 13px;
+    line-height: 1.8;
+    opacity: 0.7;
+    grid-column: 1 / -1;
+}
+
+.ob-loading,
+.ob-error {
+    padding: 30px 20px;
+    text-align: center;
+    color: #896645;
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.ob-error code {
+    display: inline-block;
+    background: rgba(217, 81, 34, 0.12);
+    color: #D95122;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-family: 'Cascadia Code', Consolas, monospace;
+    font-size: 11px;
+    margin-top: 6px;
+    max-width: 100%;
+    word-break: break-all;
+    text-align: left;
+}
+
+.ob-retry {
+    margin-top: 14px;
+    padding: 8px 18px;
+    background: rgba(217, 81, 34, 0.12);
+    border: 1px solid rgba(217, 81, 34, 0.4);
+    color: #D95122;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 12px;
+    font-family: inherit;
+    transition: background 0.2s;
+}
+
+.ob-retry:hover { background: rgba(217, 81, 34, 0.25); }
