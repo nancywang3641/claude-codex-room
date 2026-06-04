@@ -213,6 +213,9 @@
         });
     }
 
+    // room_content.css 要排在 chat_window.css 前（對齊奧瑞亞載入序：
+    // 核心 .claude-* 基底樣式先進，chat_window.css 的 codex/deepseek 變體覆寫在後）
+    loadCSS(HERE + 'css/room_content.css');
     loadCSS(HERE + 'css/chat_window.css');
     loadCSS(HERE + 'css/launcher.css');
 

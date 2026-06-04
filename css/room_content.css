@@ -1,0 +1,546 @@
+/* Claude / Codex 房間內容樣式 —— 抽自 aurelia_core_st.css 第5b段(765-1307) */
+/* 全域 .claude-* 規則吃 var(--cl-*)，浮窗的變數由 chat_window.css 提供 */
+
+/* =========================================================
+   5b. ☕ Claude 的房間 — Cafe 暖統一聊天室 (mode-claude 獨佔)
+   配色：Beeswax (#EAB05C) / Grenadine (#D95122) / Cafe Latte (#896645) / 奶油 (#f5e9d8)
+   呼應 Claude 官方橘 logo；所有顏色用變數，改 :root 即可全套換掉
+   ========================================================= */
+.void-tab.mode-claude {
+    /* 主色（暖統一） */
+    --cl-cream:           #f5e9d8;     /* 奶油紙底 */
+    --cl-cream-light:     #fff5e1;     /* 更亮一點的奶油 */
+    --cl-beeswax:         #EAB05C;     /* 焦糖黃，主 accent */
+    --cl-beeswax-soft:    rgba(26,28,40,0.25);     /* 柔焦糖（過渡用） */
+    --cl-grenadine:       #D95122;     /* 深橘（user 氣泡 / 送出按鈕） */
+    --cl-cafe-latte:      #896645;     /* 棕邊 / 副文字 */
+    --cl-text-deep:       #3d2010;     /* 主文字 */
+    --cl-paper-grain:     rgba(137,102,69,0.05);
+    --cl-warm-shadow:     rgba(137,102,69,0.18);
+    --cl-warm-glow:       rgba(234,176,92,0.55);
+
+    /* 立繪區（暖漸層 fallback，可被 --cl-portrait-bg-image 整個蓋掉） */
+    --cl-portrait-bg-1:   var(--cl-beeswax-soft);
+    --cl-portrait-bg-2:   var(--cl-beeswax);
+    --cl-portrait-bg-3:   var(--cl-grenadine);
+}
+
+/* =========================================================
+   5b-codex. 🧊 Codex 的房間 — 冷色藍版（mode-codex）
+   Codex 房間 DOM 同時掛 mode-claude（吃全部結構規則）+ mode-codex，
+   這裡只覆寫 --cl-* 變數成藍色系，零結構複製。
+   ========================================================= */
+.void-tab.mode-codex {
+    --cl-cream:           #e9eef4;
+    --cl-cream-light:     #f5f8fc;
+    --cl-beeswax:         #5b9bd5;
+    --cl-beeswax-soft:    rgba(26,28,40,0.25);
+    --cl-grenadine:       #2f6fc4;
+    --cl-cafe-latte:      #5a7a96;
+    --cl-text-deep:       #13283f;
+    --cl-paper-grain:     rgba(70,100,140,0.05);
+    --cl-warm-shadow:     rgba(70,100,140,0.18);
+    --cl-warm-glow:       rgba(91,155,213,0.50);
+
+    --cl-portrait-bg-1:   var(--cl-beeswax-soft);
+    --cl-portrait-bg-2:   var(--cl-beeswax);
+    --cl-portrait-bg-3:   var(--cl-grenadine);
+}
+
+/* mode-claude 啟動時：藏掉 VN 對話、立繪、世界頻道泡泡（聊天室自己接管） */
+.void-tab.mode-claude .void-char-area,
+.void-tab.mode-claude .void-dialogue-wrap,
+.void-tab.mode-claude .void-bubble-layer { display: none !important; }
+
+/* 聊天室面板（其他 mode 不顯示） */
+.claude-chat-panel { display: none; }
+/* 💰 額度按鈕只在 Claude 房間顯示（其他場景藏） */
+.void-tab.mode-claude .void-hist-btn[data-app-launch="spend"] {
+    display: flex !important;
+}
+
+.void-tab.mode-claude .claude-chat-panel {
+    display: flex !important;
+    flex-direction: column;
+    position: absolute;
+    top: 50px;            /* 留標題列 */
+    bottom: 135px;        /* 留底部 chat-bar（含 picker bar，比其他 mode 多 ~45px） */
+    left: 0; right: 0;
+    z-index: 5;
+    overflow: hidden;
+}
+
+/* 上半立繪區（白底 + 橘色格線，可被 --cl-portrait-bg-image 整個換掉） */
+.claude-portrait-area {
+    flex: 0 0 35%;
+    position: relative;
+    background:
+        var(--cl-portrait-bg-image,
+            linear-gradient(rgba(234,176,92,0.35) 1px, transparent 1px) 0 0 / 28px 28px,
+            linear-gradient(90deg, rgba(234,176,92,0.35) 1px, transparent 1px) 0 0 / 28px 28px,
+            #ffffff);
+    overflow: hidden;
+    border-bottom: 1px solid var(--cl-beeswax, #EAB05C);
+}
+.claude-portrait-area::before {
+    content: ''; position: absolute; inset: -20%;
+    background: radial-gradient(circle at center, var(--cl-warm-glow, rgba(234,176,92,0.55)) 0%, transparent 60%);
+    pointer-events: none;
+}
+.claude-portrait-img {
+    position: absolute; inset: 0; margin: auto;
+    width: auto; height: 75%; max-height: 240px;
+    image-rendering: pixelated;
+    filter: drop-shadow(0 8px 24px rgba(217,81,34,0.35));
+    animation: claude-portrait-float 3s ease-in-out infinite;
+    z-index: 2;
+}
+@keyframes claude-portrait-float {
+    0%,100% { transform: translateY(0); }
+    50%     { transform: translateY(-6px); }
+}
+/* 🔷 Codex 房間立繪：OpenAI Codex 寵物 spritesheet（8 欄 × 9 列）。
+   逐幀由 claude-room.js 切 background-position；mode-codex 才顯示、取代 .claude-portrait-img */
+.codex-portrait-sprite {
+    display: none;
+    position: absolute; inset: 0; margin: auto;
+    height: 75%; max-height: 240px;
+    aspect-ratio: 192 / 208;
+    background-image: url(../core/assets/codex/codex-spritesheet.webp);
+    background-repeat: no-repeat;
+    background-size: 800% 900%;
+    image-rendering: pixelated;
+    filter: drop-shadow(0 8px 24px rgba(47,111,196,0.40));
+    animation: claude-portrait-float 3s ease-in-out infinite;
+    z-index: 2;
+}
+.void-tab.mode-codex .claude-portrait-img   { display: none; }
+.void-tab.mode-codex .codex-portrait-sprite { display: block; }
+
+/* 下半訊息區（同樣奶油紙底，跟立繪區暖色連通） */
+.claude-chat-stream {
+    flex: 1; overflow-y: auto; overflow-x: hidden;
+    padding: 16px 12px;
+    display: flex; flex-direction: column; gap: 12px;
+    background:
+        repeating-linear-gradient(45deg,
+            var(--cl-paper-grain, rgba(137,102,69,0.05)) 0px,
+            var(--cl-paper-grain, rgba(137,102,69,0.05)) 1px,
+            transparent 1px, transparent 4px),
+        var(--cl-cream, #f5e9d8);
+    box-shadow: inset 0 2px 12px var(--cl-warm-shadow, rgba(137,102,69,0.18));
+}
+.claude-chat-stream::-webkit-scrollbar { width: 6px; }
+.claude-chat-stream::-webkit-scrollbar-thumb { background: rgba(137,102,69,0.4); border-radius: 3px; }
+
+/* 氣泡 wrap（thinking + bubble 一組） */
+.claude-bubble-wrap { display: flex; flex-direction: column; gap: 6px; max-width: 85%; }
+.claude-bubble-wrap.from-user   { align-self: flex-end;   align-items: flex-end; }
+.claude-bubble-wrap.from-claude { align-self: flex-start; align-items: flex-start; }
+
+/* 氣泡共用 */
+.claude-bubble {
+    padding: 10px 14px; border-radius: 16px;
+    line-height: 1.55; font-size: 14px;
+    word-break: break-word; white-space: pre-wrap;
+    animation: claude-bubble-in 0.25s ease-out;
+}
+@keyframes claude-bubble-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* 使用者氣泡（Grenadine 深橘） */
+.claude-bubble.from-user {
+    background: var(--cl-grenadine, #D95122);
+    color: #ffffff;
+    border-top-right-radius: 4px;
+    box-shadow: 0 4px 12px rgba(217,81,34,0.3);
+}
+
+/* Claude 氣泡（純白 + Beeswax 邊 + 暖光高光，serif） */
+.claude-bubble.from-claude {
+    background: #ffffff;
+    color: var(--cl-text-deep, #3d2010);
+    border: 1px solid var(--cl-beeswax, #EAB05C);
+    border-top-left-radius: 4px;
+    box-shadow:
+        0 0 0 2px rgba(234,176,92,0.18),
+        0 4px 12px var(--cl-warm-shadow, rgba(137,102,69,0.18));
+    font-family: 'Playfair Display', Georgia, 'Songti TC', serif;
+}
+
+/* thinking 折疊塊（暖灰版） */
+.claude-thinking {
+    align-self: flex-start; max-width: 100%;
+    background: rgba(137,102,69,0.10);
+    color: var(--cl-cafe-latte, #896645);
+    border: 1px solid rgba(234,176,92,0.4);
+    border-radius: 8px; padding: 6px 10px;
+    font-size: 12px; cursor: pointer; user-select: none;
+}
+.claude-thinking-header { display: flex; align-items: center; gap: 6px; opacity: 0.92; }
+.claude-thinking-toggle { font-size: 9px; transition: transform 0.2s; display: inline-block; }
+.claude-thinking.open .claude-thinking-toggle { transform: rotate(90deg); }
+.claude-thinking-content {
+    display: none; margin-top: 6px; padding-top: 6px;
+    border-top: 1px solid rgba(234,176,92,0.3);
+    font-style: italic; line-height: 1.5; white-space: pre-wrap;
+}
+.claude-thinking.open .claude-thinking-content { display: block; }
+
+/* tool summary 摺疊塊（仿 Claude.ai 桌面端「Edited 2 files, ran a command」） */
+.claude-tool-summary {
+    align-self: flex-start; max-width: 100%;
+    background: rgba(234,176,92,0.10);
+    color: var(--cl-cafe-latte, #896645);
+    border: 1px solid rgba(234,176,92,0.4);
+    border-radius: 8px; padding: 6px 10px;
+    font-size: 12px; cursor: pointer; user-select: none;
+}
+.claude-tool-summary-header { display: flex; align-items: center; gap: 6px; opacity: 0.92; }
+.claude-tool-summary-toggle { font-size: 9px; transition: transform 0.2s; display: inline-block; }
+.claude-tool-summary.open .claude-tool-summary-toggle { transform: rotate(90deg); }
+.claude-tool-summary-body {
+    display: none; margin-top: 6px; padding-top: 6px;
+    border-top: 1px solid rgba(234,176,92,0.3);
+    line-height: 1.55;
+}
+.claude-tool-summary.open .claude-tool-summary-body { display: block; }
+.claude-tool-summary-item {
+    padding: 2px 0;
+    display: flex; align-items: baseline; gap: 6px;
+    overflow: hidden;
+}
+.claude-tool-summary-name {
+    font-weight: 600;
+    color: var(--cl-grenadine, #D95122);
+    font-family: 'Cascadia Code', Consolas, monospace;
+    font-size: 11px;
+    flex-shrink: 0;
+}
+.claude-tool-summary-detail {
+    color: var(--cl-cafe-latte, #896645);
+    font-family: 'Cascadia Code', Consolas, monospace;
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* mode-claude 蓋過 inline 書咖色：底部 chat-bar / 輸入框 / 送出按鈕 / 重試按鈕（全暖統一） */
+.void-tab.mode-claude .void-chat-bar {
+    background: var(--cl-cream-light, #fff5e1) !important;
+    border-top: 1px solid rgba(234,176,92,0.5) !important;
+    box-shadow: 0 -2px 8px rgba(137,102,69,0.08) !important;
+}
+.void-tab.mode-claude .void-input {
+    background: #ffffff !important;
+    color: var(--cl-text-deep, #3d2010) !important;
+    border-color: var(--cl-beeswax, #EAB05C) !important;
+    caret-color: var(--cl-grenadine, #D95122);
+}
+.void-tab.mode-claude .void-input::placeholder {
+    color: rgba(137,102,69,0.55) !important;
+}
+.void-tab.mode-claude .void-send-btn {
+    background: linear-gradient(135deg, var(--cl-beeswax, #EAB05C), var(--cl-grenadine, #D95122)) !important;
+    color: #ffffff !important;
+    border: 1px solid rgba(217,81,34,0.5) !important;
+}
+.void-tab.mode-claude .void-send-btn:hover {
+    box-shadow: 0 0 12px rgba(217,81,34,0.4) !important;
+}
+.void-tab.mode-claude .void-retry-btn {
+    background: rgba(234,176,92,0.25) !important;
+    color: var(--cl-cafe-latte, #896645) !important;
+    border: 1px solid rgba(234,176,92,0.5) !important;
+}
+.void-tab.mode-claude .void-retry-btn:hover {
+    background: rgba(234,176,92,0.4) !important;
+    box-shadow: 0 0 8px rgba(234,176,92,0.4) !important;
+}
+
+/* ===== 附件 / 上傳相關 (mode-claude 才生效) ===== */
+
+/* 📎 按鈕（在輸入框旁，VN 模式藏起來） */
+.void-attach-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    padding: 0 10px;
+    height: 36px;
+    font-size: 18px;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.void-tab.mode-claude #claude-attach-btn {
+    display: inline-flex !important;
+    background: rgba(234,176,92,0.25) !important;
+    color: var(--cl-cafe-latte, #896645) !important;
+    border: 1px solid rgba(234,176,92,0.5) !important;
+    transition: all 0.2s;
+}
+.void-tab.mode-claude #claude-attach-btn:hover {
+    background: rgba(234,176,92,0.4) !important;
+    box-shadow: 0 0 8px rgba(234,176,92,0.4);
+}
+
+/* chip 預覽列：在輸入框上方，空的時候自動隱藏 */
+.claude-attach-chips { display: none; }
+.void-tab.mode-claude .claude-attach-chips:not(:empty) {
+    display: flex !important;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 6px 4px 4px 4px;
+    margin-bottom: 2px;
+}
+.claude-attach-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(234,176,92,0.25);
+    color: var(--cl-cafe-latte, #896645);
+    border: 1px solid rgba(234,176,92,0.5);
+    border-radius: 14px;
+    padding: 4px 6px 4px 10px;
+    font-size: 12px;
+    max-width: 220px;
+}
+.claude-attach-chip-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 150px;
+}
+.claude-attach-chip-x {
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: rgba(217,81,34,0.2);
+    color: var(--cl-grenadine, #D95122);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    flex-shrink: 0;
+}
+.claude-attach-chip-x:hover {
+    background: rgba(217,81,34,0.4);
+}
+
+/* 訊息氣泡內的附件 chip（顯示這條訊息附了啥，比預覽 chip 更小） */
+.claude-bubble-attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(234,176,92,0.35);
+}
+.claude-bubble.from-user .claude-bubble-attachments { border-top-color: rgba(255,255,255,0.3); }
+.claude-bubble-attach-item {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: rgba(234,176,92,0.3);
+    color: var(--cl-cafe-latte, #896645);
+}
+.claude-bubble.from-user .claude-bubble-attach-item {
+    background: rgba(255,255,255,0.18);
+    color: #fff;
+}
+
+/* ===== Claude 氣泡內 markdown 元素樣式（只 from-claude，user 不渲染 markdown） ===== */
+.claude-bubble-md { white-space: normal; }
+.claude-bubble-md p { margin: 0.5em 0; }
+.claude-bubble-md strong { font-weight: 700; }
+.claude-bubble-md em { font-style: italic; }
+.claude-bubble-md a {
+    color: var(--cl-grenadine, #D95122);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+.claude-bubble-md ul,
+.claude-bubble-md ol { padding-left: 1.4em; margin: 0.5em 0; }
+.claude-bubble-md li { margin: 0.2em 0; }
+.claude-bubble-md code {
+    background: rgba(234,176,92,0.18);
+    color: var(--cl-text-deep, #3d2010);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-family: 'Cascadia Code', Consolas, 'Courier New', monospace;
+    font-size: 0.9em;
+}
+.claude-bubble-md pre {
+    background: rgba(137,102,69,0.08);
+    border: 1px solid rgba(234,176,92,0.4);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin: 0.6em 0;
+    overflow-x: auto;
+    font-size: 0.9em;
+    line-height: 1.45;
+}
+.claude-bubble-md pre code {
+    background: none;
+    padding: 0;
+    color: var(--cl-text-deep, #3d2010);
+}
+.claude-bubble-md blockquote {
+    border-left: 3px solid var(--cl-beeswax, #EAB05C);
+    padding-left: 10px;
+    margin: 0.5em 0;
+    color: var(--cl-cafe-latte, #896645);
+    font-style: italic;
+}
+.claude-bubble-md table {
+    border-collapse: collapse;
+    margin: 0.6em 0;
+    width: 100%;
+    font-size: 0.92em;
+}
+.claude-bubble-md th,
+.claude-bubble-md td {
+    border: 1px solid rgba(234,176,92,0.5);
+    padding: 4px 8px;
+    text-align: left;
+    vertical-align: top;
+}
+.claude-bubble-md th {
+    background: rgba(234,176,92,0.18);
+    font-weight: 700;
+}
+.claude-bubble-md h1,
+.claude-bubble-md h2,
+.claude-bubble-md h3,
+.claude-bubble-md h4 {
+    margin: 0.6em 0 0.3em 0;
+    font-weight: 700;
+    color: var(--cl-text-deep, #3d2010);
+    line-height: 1.3;
+}
+.claude-bubble-md h1 { font-size: 1.3em; }
+.claude-bubble-md h2 { font-size: 1.2em; }
+.claude-bubble-md h3 { font-size: 1.1em; }
+.claude-bubble-md h4 { font-size: 1em; }
+.claude-bubble-md hr {
+    border: none;
+    border-top: 1px solid rgba(234,176,92,0.4);
+    margin: 0.8em 0;
+}
+.claude-bubble-md li input[type="checkbox"] {
+    margin-right: 0.4em;
+    vertical-align: -0.08em;
+    accent-color: var(--cl-grenadine, #D95122);
+    cursor: not-allowed;
+}
+.claude-bubble-md ul li:has(> input[type="checkbox"]) {
+    list-style: none;
+    margin-left: -1em;
+}
+
+/* ===== Claude inline picker bar + popup ===== */
+.claude-picker-bar { display: none; }
+.void-tab.mode-claude .claude-picker-bar {
+    display: block !important;
+    padding: 4px 10px;
+    background: rgba(234,176,92,0.10);
+    border-bottom: 1px solid rgba(234,176,92,0.25);
+    flex-shrink: 0;
+}
+.claude-picker-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: transparent;
+    border: 1px solid rgba(234,176,92,0.4);
+    color: var(--cl-cafe-latte, #896645);
+    border-radius: 14px;
+    padding: 4px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.18s;
+    white-space: nowrap;
+}
+.claude-picker-btn:hover {
+    background: rgba(234,176,92,0.18);
+    border-color: var(--cl-beeswax, #EAB05C);
+    color: var(--cl-text-deep, #3d2010);
+}
+.claude-pick-sep { color: rgba(137,102,69,0.5); margin: 0 2px; }
+.claude-pick-arrow { font-size: 9px; margin-left: 4px; opacity: 0.65; }
+
+.claude-picker-popup {
+    position: absolute;
+    bottom: 96px;
+    left: 12px;
+    width: 240px;
+    max-height: 60vh;
+    overflow-y: auto;
+    background: #ffffff;
+    border: 1px solid var(--cl-beeswax, #EAB05C);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(137,102,69,0.25);
+    z-index: 200;
+    padding: 6px 0;
+    font-size: 13px;
+}
+.claude-picker-section-title {
+    font-size: 10px;
+    color: var(--cl-cafe-latte, #896645);
+    text-transform: uppercase;
+    padding: 8px 12px 4px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+}
+.claude-picker-section-title:not(:first-child) {
+    border-top: 1px solid rgba(234,176,92,0.25);
+    margin-top: 4px;
+}
+.claude-picker-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px;
+    cursor: pointer;
+    color: var(--cl-text-deep, #3d2010);
+    transition: background 0.15s;
+}
+.claude-picker-item:hover {
+    background: rgba(234,176,92,0.18);
+}
+.claude-picker-item.active {
+    color: var(--cl-grenadine, #D95122);
+    font-weight: 600;
+}
+.claude-picker-check {
+    width: 14px;
+    text-align: center;
+    color: var(--cl-grenadine, #D95122);
+    font-weight: bold;
+    flex-shrink: 0;
+}
+
+.claude-bubble-usage {
+    align-self: flex-start;
+    font-size: 10px;
+    color: rgba(137,102,69,0.65);
+    padding: 0 4px;
+    cursor: help;
+    user-select: none;
+    margin-top: -2px;
+}
+
+/* 手機 / 窄螢幕 */
+@media (max-width: 600px) {
+    .claude-portrait-area { flex: 0 0 32%; }
+    .claude-portrait-img { max-height: 180px; height: 80%; }
+    .codex-portrait-sprite { max-height: 180px; height: 80%; }
+    .claude-bubble { font-size: 13px; }
+    .claude-chat-stream { padding: 12px 10px; }
+    .claude-picker-popup { width: calc(100% - 24px); left: 12px; right: 12px; }
+}
