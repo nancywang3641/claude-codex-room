@@ -217,6 +217,8 @@
     // 核心 .claude-* 基底樣式先進，chat_window.css 的 codex/deepseek 變體覆寫在後）
     loadCSS(HERE + 'css/room_content.css');
     loadCSS(HERE + 'css/chat_window.css');
+    loadCSS(HERE + 'css/void_claude_recents.css'); // 對話切換 chip + 多會話列表
+    loadCSS(HERE + 'css/void_claude_ask.css');      // AI 互動選項按鈕(ASK markers)
     loadCSS(HERE + 'css/launcher.css');
 
     const FILES = [
