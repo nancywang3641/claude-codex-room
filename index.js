@@ -14,12 +14,19 @@
     'use strict';
     const TAG = '[claude-codex-room]';
 
-    // 本擴展自己的資料夾 URL（.../third-party/claude-codex-room/）
-    const HERE = new URL('.', import.meta.url).href;
+    // 本擴展自己的資料夾 URL。
+    //   原生安裝 → .../third-party/claude-codex-room/
+    //   酒館助手（boot.js 從 CDN 引導）→ https://<cdn>/gh/nancywang3641/claude-codex-room@<commit>/
+    // 正常靠 import.meta.url 反推；boot.js 另外備了 __CCR_BASE__ 當退路。
+    const HERE = (function () {
+        try { return new URL('.', import.meta.url).href; } catch (e) {}
+        const b = window.__CCR_BASE__ || (window.parent && window.parent.__CCR_BASE__);
+        return b ? (String(b).replace(/\/+$/, '') + '/') : './';
+    })();
 
-    // claude_terminal.js 用 window.AURELIA_EXT_NAME 拼角色頭像 SVG 路徑。
-    // 奧瑞亞在場 → 已是 'my-tavern-extension'，沿用它的素材；否則指到本擴展。
-    if (!window.AURELIA_EXT_NAME) window.AURELIA_EXT_NAME = 'claude-codex-room';
+    // 角色立繪 SVG 一律走本擴展自己的資料夾（原生安裝＝本機路徑、酒館助手＝CDN 絕對網址），
+    // 不再借奧瑞亞的素材。claude_terminal.js 讀這個。
+    window.__CCR_ASSET_BASE__ = HERE + 'core/assets/claude/';
 
     // ====================================================================
     // 1. OS_SETTINGS shim —— cc-bridge 連線預設（URL / Key / model）
@@ -239,24 +246,68 @@
     }
 
     // ====================================================================
-    // 4. 右下角常駐浮球 —— 點了開房間選單（Claude / Codex / 蘇景明 / 群聊）
+    // 4. 入口 —— 點了開房間選單（Claude / Codex / 蘇景明 / 群聊）
+    //    桌機：塞進輸入框左邊的 #leftSendForm（跟原本在奧瑞亞時同一個位置）
+    //    手機 / 抓不到輸入框：右下角常駐浮球
+    //    另註冊 /aurelia-chat 斜線命令 —— 原本在奧瑞亞註冊，QR 欄的 💬 按鈕靠它，接手才不會壞
     // ====================================================================
-    function mountLauncher() {
-        if (document.getElementById('ccr-launcher')) return;
-        const btn = document.createElement('div');
+    function _openMenu(anchor) {
+        if (window.ChatWindow && typeof window.ChatWindow.toggleLauncherMenu === 'function') {
+            window.ChatWindow.toggleLauncherMenu(anchor || document.body);
+        } else {
+            console.warn(TAG, 'ChatWindow 尚未就緒');
+        }
+    }
+
+    function _getBtn() {
+        let btn = document.getElementById('ccr-launcher');
+        if (btn) return btn;
+        btn = document.createElement('div');
         btn.id = 'ccr-launcher';
         btn.title = 'Claude / Codex 房間';
         btn.textContent = '💬';
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
             e.preventDefault();
-            if (window.ChatWindow && typeof window.ChatWindow.toggleLauncherMenu === 'function') {
-                window.ChatWindow.toggleLauncherMenu(btn);
-            } else {
-                console.warn(TAG, 'ChatWindow 尚未就緒');
-            }
+            _openMenu(btn);
         });
-        document.body.appendChild(btn);
+        return btn;
+    }
+
+    // 依當前視窗寬度 / DOM 決定按鈕落點（冪等，重複呼叫安全）
+    function _place() {
+        const btn = _getBtn();
+        const leftSendForm = document.getElementById('leftSendForm');
+        const inline = window.innerWidth >= 768 && !!leftSendForm;
+        if (inline) {
+            if (btn.parentElement !== leftSendForm) leftSendForm.insertBefore(btn, leftSendForm.firstChild);
+            btn.classList.add('ccr-inline');
+        } else {
+            if (btn.parentElement !== document.body) document.body.appendChild(btn);
+            btn.classList.remove('ccr-inline');
+        }
+    }
+
+    function mountLauncher() {
+        _place();
+        window.addEventListener('resize', _place);
+        // 換聊天時酒館會重建輸入框 DOM → 按鈕要重新插回去（走官方事件，不開輪詢）
+        try {
+            const ctx = window.SillyTavern && window.SillyTavern.getContext && window.SillyTavern.getContext();
+            if (ctx && ctx.eventSource && ctx.eventTypes && ctx.eventTypes.CHAT_CHANGED) {
+                ctx.eventSource.on(ctx.eventTypes.CHAT_CHANGED, () => setTimeout(_place, 200));
+            }
+            // 斜線命令（冪等）：QR 欄的 💬 按鈕送的就是 /aurelia-chat
+            if (ctx && ctx.SlashCommandParser && ctx.SlashCommandParser.addCommandObject
+                && ctx.SlashCommand && ctx.SlashCommand.fromProps && !window.__CCR_CMD__) {
+                ctx.SlashCommandParser.addCommandObject(ctx.SlashCommand.fromProps({
+                    name: 'aurelia-chat',
+                    callback: () => { try { _openMenu(document.getElementById('qr--bar')); } catch (e) {} return ''; },
+                    helpString: '開啟 Claude / Codex 房間選單',
+                }));
+                window.__CCR_CMD__ = true;
+            }
+        } catch (e) { console.warn(TAG, '酒館事件/斜線命令掛載失敗（不影響按鈕）', e); }
     }
 
     if (document.body) mountLauncher();

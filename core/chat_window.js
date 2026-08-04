@@ -684,10 +684,10 @@
         body.appendChild(wrap);
     }
 
-    ChatWindow.open = async function (provider) {
+    // 共用：套用 provider（identity/class/display/靜音/載房間）—— open(浮窗) 與 mountInside(嵌入) 都走這
+    async function _applyProvider(provider) {
         provider = (provider === 'codex' || provider === 'deepseek' || provider === 'group') ? provider : 'claude';
         _provider = provider;
-        if (!_winEl) _winEl = _buildWindow();
         const idEl = _winEl.querySelector('#cw-identity');
         if (idEl) idEl.textContent = IDENTITY[provider];
         _winEl.classList.toggle('cw-codex',    provider === 'codex');
@@ -697,12 +697,57 @@
         _isOpen = true;
         if (_menuEl) _menuEl.style.display = 'none';
         ChatWindow.closeSubPanel();
-        // 進房間靜音大廳 BGM（浮窗本身不放 BGM）
+        // 進房間靜音大廳 BGM（窗本身不放 BGM）
         if (window.VoidAmbient && typeof window.VoidAmbient.pauseBgm === 'function') {
             window.VoidAmbient.pauseBgm();
         }
+        _syncTabBar();
         await _loadRoom(provider);
+    }
+
+    ChatWindow.open = async function (provider) {
+        if (!_winEl) _winEl = _buildWindow();
+        // 浮窗模式：若先前被嵌進手機殼，復原成浮窗（尺寸/位置/回 body）
+        if (_winEl.classList.contains('cw-embedded')) {
+            _winEl.classList.remove('cw-embedded');
+            const size = _sizeForViewport(); const pos = _centerPos(size);
+            _winEl.style.width = size.w + 'px'; _winEl.style.height = size.h + 'px';
+            _winEl.style.left = pos.left + 'px'; _winEl.style.top = pos.top + 'px';
+        }
+        if (_winEl.parentElement !== document.body) document.body.appendChild(_winEl);
+        await _applyProvider(provider);
     };
+
+    // 🤖 嵌進手機殼容器（「AI 助手」app 用）：脫浮窗外框、加 Claude/Codex tab 列、填滿容器
+    ChatWindow.mountInside = function (container) {
+        if (!container) return;
+        if (!_winEl) _winEl = _buildWindow();
+        _ensureTabBar();
+        _winEl.classList.add('cw-embedded');
+        _winEl.style.width = ''; _winEl.style.height = ''; _winEl.style.left = ''; _winEl.style.top = '';
+        container.appendChild(_winEl);
+        _applyProvider(_provider || 'claude');
+    };
+
+    // Claude/Codex tab 列（只在嵌入模式顯示，CSS 控）
+    function _ensureTabBar() {
+        if (!_winEl || _winEl.querySelector('#cw-tab-bar')) return;
+        const bar = document.createElement('div');
+        bar.id = 'cw-tab-bar';
+        bar.className = 'cw-tab-bar';
+        bar.innerHTML =
+            '<button class="cw-tab-btn" data-p="claude" type="button">🦀 Claude</button>' +
+            '<button class="cw-tab-btn" data-p="codex" type="button">🔷 Codex</button>';
+        bar.querySelectorAll('.cw-tab-btn').forEach(b => {
+            b.addEventListener('click', () => { if (b.dataset.p !== _provider) _applyProvider(b.dataset.p); });
+        });
+        _winEl.insertBefore(bar, _winEl.firstChild);
+    }
+
+    function _syncTabBar() {
+        if (!_winEl) return;
+        _winEl.querySelectorAll('#cw-tab-bar .cw-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.p === _provider));
+    }
 
     ChatWindow.close = function () {
         if (!_isOpen) return;

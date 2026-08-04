@@ -10,14 +10,17 @@
  *    - 訊息：IndexedDB studio_chats，key = `claude_conv_<id>`
  * 3. 自動把舊版 `claude_room_main` 一條歷史 → Max tab 的 conv_legacy
  *
- * UI 在 void_terminal；本檔僅資料層 + API + 資源 helper。
+ * UI 在 chat_window / chat_room；本檔僅資料層 + API + 資源 helper。
  */
 
 (function(ClaudeTerminal) {
     'use strict';
 
     const HISTORY_LIMIT = 100; // 每個 conv 最近 100 條（新對話模式才用；resume 模式只送新訊息）
-    const SVG_BASE = 'scripts/extensions/third-party/' + (window.AURELIA_EXT_NAME || 'my-tavern-extension') + '/core/assets/claude/';
+    // 角色 SVG 的資料夾：index.js 開場就設好 __CCR_ASSET_BASE__
+    //（原生安裝＝本機路徑、酒館助手＝CDN 絕對網址），拿不到才退回本機猜路徑。
+    const SVG_BASE = window.__CCR_ASSET_BASE__
+        || ('scripts/extensions/third-party/' + (window.AURELIA_EXT_NAME || 'claude-codex-room') + '/core/assets/claude/');
     const FALLBACK_URL = 'https://api.dicebear.com/7.x/pixel-art/svg?seed=clawd&size=256';
 
     // ============== System Prompt（讓房間主角知道自己在哪、跟誰、怎麼回事）==============

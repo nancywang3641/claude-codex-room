@@ -37,3 +37,20 @@
         font-size: 22px;
     }
 }
+
+/* 桌機：塞進輸入框左邊（#leftSendForm）時脫掉浮球外觀，跟 🏰 同一排 */
+#ccr-launcher.ccr-inline {
+    position: static;
+    width: 30px;
+    height: 30px;
+    border-radius: 5px;
+    margin: 0 4px 0 2px;
+    font-size: 18px;
+    flex-shrink: 0;
+    box-shadow: none;
+    transform: none;
+    background: none;
+    border: none;
+    color: inherit;
+}
+#ccr-launcher.ccr-inline:hover { transform: none; box-shadow: none; opacity: 0.75; }
