@@ -18,15 +18,27 @@
     if (window.__CCR_LOADED__) { console.log(TAG, '已載入，略過重複執行'); return; }
     window.__CCR_LOADED__ = true;
 
-    // 本擴展自己的資料夾 URL。
-    //   原生安裝 → .../third-party/claude-codex-room/
-    //   酒館助手（boot.js 從 CDN 引導）→ https://<cdn>/gh/nancywang3641/claude-codex-room@<commit>/
-    // 正常靠 import.meta.url 反推；boot.js 另外備了 __CCR_BASE__ 當退路。
+    // 本擴展自己的資料夾 URL。刻意不用 import.meta.url —— 那東西只有 ES 模組能寫，
+    // 一旦本檔被當普通 script 注入（載入口用的就是這條路）整份會直接 parse error。
+    //   ① __CCR_BASE__：載入口 / boot.js 事先設好（最準）
+    //   ② document.currentScript：普通 script 注入時就是自己
+    //   ③ 掃 script 標籤找 claude-codex-room/index.js
+    //   ④ 都沒有（酒館擴展清單用 import 載入）→ 相對主頁面推本機資料夾
     const HERE = (function () {
-        try { return new URL('.', import.meta.url).href; } catch (e) {}
-        const b = window.__CCR_BASE__ || (window.parent && window.parent.__CCR_BASE__);
-        return b ? (String(b).replace(/\/+$/, '') + '/') : './';
+        const b = window.__CCR_BASE__ || (function () { try { return window.parent && window.parent.__CCR_BASE__; } catch (e) { return null; } })();
+        if (b) return String(b).replace(/\/+$/, '') + '/';
+        try { if (document.currentScript && document.currentScript.src) return new URL('.', document.currentScript.src).href; } catch (e) {}
+        try {
+            const ss = document.getElementsByTagName('script');
+            for (let i = ss.length - 1; i >= 0; i--) {
+                const m = (ss[i].src || '').match(/^(.*\/claude-codex-room\/)index\.js/);
+                if (m) return m[1];
+            }
+        } catch (e) {}
+        try { return new URL('scripts/extensions/third-party/claude-codex-room/', document.baseURI).href; } catch (e) {}
+        return './';
     })();
+    console.log(TAG, '資料夾 =', HERE);
 
     // 角色立繪 SVG 一律走本擴展自己的資料夾（原生安裝＝本機路徑、酒館助手＝CDN 絕對網址），
     // 不再借奧瑞亞的素材。claude_terminal.js 讀這個。

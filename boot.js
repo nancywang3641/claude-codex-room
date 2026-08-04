@@ -41,8 +41,7 @@ try {
 
         const doc = W.document;
         const s = doc.createElement('script');
-        s.type = 'module';
-        s.src = base + '/index.js?boot=' + Date.now();
+        s.src = base + '/index.js?boot=' + Date.now();   // index.js 是普通 script，不需要 type=module
         s.onerror = function () {
             // jsdelivr 對剛 push 的新 commit 冷快取會 503 → 解鎖，讓 Rae 重跑 import 就能重試
             W.__CCR_BOOTSTRAPPED__ = undefined;
