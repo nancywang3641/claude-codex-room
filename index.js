@@ -14,6 +14,10 @@
     'use strict';
     const TAG = '[claude-codex-room]';
 
+    // 防重複載入：腳本庫的載入口跟酒館擴展清單可能同時把本檔拉起來，跑兩次會出現兩份浮窗。
+    if (window.__CCR_LOADED__) { console.log(TAG, '已載入，略過重複執行'); return; }
+    window.__CCR_LOADED__ = true;
+
     // 本擴展自己的資料夾 URL。
     //   原生安裝 → .../third-party/claude-codex-room/
     //   酒館助手（boot.js 從 CDN 引導）→ https://<cdn>/gh/nancywang3641/claude-codex-room@<commit>/
