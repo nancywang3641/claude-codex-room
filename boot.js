@@ -37,7 +37,7 @@ try {
         try { W.location.reload(); } catch (e) { console.warn('[claude-codex-room boot] 重載失敗', e); }
     } else {
         W.__CCR_BOOTSTRAPPED__ = base;
-        W.__CCR_BASE__ = base;   // index.js 的備援 base（正常走 import.meta.url）
+        W.__CCR_BASE__ = base;   // index.js 直接讀這個當自己的資料夾
 
         const doc = W.document;
         const s = doc.createElement('script');
