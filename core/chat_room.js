@@ -64,6 +64,7 @@
         { id: 'claude-sonnet-5',           label: 'Sonnet 5'      },
         { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5'     },
         { id: 'claude-opus-4-7',           label: 'Opus 4.7(舊)'  },
+        { id: 'claude-opus-4-6',           label: 'Opus 4.6(舊)'  },
     ];
     // Codex CLI 走 ~/.codex/config.toml 決定預設主模型,也接受 --model 字串 hint。
     // 清單按 ChatGPT App / Codex 訂閱帳號當前能 access 的 model 命名(小寫破折號)。
