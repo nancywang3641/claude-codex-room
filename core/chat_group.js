@@ -6,29 +6,93 @@
 (function (ChatGroup) {
     'use strict';
 
-    const STORE_KEY    = 'group_chat_main';     // OS_DB transcript
-    const SID_CLAUDE   = 'group_claude_sid';    // localStorage
-    const SID_CODEX    = 'group_codex_sid';
-    const SID_DEEPSEEK = 'group_deepseek_sid';  // 蘇景明(DeepSeek/CodeWhale)
-    const LABEL = { rae: 'Rae', claude: 'Claude', codex: 'Codex', deepseek: '蘇景明', recap: '前情提要' };
-    const AI_PROVIDERS = ['claude', 'codex', 'deepseek'];  // fan-out / random shuffle 用
+    const STORE_KEY = 'group_chat_main';     // OS_DB transcript
 
-    let _transcript = [];   // [{ speaker:'rae'|'claude'|'codex'|'deepseek', content, ts, usage? }]
-    let _seen = { claude: -1, codex: -1, deepseek: -1 };  // 各 AI 已被送到第幾則 transcript index
+    // 席位以「住戶」為單位（宿舍化之後同一顆 Claude 的分身各佔各的席）。
+    // 舊資料裡 speaker / session 都是 provider 字串，一律先過 _normSpeaker 換成住戶 id。
+    const LEGACY_SPEAKER = { claude: 'dan', codex: 'aluo', deepseek: 'sujingming' };
+    // 內建三位沿用原本的 localStorage key，她的既有 session 不用重開
+    const LEGACY_SID = {
+        dan:        'group_claude_sid',
+        aluo:       'group_codex_sid',
+        sujingming: 'group_deepseek_sid',
+    };
+
+    let _transcript = [];   // [{ speaker:'rae'|'recap'|<residentId>, content, ts, usage? }]
+    let _seen = {};         // residentId → 已被送到第幾則 transcript index（沒有的當 -1）
     let _busy = false;
     let _streamEl = null;   // 渲染目標（窗內 chat-stream）
     let _game = null;             // 遊戲模式：{ players:[p1,p2], turnIdx, moveCount, raeResolver, endSignal }
     let _pendingAttachments = []; // 待送附件：{path,filename,mime,size,thumb} 或 {_uploading:true,filename,mime,size}
     const GAME_TURN_LIMIT = 60;   // 安全閥：總手數上限，防無限迴圈 + 訂閱額度爆
 
+    function _CT() { return window.ClaudeTerminal || null; }
+
+    /** 目前入席的住戶 [{id,name,provider,seatModelId}]；資料層還沒好就回空陣列 */
+    function _seats() {
+        const CT = _CT();
+        if (!CT || typeof CT.listGroupSeats !== 'function') return [];
+        try { return CT.listGroupSeats() || []; } catch (_) { return []; }
+    }
+    function _seatIds() { return _seats().map(s => s.id); }
+    function _seatOf(rid) { return _seats().find(s => s.id === rid) || null; }
+
+    /** 住戶 id → provider。查不到（退席了但 transcript 還留著他的話）也要有答案。 */
+    function _provOf(rid) {
+        const s = _seatOf(rid);
+        if (s) return s.provider;
+        const CT = _CT();
+        if (CT && typeof CT.getResident === 'function') {
+            const r = CT.getResident(rid);
+            if (r) return r.provider;
+        }
+        return 'claude';
+    }
+
+    /** 顯示名。退席／被刪的住戶仍要有名字，不然舊訊息會變成一串 id。 */
+    function _labelOf(sp) {
+        if (sp === 'rae')   return 'Rae';
+        if (sp === 'recap') return '前情提要';
+        const s = _seatOf(sp);
+        if (s) return s.name;
+        const CT = _CT();
+        if (CT && typeof CT.getResident === 'function') {
+            const r = CT.getResident(sp);
+            if (r) return r.name;
+        }
+        return String(sp || 'AI');
+    }
+
+    /** 氣泡配色跟著 provider 走 —— 同一顆 Claude 的分身共用一套顏色，CSS 不用改 */
+    function _cssOf(sp) {
+        if (sp === 'rae' || sp === 'recap') return sp;
+        return _provOf(sp);
+    }
+
+    const _FACE = { claude: '🦀', codex: '🔷', deepseek: '🟢' };
+    function _hdrTextOf(sp) { return (_FACE[_provOf(sp)] || '🦀') + ' ' + _labelOf(sp); }
+
+    /** 舊 transcript / 舊參數裡的 provider 字串 → 住戶 id */
+    function _normSpeaker(sp) { return LEGACY_SPEAKER[sp] || sp; }
+
+    function _seenOf(rid) { return _seen[rid] == null ? -1 : _seen[rid]; }
+
     function _lsGet(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }
     function _lsSet(k, v) {
         try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (_) {}
     }
-    function _sidKey(p) {
-        if (p === 'codex')    return SID_CODEX;
-        if (p === 'deepseek') return SID_DEEPSEEK;
-        return SID_CLAUDE;
+    function _sidKey(rid) {
+        return LEGACY_SID[rid] || ('group_sid__' + rid);
+    }
+
+    /** 清掉某位在群聊裡的 session（下次從零 boot） */
+    function _clearSid(rid) { _lsSet(_sidKey(rid), null); }
+
+    /** 清掉所有可能有 session 的人：現在入席的 + 內建三位（退席的也要清乾淨） */
+    function _clearAllSids() {
+        const ids = new Set(_seatIds());
+        Object.keys(LEGACY_SID).forEach(id => ids.add(id));
+        ids.forEach(_clearSid);
     }
 
     function _save() {
@@ -46,10 +110,23 @@
                 if (Array.isArray(m)) _transcript = m;
             } catch (_) {}
         }
-        // 三個 AI 的 session 已續到上次存檔點 → seen 設為 transcript 末端
-        _seen.claude   = _transcript.length - 1;
-        _seen.codex    = _transcript.length - 1;
-        _seen.deepseek = _transcript.length - 1;
+        // 宿舍化之前的 transcript speaker 是 provider 字串 → 一次性換成住戶 id
+        let migrated = false;
+        _transcript.forEach(function (m) {
+            if (m && LEGACY_SPEAKER[m.speaker]) { m.speaker = LEGACY_SPEAKER[m.speaker]; migrated = true; }
+        });
+        if (migrated) _save();
+
+        // 各人的 session 都已續到上次存檔點 → seen 設為 transcript 末端
+        _seen = {};
+        const end = _transcript.length - 1;
+        _seatIds().forEach(function (id) { _seen[id] = end; });
+        // 退席後又回來的人也不能重看整段（他的 session 裡本來就有）
+        _transcript.forEach(function (m) {
+            if (m && m.speaker !== 'rae' && m.speaker !== 'recap' && _seen[m.speaker] == null) {
+                _seen[m.speaker] = end;
+            }
+        });
     };
 
     // ── 渲染 ──
@@ -110,19 +187,17 @@
             _scrollBottom();
             return body;
         }
+        const css = _cssOf(speaker);
         const wrap = document.createElement('div');
-        wrap.className = 'cg-bubble-wrap cg-from-' + speaker;
+        wrap.className = 'cg-bubble-wrap cg-from-' + css;
         if (speaker !== 'rae') {
             const hdr = document.createElement('div');
-            hdr.className = 'cg-bubble-hdr cg-hdr-' + speaker;
-            const _hdrText = speaker === 'codex'    ? '🔷 Codex'
-                           : speaker === 'deepseek' ? '🟢 蘇景明'
-                           :                          '🦀 Claude';
-            hdr.textContent = _hdrText;
+            hdr.className = 'cg-bubble-hdr cg-hdr-' + css;
+            hdr.textContent = _hdrTextOf(speaker);
             wrap.appendChild(hdr);
         }
         const b = document.createElement('div');
-        b.className = 'cg-bubble cg-from-' + speaker;
+        b.className = 'cg-bubble cg-from-' + css;
         _setBubbleContent(b, speaker, content);
 
         // 附件：圖片 → 內嵌縮圖（點放大）；非圖 → 📎 chip
@@ -137,15 +212,14 @@
 
     function _renderTyping(speaker) {
         if (!_streamEl) return null;
+        const css = _cssOf(speaker);
         const wrap = document.createElement('div');
-        wrap.className = 'cg-bubble-wrap cg-from-' + speaker;
+        wrap.className = 'cg-bubble-wrap cg-from-' + css;
         const hdr = document.createElement('div');
-        hdr.className = 'cg-bubble-hdr cg-hdr-' + speaker;
-        hdr.textContent = speaker === 'codex'    ? '🔷 Codex'
-                        : speaker === 'deepseek' ? '🟢 蘇景明'
-                        :                          '🦀 Claude';
+        hdr.className = 'cg-bubble-hdr cg-hdr-' + css;
+        hdr.textContent = _hdrTextOf(speaker);
         const b = document.createElement('div');
-        b.className = 'cg-bubble cg-from-' + speaker + ' cg-typing';
+        b.className = 'cg-bubble cg-from-' + css + ' cg-typing';
         b.textContent = '正在輸入…';
         wrap.appendChild(hdr);
         wrap.appendChild(b);
@@ -249,7 +323,12 @@
         if (!_streamEl) return;
         _streamEl.innerHTML = '';
         if (!_transcript.length) {
-            _renderBubble('claude', '群聊區開張了 —— 你、Claude、Codex、蘇景明 四個人。@誰就只叫誰,不 @ 就大家一起回。');
+            const seats = _seats();
+            const who = seats.length
+                ? '你、' + seats.map(s => s.name).join('、') + ' 共 ' + (seats.length + 1) + ' 個人。'
+                : '還沒有人入席 —— 去宿舍面板把要參加的住戶勾進來。';
+            _renderBubble(seats.length ? seats[0].id : 'dan',
+                '群聊區開張了 —— ' + who + (seats.length ? '@誰就只叫誰,不 @ 就大家一起回。' : ''));
             return;
         }
         _transcript.forEach(function (m) {
@@ -263,13 +342,27 @@
 
     // ── 遊戲標記解析 ──
     const RE_PANEL    = /<lobbyPanel>[\s\S]*?<\/lobbyPanel>/i;
-    const RE_GAME     = /\[GAME\|\s*([a-z]+)\s*,\s*([a-z]+)\s*\]/i;
+    const RE_GAME     = /\[GAME\|\s*([^\],]+?)\s*,\s*([^\],]+?)\s*\]/i;
     const RE_MOVE     = /\[MOVE\|([^\]]*)\]/i;
     const RE_GAMEOVER = /\[GAMEOVER\|([^\]]*)\]/i;
 
-    function _normPlayer(s) {
-        s = (s || '').toLowerCase();
-        return (s === 'claude' || s === 'codex' || s === 'rae') ? s : null;
+    // 先手/後手欄位認：住戶名字、住戶 id、'rae'，外加舊的 provider 代號（claude/codex/deepseek）。
+    // 回住戶 id（或 'rae'）；認不出來回 null。
+    function _normPlayer(v) {
+        const raw = String(v == null ? '' : v).trim();
+        if (!raw) return null;
+        const low = raw.toLowerCase();
+        if (low === 'rae' || raw === '我' || raw === '你') return 'rae';
+        const seats = _seats();
+        const byName = seats.find(x => (x.name || '').toLowerCase() === low);
+        if (byName) return byName.id;
+        const byId = seats.find(x => x.id.toLowerCase() === low);
+        if (byId) return byId.id;
+        if (LEGACY_SPEAKER[low]) {   // 舊代號 → 該 provider 第一位入席者
+            const p = seats.find(x => x.provider === low);
+            if (p) return p.id;
+        }
+        return null;
     }
 
     // 解析回覆裡的遊戲標記。回 { game:{p1,p2}|null, move:string|null, gameover:string|null }
@@ -307,23 +400,23 @@
             .trim();
     }
 
-    // ── 傳話增量：transcript 自 _seen[provider] 之後、非該 provider 自己的話 ──
-    function _buildDelta(provider) {
+    // ── 傳話增量：transcript 自 _seen[rid] 之後、非他自己的話 ──
+    function _buildDelta(rid) {
         const lines = [];
-        for (let i = _seen[provider] + 1; i < _transcript.length; i++) {
+        for (let i = _seenOf(rid) + 1; i < _transcript.length; i++) {
             const m = _transcript[i];
-            if (m.speaker === provider) continue;  // 它自己的話已在它 session 裡
-            lines.push('[' + LABEL[m.speaker] + ']: ' + m.content);
+            if (m.speaker === rid) continue;  // 他自己的話已在他 session 裡
+            lines.push('[' + _labelOf(m.speaker) + ']: ' + m.content);
         }
         return lines.join('\n\n');
     }
 
     // 跟 _buildDelta 同範圍：收集增量涵蓋的 rae 附件（去掉 thumb，cc-bridge 只要 path）
-    function _collectDeltaAttachments(provider) {
+    function _collectDeltaAttachments(rid) {
         const out = [];
-        for (let i = _seen[provider] + 1; i < _transcript.length; i++) {
+        for (let i = _seenOf(rid) + 1; i < _transcript.length; i++) {
             const m = _transcript[i];
-            if (m.speaker === provider) continue;
+            if (m.speaker === rid) continue;
             if (Array.isArray(m.attachments)) {
                 m.attachments.forEach(function (a) {
                     if (a && a.path) out.push({ path: a.path, filename: a.filename, mime: a.mime, size: a.size });
@@ -336,27 +429,31 @@
     // ── 一個 AI 的回合 ──
     // opts.gameTurn=true：遊戲回合，即使沒有新增量也要催它落子
     // 回傳 { spoke:bool, failed:bool, markers:{game,move,gameover} }
-    async function _runTurn(provider, opts) {
+    async function _runTurn(rid, opts) {
         opts = opts || {};
-        let delta = _buildDelta(provider);
-        const deltaAttachments = _collectDeltaAttachments(provider);
+        let delta = _buildDelta(rid);
+        const deltaAttachments = _collectDeltaAttachments(rid);
         if (!delta.trim()) {
             if (!opts.gameTurn) {
-                _seen[provider] = _transcript.length - 1;
+                _seen[rid] = _transcript.length - 1;
                 return { spoke: false, failed: false, markers: {} };
             }
             // 遊戲回合沒新增量（例：開局先手的第一手）→ 催落子
             delta = '（系統）輪到你下棋了，請依先前約定的格式落子。';
         }
 
-        const typingWrap = _renderTyping(provider);
+        const seat = _seatOf(rid);
+        const typingWrap = _renderTyping(rid);
         const bubbleEl = typingWrap && typingWrap.querySelector('.cg-bubble');
         let acc = '';
         let result;
         try {
             result = await window.ClaudeTerminal.sendGroup({
-                provider: provider,
-                sessionId: _lsGet(_sidKey(provider)),
+                residentId: rid,
+                selfName:   _labelOf(rid),
+                otherNames: _seats().filter(x => x.id !== rid).map(x => x.name),
+                model:      seat ? seat.seatModelId : '',
+                sessionId: _lsGet(_sidKey(rid)),
                 userText: delta,
                 attachments: deltaAttachments,
                 onProgress: function (ev) {
@@ -379,12 +476,12 @@
             // 送出失敗：不推進 _seen —— 下一輪再補送
             return { spoke: false, failed: true, markers: {} };
         }
-        if (result.sessionId) _lsSet(_sidKey(provider), result.sessionId);
+        if (result.sessionId) _lsSet(_sidKey(rid), result.sessionId);
 
         const reply = (result.reply || '').trim();
         if (/^\[PASS\]$/i.test(reply)) {
             if (typingWrap && typingWrap.parentNode) typingWrap.parentNode.removeChild(typingWrap);
-            _seen[provider] = _transcript.length - 1;
+            _seen[rid] = _transcript.length - 1;
             return { spoke: false, failed: false, markers: {} };
         }
 
@@ -401,7 +498,7 @@
         // 落子 → 餵畫布（只在遊戲模式中；開局首手由 _maybeStartGame 另外處理）
         if (markers.move != null && _game &&
             window.ChatCanvas && typeof window.ChatCanvas.applyMove === 'function') {
-            window.ChatCanvas.applyMove(markers.move, provider);
+            window.ChatCanvas.applyMove(markers.move, _labelOf(rid));
         }
 
         if (result.usage && window.OS_SPEND_PANEL && typeof window.OS_SPEND_PANEL.record === 'function') {
@@ -415,7 +512,7 @@
         if (!transcriptText && !imgAtts) {
             // 整則只有 <lobbyPanel>、沒文字沒標記沒圖：移掉空氣泡，不進 transcript
             if (typingWrap && typingWrap.parentNode) typingWrap.parentNode.removeChild(typingWrap);
-            _seen[provider] = _transcript.length - 1;
+            _seen[rid] = _transcript.length - 1;
             return { spoke: true, failed: false, markers: markers };
         }
         if (!displayText && !imgAtts) {
@@ -423,16 +520,16 @@
             if (typingWrap && typingWrap.parentNode) typingWrap.parentNode.removeChild(typingWrap);
         } else if (bubbleEl) {
             bubbleEl.classList.remove('cg-typing');
-            _setBubbleContent(bubbleEl, provider, result.reply);
+            _setBubbleContent(bubbleEl, rid, result.reply);
             if (imgAtts) {
                 const box = _buildAttachmentsBox(imgAtts);
                 if (box) bubbleEl.appendChild(box);
             }
         }
-        const turnEntry = { speaker: provider, content: transcriptText, ts: Date.now(), usage: result.usage || null };
+        const turnEntry = { speaker: rid, content: transcriptText, ts: Date.now(), usage: result.usage || null };
         if (imgAtts) turnEntry.attachments = imgAtts;
         _transcript.push(turnEntry);
-        _seen[provider] = _transcript.length - 1;
+        _seen[rid] = _transcript.length - 1;
         _save();
         return { spoke: true, failed: false, markers: markers };
     }
@@ -469,7 +566,7 @@
             if (!_game) return;
             if (_game.endSignal) break;
             if (res.failed) {
-                _game.endSignal = { text: LABEL[mover] + ' 連線失敗，對局中止。' };
+                _game.endSignal = { text: _labelOf(mover) + ' 連線失敗，對局中止。' };
                 break;
             }
             if (res.markers && res.markers.gameover != null) {
@@ -482,7 +579,7 @@
                 continue;
             }
             // 該下棋卻沒落子也沒收場 → 中止（不重試，YAGNI）
-            _game.endSignal = { text: LABEL[mover] + ' 這手沒有落子，對局中止。' };
+            _game.endSignal = { text: _labelOf(mover) + ' 這手沒有落子，對局中止。' };
             break;
         }
         const sig = _game && _game.endSignal;
@@ -491,6 +588,8 @@
 
     // ── 收場：退出遊戲模式 + 收場講評一輪 ──
     async function _endGameInternal(resultText) {
+        // players 在清掉 _game 之前先抓下來 —— 講評要問的是這局的雙方
+        const players = ((_game && _game.players) || []).filter(p => p && p !== 'rae');
         _game = null;
         if (resultText) _renderSystemLine('🏁 ' + resultText);
 
@@ -501,9 +600,8 @@
             ts: Date.now(),
         });
         _save();
-        const order = Math.random() < 0.5 ? ['claude', 'codex'] : ['codex', 'claude'];
-        await _runTurn(order[0]);
-        await _runTurn(order[1]);
+        const order = _shuffle(players);
+        for (let i = 0; i < order.length; i++) await _runTurn(order[i]);
 
         _busy = false;
     }
@@ -531,25 +629,33 @@
     }
 
     // ── @-mention 解析（給 sendUserMessage 用）──
-    // 支援:@Claude/@claude/@丹 → claude;@Codex/@codex/@阿洛 → codex;
-    //      @蘇景明/@景明/@deepseek/@deepseek → deepseek。
-    // 回傳 [] / ['claude'] / ['codex'] / ['deepseek'] / 多選的子集合。
+    // 認入席住戶的名字（她自己取的名字都算）、住戶 id，以及舊的 @Claude / @Codex /
+    // @deepseek 這種 provider 代號 —— 代號對到「該 provider 第一位入席者」。
+    // 名字先長後短比對，免得叫「丹」的那位把 @丹二 也接走。
+    // 回傳入席住戶 id 的子集合（依她 @ 的先後順序）。
     function _parseMentions(text) {
         if (!text) return [];
-        const out = new Set();
-        const re = /@(Claude|Codex|丹|阿洛|蘇景明|景明|deepseek|deepseek)/gi;
+        const seats = _seats();
+        if (!seats.length) return [];
+        const byLen = seats.slice().sort((a, b) => (b.name || '').length - (a.name || '').length);
+        const out = [];
+        const push = id => { if (id && out.indexOf(id) < 0) out.push(id); };
+        // @ 後面連續的非分隔字元；名字最長 20（住戶名上限）
+        const re = /@([^\s@,，。、;；:：!！?？]{1,20})/g;
         let m;
         while ((m = re.exec(text)) !== null) {
-            const name = m[1].toLowerCase();
-            if (name === 'claude' || name === '丹')             out.add('claude');
-            else if (name === 'codex' || name === '阿洛')        out.add('codex');
-            else if (name === '蘇景明' || name === '景明'
-                  || name === 'deepseek' || name === 'deepseek') out.add('deepseek');
+            const low = m[1].toLowerCase();
+            const byName = byLen.find(x => x.name && low.indexOf(x.name.toLowerCase()) === 0);
+            if (byName) { push(byName.id); continue; }
+            const byId = seats.find(x => low.indexOf(x.id.toLowerCase()) === 0);
+            if (byId) { push(byId.id); continue; }
+            const prov = ['claude', 'codex', 'deepseek'].find(p => low.indexOf(p) === 0);
+            if (prov) { const p = seats.find(x => x.provider === prov); if (p) push(p.id); }
         }
-        return Array.from(out);
+        return out;
     }
 
-    // Fisher-Yates shuffle:三人桌的順序隨機,避免老是同一隻先講
+    // Fisher-Yates shuffle:入席順序隨機,避免老是同一隻先講
     function _shuffle(arr) {
         const a = arr.slice();
         for (let i = a.length - 1; i > 0; i--) {
@@ -595,10 +701,18 @@
 
             // @-mention 路由:
             //  - 明確 @ 某幾隻 → 只叫那些(省 token、其他人完全跳過)
-            //  - 無 @ → 三人都叫、Fisher-Yates 洗順序、各自 [PASS] 自決
-            // 蘇景明(DeepSeek)雖然便宜,但他人設是「被叫才出現」,fan-out 時順序隨機就好。
+            //  - 無 @ → 全部入席者都叫、Fisher-Yates 洗順序、各自 [PASS] 自決
+            // 這裡是「序列」不是併發:後講的人看得到前面的人剛說什麼,互相接話靠的就是這個。
+            // 入席的人越多一輪越久,那是語意成本 —— 沒話講的會直接 [PASS],很快。
             const mentions = _parseMentions(text);
-            const order = mentions.length > 0 ? mentions : _shuffle(AI_PROVIDERS);
+            const seated = _seatIds();
+            if (!seated.length) {
+                // 全員下桌了：她發的話還是進 transcript（回頭有人上桌就看得到），
+                // 但得當場說一聲，不然按了送出什麼都沒發生，看起來像壞了。
+                _renderSystemLine('桌上沒有人 —— 去宿舍面板的門卡上勾「入席」，把要參加的住戶請上桌。');
+                return;
+            }
+            const order = mentions.length > 0 ? mentions : _shuffle(seated);
             for (let i = 0; i < order.length; i++) {
                 const r = await _runTurn(order[i]);
                 if (_maybeStartGame(order[i], r)) return;   // 開局了 → 交給遊戲迴圈
@@ -625,16 +739,17 @@
         try {
             // 把所有舊訊息(含舊 recap)組成可讀的對話腳本給 Sonnet
             const scriptLines = compactable.map(m => {
-                const tag = LABEL[m.speaker] || m.speaker;
+                const tag = _labelOf(m.speaker);
                 const body = (m.content || '').replace(/\s+$/g, '');
                 return `[${tag}]\n${body}`;
             }).join('\n\n');
 
+            const _who = _seats().map(x => x.name).join('、') || '幾個 AI';
             const sysPrompt =
-                '你是個對話摘要助手。下方是 Rae 跟三個 AI(Claude、Codex、蘇景明)的群聊紀錄,' +
+                '你是個對話摘要助手。下方是 Rae 跟 ' + _who + ' 的群聊紀錄,' +
                 '幫我壓縮成一頁「前情提要」,供他們之後接續聊天用。\n\n' +
                 '規則:\n' +
-                '1. 用第三人稱、自然中文敘述(像「Rae 跟大家聊到 X,Claude 說 Y,蘇景明吐槽 Z」)\n' +
+                '1. 用第三人稱、自然中文敘述(像「Rae 跟大家聊到 X,某某說 Y,某某吐槽 Z」)\n' +
                 '2. 保留:主題、結論、未完的事、人物之間的梗或語感\n' +
                 '3. 跳過:重複的問候、寒暄、純表情、已解決的小問題\n' +
                 '4. 控制在 300-600 字之間(對話越長可以越長,但別超過)\n' +
@@ -654,13 +769,12 @@
                 return { ok: false, reason: 'empty_reply' };
             }
 
-            // 清三人 session(各自 CLI session 重新 boot,從零累積 context)
-            _lsSet(SID_CLAUDE, null);
-            _lsSet(SID_CODEX, null);
-            _lsSet(SID_DEEPSEEK, null);
-            // transcript reset + 塞入摘要;_seen 全 -1,下次 sendUserMessage 會把摘要 + 新訊息一起送
+            // 清掉每個人的 session(各自 CLI session 重新 boot,從零累積 context)。
+            // 連退席的內建三位也一起清 —— 不然他們回席時會帶著跟摘要打架的舊記憶。
+            _clearAllSids();
+            // transcript reset + 塞入摘要;_seen 清空(全部當 -1),下次 sendUserMessage 會把摘要 + 新訊息一起送
             _transcript = [{ speaker: 'recap', content: recap, ts: Date.now() }];
-            _seen = { claude: -1, codex: -1, deepseek: -1 };
+            _seen = {};
             _save();
             if (_streamEl) ChatGroup.hydrate(_streamEl);
             restore();
@@ -671,7 +785,7 @@
         }
     };
 
-    // ── 清空群聊（transcript + 三條 session + 進行中的對局）──
+    // ── 清空群聊（transcript + 每個人的 session + 進行中的對局）──
     ChatGroup.clear = function () {
         if (_game) {
             // 中止進行中的對局：先解開可能卡住的 Rae await，再清狀態
@@ -681,10 +795,8 @@
         }
         _busy = false;
         _transcript = [];
-        _seen = { claude: -1, codex: -1, deepseek: -1 };
-        _lsSet(SID_CLAUDE, null);
-        _lsSet(SID_CODEX, null);
-        _lsSet(SID_DEEPSEEK, null);
+        _seen = {};
+        _clearAllSids();
         _save();
         if (_streamEl) ChatGroup.hydrate(_streamEl);
     };

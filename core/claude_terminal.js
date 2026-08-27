@@ -95,13 +95,19 @@
     // 群聊區系統提示：你、Rae、其他 AI 多方同一聊天室
     // otherNames: string[](['Codex'] 或 ['Codex','蘇景明'] 之類)
     function GROUP_SYSTEM_PROMPT(selfName, otherNames) {
-        const others = Array.isArray(otherNames) ? otherNames : [otherNames].filter(Boolean);
+        const others = (Array.isArray(otherNames) ? otherNames : [otherNames]).filter(Boolean);
+        const solo = others.length === 0;   // 只有一位入席：別叫他去接不存在的人的話
         const othersJoined = others.join('、');
-        const othersExample = others.map(n => `[${n}]: ...`).join(' / ');
-        return `你正在「奧瑞亞 Aurelia」擴展的「群聊區」裡，跟使用者 Rae、以及其他 AI（${othersJoined}）多方聊天。
+        const othersExample = (solo ? ['某某'] : others).map(n => `[${n}]: ...`).join(' / ');
+        const roster = solo ? '這桌目前只有你跟 Rae。' : `同桌的還有：${othersJoined}。`;
+        const withOthers = solo
+            ? '- 你可以正常回應 Rae。'
+            : `- 你可以正常回應 Rae，也可以接其他人（${othersJoined}）的話、附和或吐槽，像在群組裡聊天。`;
+        const players = [selfName].concat(others).concat(['Rae']).join('、');
+        return `你正在「奧瑞亞 Aurelia」擴展的「群聊區」裡，跟使用者 Rae 多方聊天。${roster}
 
 - 其他人的發言會標上講者前綴，例如 [Rae]: ... 或 ${othersExample}。你自己的回覆不需要加前綴。
-- 你可以正常回應 Rae，也可以接其他 AI（${othersJoined}）的話、附和或吐槽，像在群組裡聊天。
+${withOthers}
 - 你每一輪都會被問到。如果這一輪的話明顯是在問別人、不是問你，或你沒什麼好補充 —— 就「只輸出」 [PASS] 這四個字、不要加任何其他內容，代表這次略過不講。被直接點名或問到你時就正常回。
 - 互動畫布與遊戲：想下棋、玩回合制遊戲、做互動工具或展示網頁時，請「務必」用 <lobbyPanel> 產生真正可互動的畫面，「不要」用純文字或 ASCII 排版代替。格式：在回覆裡放一段 <lobbyPanel>{ "title":"標題", "html":"...", "css":"...", "js":"..." }</lobbyPanel>（必須是合法 JSON），它會渲染成群聊上方的畫布。panel 的 js 可調用 host 物件 LP：
   · LP.chat(文字, {provider:'claude'|'codex'}) → 問某個 AI、回字串
@@ -110,7 +116,7 @@
   · LP.submitMove(payload) → 若有玩家是使用者 Rae，把她在棋盤上的操作轉成這個呼叫（不要自己畫，畫圖一律等 onMove 回呼）
   · LP.gameEnd(講評文字) → 偵測到勝負時收場
   · LP.close() → 關畫布
-- 開一局遊戲：在吐 <lobbyPanel> 的「同一則回覆」裡，加一個標記 [GAME|先手,後手]，先手 / 後手的值是 claude、codex 或 rae 三者之一（例：[GAME|claude,codex] 代表 Claude 先手、和 Codex 對弈）。並在閒聊裡把「落子格式」對對手講清楚。
+- 開一局遊戲：在吐 <lobbyPanel> 的「同一則回覆」裡，加一個標記 [GAME|先手,後手]。先手 / 後手兩格各填一個人的名字，只能從這桌的人裡挑兩位：${players}。並在閒聊裡把「落子格式」對對手講清楚。
 - 輪到你下棋：回覆 =「一句閒聊（可以嗆對手）」+「一個 [MOVE|payload]」。payload 是你和對手約定好的落子內容（例：座標寫成 7,7）。payload 裡「不要」用 ] 這個字元。
 - 對局結束：吐 [GAMEOVER|一句講評]。
 - 棋局狀態靠你自己記 —— 你的群聊逐字稿裡有每一手。對局期間輪到你就一定要落子，不要回 [PASS]。
@@ -339,7 +345,79 @@
         const idx = list.findIndex(r => r.id === id);
         if (idx < 0 || list[idx].builtin) return false;
         list.splice(idx, 1);
-        return _cfgWriteResidents(list);
+        const ok = _cfgWriteResidents(list);
+        if (ok) ClaudeTerminal.setGroupSeat(id, false);   // 順手退席，名單裡別留鬼
+        return ok;
+    };
+
+    // ============== 群聊席位 ==============
+    // 群聊區的參與者名單。以前寫死 claude / codex / deepseek 三格，宿舍化之後
+    // 席位跟著「住戶」走：同一顆 Claude 的不同分身各佔各的席、各自一條 session。
+    // 名單存 cfg.groupSeats = ['dan', 'r_xxx', ...]，就是一串住戶 id。
+    // 席位不記模型：鎖了模型的分身用自己那顆，沒鎖的（丹）吃房間 picker 選的那顆，
+    // 跟宿舍化之前一樣。寫入跟 residents 同一條規矩：當場讀最新的 → 只動 groupSeats → 存回。
+    const DEFAULT_SEATS = ['dan', 'aluo', 'sujingming'];
+
+    /** 只把 groupSeats 寫回設定（其餘欄位原封不動） */
+    function _cfgWriteSeats(list) {
+        const cfg = _cfgRead();
+        if (!cfg || typeof window.OS_SETTINGS.saveClaudeRoomConfig !== 'function') return false;
+        cfg.groupSeats = list;
+        try { window.OS_SETTINGS.saveClaudeRoomConfig(cfg); return true; }
+        catch (e) { console.warn('[ClaudeTerminal] 群聊席位存檔失敗:', e); return false; }
+    }
+
+    /** 原始席位 id 陣列（沒設定過 → 內建三位）。不驗住戶存不存在，那是 listGroupSeats 的事。 */
+    function _rawSeats() {
+        const cfg = _cfgRead();
+        const raw = (cfg && Array.isArray(cfg.groupSeats)) ? cfg.groupSeats : null;
+        if (!raw) return DEFAULT_SEATS.slice();
+        return raw
+            .map(s => (s && typeof s === 'object' ? s.id : s))   // 容忍寫成物件的舊格式
+            .filter(Boolean)
+            .map(String);
+    }
+
+    /**
+     * 目前入席的住戶，依名單順序。
+     * 回 [{ id, name, provider, modelId, builtin, seatModelId }]，
+     * seatModelId = 這位在群聊裡要用的模型；空字串代表「沒鎖，用房間 picker 選的那顆」。
+     * 住戶被刪掉、或群聊區自己混進名單 → 自動濾掉。
+     */
+    ClaudeTerminal.listGroupSeats = function() {
+        const all = ClaudeTerminal.listResidents();
+        const out = [];
+        _rawSeats().forEach(id => {
+            const r = all.find(x => x.id === id);
+            if (!r || r.provider === 'group') return;
+            if (out.some(x => x.id === r.id)) return;   // 名單重複 → 只留第一筆
+            out.push(Object.assign({}, r, { seatModelId: r.modelId || '' }));
+        });
+        return out;
+    };
+
+    ClaudeTerminal.isGroupSeated = function(id) {
+        return !!id && _rawSeats().indexOf(id) >= 0;
+    };
+
+    /**
+     * 入席 / 退席。seated=false 移除；true 沒在名單就加到末尾。
+     * 內建的「群聊區」住戶自己不能入席（它就是那張桌子）。回 true 表示名單有變動。
+     */
+    ClaudeTerminal.setGroupSeat = function(id, seated) {
+        if (!id) return false;
+        const r = ClaudeTerminal.getResident(id);
+        if (seated && (!r || r.provider === 'group')) return false;
+        const list = _rawSeats();
+        const idx = list.indexOf(String(id));
+        if (seated) {
+            if (idx >= 0) return false;
+            list.push(String(id));
+        } else {
+            if (idx < 0) return false;
+            list.splice(idx, 1);
+        }
+        return _cfgWriteSeats(list);
     };
 
     // ============== Multi-conv 系統 ==============
@@ -1184,21 +1262,27 @@
         return result;
     }
 
+    // opts 兩種叫法（並存，別拿掉舊的——LP.chat 那些還在用）：
+    //   席位版：{ residentId, selfName, otherNames, model } —— 群聊區走這條，
+    //           provider / 模型 / 名字全跟著住戶，同一顆 Claude 的分身才分得開。
+    //   舊版：  { provider } —— 沒帶 residentId 時行為跟以前一模一樣。
     ClaudeTerminal.sendGroup = async function(opts) {
         opts = opts || {};
         const _validProviders = ['claude', 'codex', 'deepseek'];
-        const provider = _validProviders.includes(opts.provider) ? opts.provider : 'claude';
+        const seat = opts.residentId ? ClaudeTerminal.getResident(opts.residentId) : null;
+        const rawProv = seat ? seat.provider : opts.provider;
+        const provider = _validProviders.includes(rawProv) ? rawProv : 'claude';
         const cfg = ClaudeTerminal.getConfig();
         if (!cfg || !cfg.url || !cfg.key) {
             throw new Error('NOT_CONFIGURED:還沒設定連線（URL / 密鑰）。去浮窗 ⚙️ 設定。');
         }
         const sid = opts.sessionId || null;
-        // 三人桌:self = 我;others = 其他兩個人(按固定順序給 prompt,讓 selfName 之外的人都列出來)
+        // self = 我;others = 同桌其他人（席位版由上層按入席名單給，舊版沿用寫死的三人桌）
         const _nameOf = { claude: 'Claude', codex: 'Codex', deepseek: '蘇景明' };
-        const selfName = _nameOf[provider];
-        const otherNames = ['claude', 'codex', 'deepseek']
-            .filter(p => p !== provider)
-            .map(p => _nameOf[p]);
+        const selfName = String(opts.selfName || (seat && seat.name) || _nameOf[provider] || 'AI');
+        const otherNames = Array.isArray(opts.otherNames)
+            ? opts.otherNames.filter(Boolean).map(String)
+            : ['claude', 'codex', 'deepseek'].filter(p => p !== provider).map(p => _nameOf[p]);
         const apiMessages = sid
             ? [{ role: 'user', content: opts.userText }]
             : [
@@ -1208,9 +1292,11 @@
 
         // 群聊每輪指定不同 provider,model 也要按 provider 取(不能直接用 cfg.model,
         // 因為那個是按當前 _provider 算的,group 場景下會錯給)
+        // 席位版：opts.model 是那位住戶自己的模型（鎖了模型的分身一定有值）。
+        // 沒指定才退回 providerModels —— 也就是舊的「按 provider 各一顆」。
         const pmGroup = cfg.providerModels || {};
-        const modelForThis = provider === 'claude' ? (pmGroup.claude || cfg.model)
-                                                   : (pmGroup[provider] || '');
+        const modelForThis = String(opts.model || '').trim()
+            || (provider === 'claude' ? (pmGroup.claude || cfg.model) : (pmGroup[provider] || ''));
         const body = {
             model: modelForThis,
             messages: apiMessages,

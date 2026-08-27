@@ -193,6 +193,35 @@
 .dorm-card.dorm-editing .dorm-pen { opacity: 1; }
 .dorm-pen:hover { background: rgba(234, 176, 92, 0.38); color: var(--cl-text-deep, #3d2010); }
 
+/* ---- 入席鈕：誰在群聊桌上 ----
+   上桌的常駐顯示（那是狀態，不該要 hover 才看得到）；沒上桌的跟筆一樣藏著。 */
+.dorm-seat {
+    position: absolute;
+    right: 34px;
+    top: 6px;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: rgba(234, 176, 92, 0.18);
+    color: var(--cl-cafe-latte, #896645);
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.dorm-card:hover .dorm-seat,
+.dorm-card.dorm-editing .dorm-seat,
+.dorm-seat.seated { opacity: 1; }
+.dorm-seat.seated {
+    background: var(--cl-grenadine, #D95122);
+    color: #fff;
+}
+.dorm-seat:hover { background: rgba(234, 176, 92, 0.38); color: var(--cl-text-deep, #3d2010); }
+.dorm-seat.seated:hover { background: #b8421c; color: #fff; }
+
 /* ---- 新住戶那張 ---- */
 .dorm-card.dorm-new {
     background: none;
@@ -315,4 +344,5 @@
 /* 手機：鉛筆常駐（沒有 hover 這回事） */
 @media (max-width: 600px) {
     .dorm-pen { opacity: 1; }
+    .dorm-seat { opacity: 1; }
 }

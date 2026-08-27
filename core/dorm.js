@@ -65,7 +65,9 @@
         if (r.provider === 'codex')    return 'Codex';
         if (r.provider === 'deepseek') return 'DeepSeek';
         if (r.provider === 'group') {
-            return all.filter(x => x.builtin && x.provider !== 'group').map(x => x.name).join('、');
+            const CT = _CT();
+            const seats = (CT && typeof CT.listGroupSeats === 'function') ? CT.listGroupSeats() : [];
+            return seats.length ? seats.map(x => x.name).join('、') : '還沒有人上桌';
         }
         if (r.modelId) return _modelLabel(r.modelId);
         const cfg = _cfg();
@@ -118,6 +120,16 @@
         return h;
     }
 
+    /** 門卡右上的入席鈕。群聊區自己不畫 —— 它就是那張桌子。 */
+    function _seatBtnHtml(r) {
+        if (r.provider === 'group') return '';
+        const CT = _CT();
+        const on = !!(CT && typeof CT.isGroupSeated === 'function' && CT.isGroupSeated(r.id));
+        return '<button type="button" class="dorm-seat' + (on ? ' seated' : '') + '" title="'
+            + (on ? '在群聊桌上，點一下請他下桌' : '不在群聊桌上，點一下請他上桌')
+            + '"><i class="fa-solid fa-chair"></i></button>';
+    }
+
     function _cardHtml(r, all) {
         const open = _editing === r.id ? ' dorm-editing' : '';
         return '<div class="dorm-card' + open + '" data-id="' + _esc(r.id) + '">'
@@ -129,6 +141,7 @@
             + '</span>'
             + '<i class="fa-solid fa-chevron-right dorm-go"></i>'
             + '</button>'
+            + _seatBtnHtml(r)
             + '<button type="button" class="dorm-pen" title="改這位住戶"><i class="fa-solid fa-pen"></i></button>'
             + (_editing === r.id ? _formHtml(r) : '')
             + '</div>';
@@ -177,6 +190,17 @@
             const id = card.dataset.id;
             const door = card.querySelector('.dorm-door');
             const pen = card.querySelector('.dorm-pen');
+            const seat = card.querySelector('.dorm-seat');
+
+            if (seat) {
+                seat.addEventListener('click', (e) => {
+                    e.stopPropagation();   // 別讓點擊冒到門上把房間開起來
+                    const CT = _CT();
+                    if (!CT || typeof CT.setGroupSeat !== 'function') return;
+                    CT.setGroupSeat(id, !CT.isGroupSeated(id));
+                    _render();   // 群聊區那張卡的副標也要跟著換
+                });
+            }
 
             if (id === '__new__') {
                 door.addEventListener('click', () => { _toggleEdit('__new__'); });

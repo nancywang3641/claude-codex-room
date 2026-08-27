@@ -198,11 +198,20 @@
         if (sendBtn) sendBtn.onclick = ChatWindow.submitInput;
         if (input) {
             // ── @-mention 自動完成（只在群聊 provider 啟用）──
-            const MENTIONS = [
-                { key: 'claude',   label: 'Claude',   emoji: '🦀', alias: ['claude', '丹'] },
-                { key: 'codex',    label: 'Codex',    emoji: '🔷', alias: ['codex', '阿洛'] },
-                { key: 'deepseek', label: '蘇景明',   emoji: '🟢', alias: ['蘇景明', '景明', 'deepseek', 'deepseek'] },
-            ];
+            // 每次都現讀入席名單：她可能剛在宿舍面板加了人 / 改了名字，這裡不能拿快照。
+            const _MENTION_FACE = { claude: '🦀', codex: '🔷', deepseek: '🟢' };
+            const _mentionList = () => {
+                const CT = window.ClaudeTerminal;
+                if (!CT || typeof CT.listGroupSeats !== 'function') return [];
+                let seats = [];
+                try { seats = CT.listGroupSeats() || []; } catch (_) { return []; }
+                return seats.map((r) => ({
+                    key: r.id,
+                    label: r.name,
+                    emoji: _MENTION_FACE[r.provider] || '🦀',
+                    alias: [r.name, r.id, r.provider],
+                }));
+            };
             const inputRow = el.querySelector('.cw-input-row');
             let popup = el.querySelector('#cw-mention-popup');
             if (!popup) {
@@ -235,9 +244,9 @@
                     return;
                 }
                 popup.innerHTML = mState.items.map((it, i) => `
-                    <div class="cw-mention-item${i === mState.idx ? ' active' : ''}" data-key="${it.key}">
+                    <div class="cw-mention-item${i === mState.idx ? ' active' : ''}" data-key="${_esc(it.key)}">
                         <span class="cw-mention-emoji">${it.emoji}</span>
-                        <span class="cw-mention-label">${it.label}</span>
+                        <span class="cw-mention-label">${_esc(it.label)}</span>
                     </div>
                 `).join('');
                 popup.classList.remove('cw-mention-popup-hidden');
@@ -250,7 +259,7 @@
             };
 
             const _commitMention = (key) => {
-                const item = MENTIONS.find((m) => m.key === key);
+                const item = _mentionList().find((m) => m.key === key);
                 if (!item || mState.atPos < 0) return;
                 const text = input.value;
                 const before = text.slice(0, mState.atPos);
@@ -273,8 +282,8 @@
                     return;
                 }
                 const q = range.query.toLowerCase();
-                const items = MENTIONS.filter((m) =>
-                    m.alias.some((a) => a.toLowerCase().startsWith(q))
+                const items = _mentionList().filter((m) =>
+                    m.alias.some((a) => String(a || '').toLowerCase().startsWith(q))
                 );
                 mState.active = true;
                 mState.items = items;
@@ -725,14 +734,29 @@
     }
 
     // 群聊區的 🕘 子面板 —— 群聊是單一條對話，沒有多會話，只提供「清空」
+    /** 目前入席的住戶名字，接成一句；沒人入席回「大家」 */
+    function _seatNames(sep) {
+        const CT = window.ClaudeTerminal;
+        if (!CT || typeof CT.listGroupSeats !== 'function') return '大家';
+        try {
+            const names = (CT.listGroupSeats() || []).map(r => r.name).filter(Boolean);
+            return names.length ? names.join(sep || '、') : '大家';
+        } catch (_) { return '大家'; }
+    }
+
     function _renderGroupPanel(body) {
         body.innerHTML = '';
         const wrap = document.createElement('div');
         wrap.className = 'cw-rec';
         const note = document.createElement('div');
         note.className = 'cw-rec-empty';
-        note.textContent = '群聊區目前是單一條對話。清空會把你、Claude、Codex 的對話全部清掉，並重置兩邊的 session。';
+        note.textContent = '群聊區目前是單一條對話。清空會把你跟' + _seatNames('、') +
+                           '的對話全部清掉，並重置每個人的 session。';
         wrap.appendChild(note);
+        const seatNote = document.createElement('div');
+        seatNote.className = 'cw-rec-empty';
+        seatNote.textContent = '要換誰上桌，去宿舍面板的門卡上勾「入席」。';
+        wrap.appendChild(seatNote);
         const clearBtn = document.createElement('button');
         clearBtn.type = 'button';
         clearBtn.className = 'cw-rec-clear';
@@ -897,9 +921,9 @@
         if (_provider !== 'group') return;
         if (!window.ChatGroup || typeof window.ChatGroup.compact !== 'function') return;
         const ok = window.confirm(
-            '把整段群聊壓成一頁「前情提要」,並清掉三人的 session?\n\n' +
+            '把整段群聊壓成一頁「前情提要」,並清掉每個人的 session?\n\n' +
             '會用 Claude Sonnet 生成摘要(走 Max 訂閱,免費)。\n' +
-            '之後三人從零開始記新對話,但會看到前情提要。'
+            '之後' + _seatNames('、') + '從零開始記新對話,但會看到前情提要。'
         );
         if (!ok) return;
         const _btn = btnEl || (_winEl && _winEl.querySelector('.cw-tool-compact'));
