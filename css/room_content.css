@@ -517,6 +517,21 @@
     color: var(--cl-grenadine, #D95122);
     font-weight: 600;
 }
+/* 分身房：模型鎖死，只顯示不給點 */
+.claude-picker-fixed {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 7px 12px 7px 34px;
+    color: var(--cl-text-deep, #3d2010);
+    font-weight: 600;
+}
+.claude-picker-fixed-note {
+    font-size: 10px;
+    font-weight: 400;
+    color: var(--cl-cafe-latte, #896645);
+}
+
 .claude-picker-check {
     width: 14px;
     text-align: center;

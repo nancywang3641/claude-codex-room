@@ -269,33 +269,36 @@
         }
     }
 
-    async function _enter(id) {
+    /** 防連點只鎖一下下，不跟房間載得快不快綁在一起——
+     *  群聊房載入要等網路，鎖在那邊等於整個面板從此點不動。 */
+    function _armOpening() {
+        _opening = true;
+        setTimeout(() => { _opening = false; }, 600);
+    }
+
+    function _enter(id) {
         const CT = _CT();
         const CW = window.ChatWindow;
         if (!CT || !CW || _opening) return;
         const r = CT.getResident(id);
         if (!r) return;
-        _opening = true;
-        try {
-            CT.setActiveResident(r.id);
-            DormPanel.close();
-            await CW.open(r.provider);
-        } finally {
-            _opening = false;
-        }
+        _armOpening();
+        CT.setActiveResident(r.id);
+        DormPanel.close();
+        Promise.resolve(CW.open(r.provider)).catch(e => console.warn('[DormPanel] 進房失敗', e));
     }
 
-    async function _enterHall(panel) {
+    function _enterHall(panel) {
         const CW = window.ChatWindow;
         if (!CW || _opening) return;
-        _opening = true;
-        try {
-            DormPanel.close();
-            await CW.open('claude');
-            if (typeof CW.openSubPanel === 'function') CW.openSubPanel(panel);
-        } finally {
-            _opening = false;
-        }
+        _armOpening();
+        DormPanel.close();
+        // 先讓房間開起來（open 的同步段已經把舊子面板收掉），再馬上把要去的那頁疊上去。
+        // 不等 open 的 promise：房間讀歷史可能要好幾秒（進過群聊之後特別慢），
+        // 等它等於按了沒反應。
+        const opening = CW.open('claude');
+        if (typeof CW.openSubPanel === 'function') CW.openSubPanel(panel);
+        Promise.resolve(opening).catch(e => console.warn('[DormPanel] 進房失敗', e));
     }
 
     function _ensureEl() {

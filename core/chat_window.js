@@ -14,11 +14,31 @@
     let _isOpen = false;
     let _subPanel = null;            // 當前開啟的子面板名（null = 沒開）
 
-    const IDENTITY = {
-        claude:   '🦀 Claude’s Room',
-        codex:    '🔷 Codex’s Room',
-        deepseek: '🟢 蘇景明 的房間',
-        group:    '👥 群聊區',
+    const IDENTITY_ICON = {
+        claude: '🦀', codex: '🔷', deepseek: '🟢', group: '👥',
+    };
+
+    /** 標題列文字：進的是誰的房就寫誰的名字（住戶可以改名） */
+    function _identityText(provider) {
+        const icon = IDENTITY_ICON[provider] || IDENTITY_ICON.claude;
+        const CT = window.ClaudeTerminal;
+        let name = '';
+        if (CT && typeof CT.getActiveResident === 'function') {
+            const r = CT.getActiveResident(provider);
+            if (r && r.name) name = r.name;
+        }
+        if (provider === 'group') return icon + ' ' + (name || '群聊區');
+        return icon + ' ' + (name || 'Claude') + ' 的房間';
+    }
+
+    /** 住戶改了名字，房間開著就順手換掉標題 */
+    ChatWindow.refreshIdentity = function () {
+        if (!_winEl) return;
+        const el = _winEl.querySelector('#cw-identity');
+        if (el) el.textContent = _identityText(_provider);
+        if (window.VoidClaudeRoom && typeof window.VoidClaudeRoom.updatePickerLabel === 'function') {
+            window.VoidClaudeRoom.updatePickerLabel();
+        }
     };
 
     function _sizeForViewport() {
@@ -48,7 +68,7 @@
         el.className = 'cw-window';
         el.innerHTML = `
             <div class="cw-titlebar" id="cw-titlebar">
-                <span class="cw-identity" id="cw-identity">${IDENTITY.claude}</span>
+                <span class="cw-identity" id="cw-identity">${_identityText('claude')}</span>
                 <div class="cw-toolbar">
                     <button class="cw-tool-btn" data-panel="settings"  type="button" title="設置"><i class="fa-solid fa-gear"></i></button>
                     <button class="cw-tool-btn" data-panel="workbench" type="button" title="工作檯"><i class="fa-solid fa-screwdriver-wrench"></i></button>
@@ -716,7 +736,7 @@
         provider = (provider === 'codex' || provider === 'deepseek' || provider === 'group') ? provider : 'claude';
         _provider = provider;
         const idEl = _winEl.querySelector('#cw-identity');
-        if (idEl) idEl.textContent = IDENTITY[provider];
+        if (idEl) idEl.textContent = _identityText(provider);
         _winEl.classList.toggle('cw-codex',    provider === 'codex');
         _winEl.classList.toggle('cw-deepseek', provider === 'deepseek');
         _winEl.classList.toggle('cw-group',    provider === 'group');

@@ -128,6 +128,14 @@
         { id: 'max',    label: 'Max · 不留餘地' },
     ];
 
+    // helper:當前住戶鎖定的模型。分身進門就綁死一顆,丹沒鎖(回空字串)照舊自由選
+    function _lockedModel() {
+        const CT = window.ClaudeTerminal;
+        if (!CT || typeof CT.getActiveResident !== 'function') return '';
+        const r = CT.getActiveResident(_provider());
+        return (r && r.modelId) ? r.modelId : '';
+    }
+
     function _getClaudeRoomCfg() {
         return (window.OS_SETTINGS && window.OS_SETTINGS.getClaudeRoomConfig)
             ? window.OS_SETTINGS.getClaudeRoomConfig() : null;
@@ -179,7 +187,7 @@
         if (sep1) sep1.style.display = hasEffort ? '' : 'none';
         if (m) {
             const emoji = isCodex ? '🔷 ' : isDeepseek ? '🟢 ' : '';
-            m.textContent = emoji + _modelLabel(_getProviderModel(cfg, prov), prov);
+            m.textContent = emoji + _modelLabel(_lockedModel() || _getProviderModel(cfg, prov), prov);
         }
         if (e && hasEffort) e.textContent = _shortEffortLabel(cfg.inlineEffort);
         if (ep) ep.textContent = _shortEndpointLabel(cfg);
@@ -224,10 +232,17 @@
         }));
 
         // 三段:連線預設 / Model(provider-aware) / Thinking(只 Claude)
+        // 分身的模型在宿舍門卡上就決定了,房裡只顯示不給改(丹沒鎖,照舊整排任選)
         const showEffort = (prov === 'claude');
+        const locked = _lockedModel();
+        const modelBlock = locked
+            ? `<div class="claude-picker-section-title">${modelSectionTitle}</div>
+               <div class="claude-picker-fixed">${_modelLabel(locked, prov)}
+                   <span class="claude-picker-fixed-note">這位住戶固定用這顆</span></div>`
+            : sectionHtml(modelSectionTitle, models, curModel, 'model');
         popup.innerHTML = `
             ${sectionHtml('連線預設',  presetList, curPresetId, 'preset')}
-            ${sectionHtml(modelSectionTitle, models, curModel, 'model')}
+            ${modelBlock}
             ${showEffort ? sectionHtml('Thinking 思考', CLAUDE_EFFORTS, curEffort || 'medium', 'effort') : ''}
         `;
         popup.style.display = 'block';
