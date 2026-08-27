@@ -51,12 +51,12 @@
             <div class="cw-titlebar" id="cw-titlebar">
                 <span class="cw-identity" id="cw-identity">${IDENTITY.claude}</span>
                 <div class="cw-toolbar">
-                    <button class="cw-tool-btn" data-panel="settings"  type="button" title="設置">⚙️</button>
-                    <button class="cw-tool-btn" data-panel="workbench" type="button" title="工作檯">🛠️</button>
-                    <button class="cw-tool-btn" data-panel="spend"     type="button" title="額度">💰</button>
-                    <button class="cw-tool-btn" data-panel="board"     type="button" title="留言板">📝</button>
-                    <button class="cw-tool-btn" data-panel="recents"   type="button" title="Recents">🕘</button>
-                    <button class="cw-tool-btn cw-tool-compact" data-action="compact" type="button" title="摘要 & 重啟群聊(壓縮上下文,清三人 session,留前情提要)" style="display:none;">🧹</button>
+                    <button class="cw-tool-btn" data-panel="settings"  type="button" title="設置"><i class="fa-solid fa-gear"></i></button>
+                    <button class="cw-tool-btn" data-panel="workbench" type="button" title="工作檯"><i class="fa-solid fa-screwdriver-wrench"></i></button>
+                    <button class="cw-tool-btn" data-panel="spend"     type="button" title="額度"><i class="fa-solid fa-coins"></i></button>
+                    <button class="cw-tool-btn" data-panel="board"     type="button" title="留言板"><i class="fa-solid fa-note-sticky"></i></button>
+                    <button class="cw-tool-btn" data-panel="recents"   type="button" title="會話"><i class="fa-solid fa-clock-rotate-left"></i></button>
+                    <button class="cw-tool-btn cw-tool-compact" data-action="compact" type="button" title="摘要 & 重啟群聊(壓縮上下文,清三人 session,留前情提要)" style="display:none;"><i class="fa-solid fa-broom"></i></button>
                 </div>
                 <button class="cw-close" id="cw-close" type="button" title="關閉">✕</button>
             </div>
@@ -102,8 +102,8 @@
             </div>
             <div class="cw-subpanel" id="cw-subpanel" style="display:none;">
                 <div class="cw-subpanel-head">
+                    <button class="cw-subpanel-close" id="cw-subpanel-close" type="button"><i class="fa-solid fa-chevron-left"></i> 返回</button>
                     <span class="cw-subpanel-title" id="cw-subpanel-title"></span>
-                    <button class="cw-subpanel-close" id="cw-subpanel-close" type="button">✕</button>
                 </div>
                 <div class="cw-subpanel-body" id="cw-subpanel-body"></div>
             </div>`;
@@ -509,11 +509,11 @@
         if (!isCodex) {
             const tabBar = document.createElement('div');
             tabBar.className = 'cw-rec-tabs';
-            [['max', '🏠 訂閱 Max'], ['api', '🌐 API']].forEach(pair => {
+            [['max', '<i class="fa-solid fa-house"></i> 訂閱 Max'], ['api', '<i class="fa-solid fa-globe"></i> API']].forEach(pair => {
                 const tb = document.createElement('button');
                 tb.type = 'button';
                 tb.className = 'cw-rec-tab' + (pair[0] === curTab ? ' active' : '');
-                tb.textContent = pair[1];
+                tb.innerHTML = pair[1];
                 tb.addEventListener('click', () => {
                     if (CT.setActiveTab) CT.setActiveTab(pair[0]);
                     _renderRecentsPanel(body);
@@ -526,7 +526,7 @@
         const newBtn = document.createElement('button');
         newBtn.type = 'button';
         newBtn.className = 'cw-rec-new';
-        newBtn.textContent = '＋ 新會話';
+        newBtn.innerHTML = '<i class="fa-solid fa-plus"></i> 新會話';
         newBtn.addEventListener('click', async () => {
             if (CT.startNewConversation) CT.startNewConversation(curTab);
             await _loadRoom(_provider);
@@ -565,10 +565,10 @@
                         ChatWindow.closeSubPanel();
                     });
                     const ren = document.createElement('button');
-                    ren.type = 'button'; ren.className = 'cw-rec-act'; ren.textContent = '✏️'; ren.title = '改名';
+                    ren.type = 'button'; ren.className = 'cw-rec-act'; ren.innerHTML = '<i class="fa-solid fa-pen"></i>'; ren.title = '改名';
                     ren.addEventListener('click', renderRename);
                     const del = document.createElement('button');
-                    del.type = 'button'; del.className = 'cw-rec-act'; del.textContent = '🗑️'; del.title = '刪除';
+                    del.type = 'button'; del.className = 'cw-rec-act'; del.innerHTML = '<i class="fa-solid fa-trash-can"></i>'; del.title = '刪除';
                     del.addEventListener('click', renderConfirm);
                     row.appendChild(info);
                     row.appendChild(ren);
@@ -632,7 +632,7 @@
             const clearBtn = document.createElement('button');
             clearBtn.type = 'button';
             clearBtn.className = 'cw-rec-clear';
-            clearBtn.textContent = '🗑️ 清空全部';
+            clearBtn.innerHTML = '<i class="fa-solid fa-trash-can"></i> 清空全部';
             clearBtn.addEventListener('click', () => {
                 if (clearBtn.dataset.armed === '1') {
                     clearBtn.disabled = true;
@@ -667,7 +667,7 @@
         const clearBtn = document.createElement('button');
         clearBtn.type = 'button';
         clearBtn.className = 'cw-rec-clear';
-        clearBtn.textContent = '🗑️ 清空群聊';
+        clearBtn.innerHTML = '<i class="fa-solid fa-trash-can"></i> 清空群聊';
         clearBtn.addEventListener('click', () => {
             if (clearBtn.dataset.armed === '1') {
                 if (window.ChatGroup && typeof window.ChatGroup.clear === 'function') {
@@ -799,53 +799,34 @@
     };
 
     const _SUBPANEL_TITLES = {
-        settings: '⚙️ 設置', workbench: '🛠️ 工作檯',
-        spend: '💰 額度', board: '📝 留言板', recents: '🕘 Recents',
+        settings: '設置', workbench: '工作檯',
+        spend: '額度', board: '留言板', recents: '會話',
     };
-
-    // 工作檯 / 額度模組自帶關閉鈕（原本呼叫 PhoneSystem.goHome）→ 改接 closeSubPanel
-    function _hijackModuleClose(body, selector) {
-        const btn = body.querySelector(selector);
-        if (btn) {
-            btn.onclick = (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                ChatWindow.closeSubPanel();
-            };
-        }
-    }
 
     ChatWindow.openSubPanel = function (name) {
         if (!_winEl) return;
         _subPanel = name;
         const sp = _winEl.querySelector('#cw-subpanel');
-        const head = _winEl.querySelector('.cw-subpanel-head');
         const title = _winEl.querySelector('#cw-subpanel-title');
         const body = _winEl.querySelector('#cw-subpanel-body');
         if (!sp || !body) return;
-        // 工作檯 / 額度 / 留言板自帶 header + 關閉鈕 → 藏浮窗自己的 header，避免雙標題雙 ✕
-        const moduleOwnsHeader = (name === 'workbench' || name === 'spend' || name === 'board');
-        if (head) head.style.display = moduleOwnsHeader ? 'none' : 'flex';
         if (title) title.textContent = _SUBPANEL_TITLES[name] || name;
         body.innerHTML = '';
         if (name === 'workbench') {
             if (window.OS_WORKBENCH && typeof window.OS_WORKBENCH.launch === 'function') {
                 window.OS_WORKBENCH.launch(body);
-                _hijackModuleClose(body, '#wb-close');
             } else {
                 body.innerHTML = '<div class="cw-sub-missing">工作檯模組未載入</div>';
             }
         } else if (name === 'spend') {
             if (window.OS_SPEND_PANEL && typeof window.OS_SPEND_PANEL.launch === 'function') {
                 window.OS_SPEND_PANEL.launch(body);
-                _hijackModuleClose(body, '#sp-close-btn');
             } else {
                 body.innerHTML = '<div class="cw-sub-missing">額度模組未載入</div>';
             }
         } else if (name === 'board') {
             if (window.OS_BOARD && typeof window.OS_BOARD.launch === 'function') {
                 window.OS_BOARD.launch(body);
-                _hijackModuleClose(body, '#ob-close-btn');
             } else {
                 body.innerHTML = '<div class="cw-sub-missing">留言板模組未載入</div>';
             }
@@ -853,7 +834,7 @@
             _renderSettingsPanel(body);
         } else if (name === 'recents') {
             if (_provider === 'group') {
-                if (title) title.textContent = '🕘 群聊';
+                if (title) title.textContent = '群聊';
                 _renderGroupPanel(body);
             } else {
                 _renderRecentsPanel(body);

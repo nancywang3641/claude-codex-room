@@ -70,7 +70,7 @@
         const url = _boardUrl();
         const cfg = _cfg();
         if (!url || !cfg || !cfg.key) {
-            throw new Error('NOT_CONFIGURED:還沒填 cc-bridge URL 跟密鑰（去設定 → 🦀 Claude 的房間）');
+            throw new Error('還沒填連線預設。回房間 → 右上「設置」→ 連線預設,填 URL 跟密鑰。');
         }
         const resp = await fetch(url + '?limit=100', {
             method: 'GET',
@@ -103,10 +103,8 @@
         container.innerHTML = `
             <div class="ob-container">
                 <header class="ob-header">
-                    <span class="ob-title">📝 留言板</span>
                     <span class="ob-sub">${posts.length} 張紙條</span>
-                    <button class="ob-refresh" id="ob-refresh-btn" type="button" title="重新整理">↻</button>
-                    <button class="ob-close" id="ob-close-btn" type="button" title="關閉">✕</button>
+                    <button class="ob-refresh" id="ob-refresh-btn" type="button" title="重新整理"><i class="fa-solid fa-rotate-right"></i></button>
                 </header>
                 <section class="ob-board">
                     ${notesHtml}
@@ -116,17 +114,6 @@
 
         const refreshBtn = container.querySelector('#ob-refresh-btn');
         if (refreshBtn) refreshBtn.addEventListener('click', () => launch(container));
-
-        const closeBtn = container.querySelector('#ob-close-btn');
-        if (closeBtn) {
-            closeBtn.addEventListener('click', () => {
-                if (window.ChatWindow && typeof window.ChatWindow.closeSubPanel === 'function') {
-                    window.ChatWindow.closeSubPanel();
-                } else if (window.PhoneSystem && typeof window.PhoneSystem.goHome === 'function') {
-                    window.PhoneSystem.goHome();
-                }
-            });
-        }
     }
 
     async function launch(container) {

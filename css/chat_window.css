@@ -208,27 +208,29 @@
     min-height: 0;
 }
 
-/* ── 子面板浮層（設置 / 工作檯 / 額度 / Recents）── */
+/* ── 子面板浮層（設置 / 工作檯 / 額度 / 留言板 / 會話）──
+ * 統一皮：頭條沿用窗框深色,身體是跟聊天區同一張暖色紙。
+ * 左上固定「‹ 返回」,五個面板同一個位置回房間。 */
 #aurelia-chat-window .cw-subpanel {
     position: absolute;
     inset: 0;
     z-index: 5;
-    background: #1a1a2e;
+    background: var(--cl-cream, #fdf7ec);
     display: none;               /* JS 控制 flex / none */
     flex-direction: column;
-}
-
-#aurelia-chat-window.cw-codex .cw-subpanel {
-    background: #0e1c2e;
 }
 
 #aurelia-chat-window .cw-subpanel-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 8px 12px;
-    background: rgba(0, 0, 0, 0.30);
+    padding: 6px 12px 6px 8px;
+    background: #1a1a2e;
     flex-shrink: 0;
+}
+
+#aurelia-chat-window.cw-codex .cw-subpanel-head {
+    background: #0e1c2e;
 }
 
 #aurelia-chat-window .cw-subpanel-title {
@@ -242,9 +244,15 @@
     border: none;
     cursor: pointer;
     color: #FFF5E1;
-    font-size: 14px;
-    padding: 3px 5px;
-    border-radius: 5px;
+    font-size: 13px;
+    font-family: inherit;
+    padding: 5px 10px 5px 7px;
+    border-radius: 6px;
+}
+
+#aurelia-chat-window .cw-subpanel-close i {
+    font-size: 11px;
+    margin-right: 2px;
 }
 
 #aurelia-chat-window .cw-subpanel-close:hover {
@@ -311,6 +319,7 @@
     position: relative;   /* 給 @-mention popup 當定位錨點 */
 }
 
+/* 酒館主題對 input/textarea 寫了 !important 暗底,對衝(scoped 在自己 class 不外洩) */
 #aurelia-chat-window .cw-input {
     flex: 1;
     min-width: 0;
@@ -321,8 +330,8 @@
     padding: 9px 11px;
     border: 1px solid var(--cl-beeswax, #EAB05C);
     border-radius: 8px;
-    background: #ffffff;
-    color: var(--cl-text-deep, #3d2010);
+    background: #ffffff !important;
+    color: var(--cl-text-deep, #3d2010) !important;
     caret-color: var(--cl-grenadine, #D95122);
     font-family: inherit;
     font-size: 13px;
@@ -446,18 +455,18 @@
 }
 
 /* ============================================================
- * 子面板內容（Phase 3）：⚙️ 設置 / 🕘 Recents
- * 工作檯 / 額度由各自模組 launch() 自帶樣式。
+ * 子面板內容：設置 / 會話（工作檯 / 額度 / 留言板在各自 css 檔）
+ * 統一暖色紙皮,顏色吃 --cl-* 變數（Codex 房自動轉冷色）。
  * ============================================================ */
 
 #aurelia-chat-window .cw-sub-missing {
     padding: 24px;
     text-align: center;
-    color: #d9a;
+    color: var(--cl-grenadine, #D95122);
     font-size: 13px;
 }
 
-/* ⚙️ 設置 */
+/* 設置 */
 #aurelia-chat-window .cw-set {
     padding: 12px;
     display: flex;
@@ -474,7 +483,8 @@
 #aurelia-chat-window .cw-set-h {
     font-size: 12px;
     font-weight: 700;
-    color: #EAB05C;
+    color: var(--cl-cafe-latte, #896645);
+    letter-spacing: 0.5px;
 }
 
 #aurelia-chat-window .cw-set-preset {
@@ -482,7 +492,8 @@
     flex-direction: column;
     gap: 5px;
     padding: 8px;
-    background: rgba(255, 255, 255, 0.05);
+    background: #fffdf6;
+    border: 1px solid rgba(234, 176, 92, 0.45);
     border-radius: 8px;
 }
 
@@ -492,15 +503,20 @@
     gap: 6px;
 }
 
+/* 酒館主題對 input/textarea 寫了 !important 暗底,對衝(scoped 在自己 class 不外洩) */
 #aurelia-chat-window .cw-set-in {
-    background: rgba(255, 255, 255, 0.94);
-    border: 1px solid rgba(234, 176, 92, 0.4);
+    background: #ffffff !important;
+    border: 1px solid rgba(234, 176, 92, 0.6);
     border-radius: 6px;
     padding: 6px 8px;
     font-size: 12px;
-    color: #1a1c28;
+    color: var(--cl-text-deep, #3d2010) !important;
     font-family: inherit;
     outline: none;
+}
+
+#aurelia-chat-window .cw-set-in:focus {
+    border-color: var(--cl-grenadine, #D95122);
 }
 
 #aurelia-chat-window .cw-set-prow .cw-set-name {
@@ -515,8 +531,8 @@
 }
 
 #aurelia-chat-window .cw-set-del {
-    background: rgba(217, 81, 34, 0.2);
-    color: #ff9b78;
+    background: transparent;
+    color: var(--cl-grenadine, #D95122);
     border: 1px solid rgba(217, 81, 34, 0.4);
     border-radius: 6px;
     width: 28px;
@@ -525,14 +541,24 @@
     flex-shrink: 0;
 }
 
+#aurelia-chat-window .cw-set-del:hover {
+    background: rgba(217, 81, 34, 0.12);
+}
+
 #aurelia-chat-window .cw-set-add {
     background: rgba(234, 176, 92, 0.2);
-    color: #EAB05C;
-    border: 1px solid rgba(234, 176, 92, 0.4);
+    color: var(--cl-cafe-latte, #896645);
+    border: 1px solid rgba(234, 176, 92, 0.6);
     border-radius: 8px;
     padding: 8px;
     font-size: 12px;
+    font-family: inherit;
     cursor: pointer;
+}
+
+#aurelia-chat-window .cw-set-add:hover {
+    background: rgba(234, 176, 92, 0.35);
+    color: var(--cl-text-deep, #3d2010);
 }
 
 #aurelia-chat-window .cw-set-field {
@@ -541,14 +567,14 @@
     justify-content: space-between;
     gap: 10px;
     font-size: 12px;
-    color: #FFF5E1;
+    color: var(--cl-text-deep, #3d2010);
 }
 
 #aurelia-chat-window .cw-set-field .cw-set-in {
     width: 110px;
 }
 
-/* 🕘 Recents */
+/* 會話（多會話列表） */
 #aurelia-chat-window .cw-rec {
     padding: 12px;
     display: flex;
@@ -563,29 +589,37 @@
 
 #aurelia-chat-window .cw-rec-tab {
     flex: 1;
-    background: rgba(255, 255, 255, 0.06);
-    color: #b9b5c8;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: #fffdf6;
+    color: var(--cl-cafe-latte, #896645);
+    border: 1px solid rgba(234, 176, 92, 0.45);
     border-radius: 8px;
     padding: 7px;
     font-size: 12px;
+    font-family: inherit;
     cursor: pointer;
 }
 
 #aurelia-chat-window .cw-rec-tab.active {
-    background: rgba(234, 176, 92, 0.2);
-    color: #EAB05C;
-    border-color: rgba(234, 176, 92, 0.5);
+    background: rgba(234, 176, 92, 0.25);
+    color: var(--cl-text-deep, #3d2010);
+    border-color: var(--cl-beeswax, #EAB05C);
+    font-weight: 700;
 }
 
 #aurelia-chat-window .cw-rec-new {
     background: rgba(234, 176, 92, 0.2);
-    color: #EAB05C;
-    border: 1px solid rgba(234, 176, 92, 0.4);
+    color: var(--cl-cafe-latte, #896645);
+    border: 1px solid rgba(234, 176, 92, 0.6);
     border-radius: 8px;
     padding: 8px;
     font-size: 12px;
+    font-family: inherit;
     cursor: pointer;
+}
+
+#aurelia-chat-window .cw-rec-new:hover {
+    background: rgba(234, 176, 92, 0.35);
+    color: var(--cl-text-deep, #3d2010);
 }
 
 #aurelia-chat-window .cw-rec-list {
@@ -599,13 +633,14 @@
     align-items: center;
     gap: 4px;
     padding: 8px 10px;
-    background: rgba(255, 255, 255, 0.05);
+    background: #fffdf6;
+    border: 1px solid rgba(234, 176, 92, 0.35);
     border-radius: 8px;
 }
 
 #aurelia-chat-window .cw-rec-row.active {
-    background: rgba(234, 176, 92, 0.16);
-    border: 1px solid rgba(234, 176, 92, 0.4);
+    background: rgba(234, 176, 92, 0.2);
+    border-color: var(--cl-beeswax, #EAB05C);
 }
 
 #aurelia-chat-window .cw-rec-info {
@@ -616,7 +651,7 @@
 
 #aurelia-chat-window .cw-rec-title {
     font-size: 13px;
-    color: #FFF5E1;
+    color: var(--cl-text-deep, #3d2010);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -624,7 +659,7 @@
 
 #aurelia-chat-window .cw-rec-meta {
     font-size: 11px;
-    color: #8a86a0;
+    color: rgba(137, 102, 69, 0.7);
     margin-top: 2px;
 }
 
@@ -632,28 +667,34 @@
     background: none;
     border: none;
     cursor: pointer;
-    font-size: 14px;
-    padding: 4px;
+    font-size: 13px;
+    color: var(--cl-cafe-latte, #896645);
+    padding: 4px 6px;
     flex-shrink: 0;
+}
+
+#aurelia-chat-window .cw-rec-act:hover {
+    color: var(--cl-grenadine, #D95122);
 }
 
 #aurelia-chat-window .cw-rec-empty {
     padding: 24px 12px;
     text-align: center;
-    color: #8a86a0;
+    color: var(--cl-cafe-latte, #896645);
+    opacity: 0.8;
     font-size: 12px;
     line-height: 1.6;
 }
 
-/* Recents：窗內刪除確認 / 改名 / 清空（取代原生 confirm / prompt）*/
+/* 會話：窗內刪除確認 / 改名 / 清空（取代原生 confirm / prompt）*/
 #aurelia-chat-window .cw-rec-row.confirming {
-    background: rgba(217, 81, 34, 0.14);
-    border: 1px solid rgba(217, 81, 34, 0.4);
+    background: rgba(217, 81, 34, 0.1);
+    border-color: rgba(217, 81, 34, 0.45);
 }
 
 #aurelia-chat-window .cw-rec-cmsg {
     font-size: 12px;
-    color: #ff9b78;
+    color: var(--cl-grenadine, #D95122);
 }
 
 #aurelia-chat-window .cw-rec-yes,
@@ -665,34 +706,35 @@
 }
 
 #aurelia-chat-window .cw-rec-yes {
-    color: #ff9b78;
+    color: var(--cl-grenadine, #D95122);
     font-weight: 700;
 }
 
 #aurelia-chat-window .cw-rec-no {
-    color: #b9b5c8;
+    color: var(--cl-cafe-latte, #896645);
 }
 
 #aurelia-chat-window .cw-rec-rename-in {
     width: 100%;
     box-sizing: border-box;
-    background: rgba(255, 255, 255, 0.94);
-    border: 1px solid rgba(234, 176, 92, 0.5);
+    background: #ffffff !important;
+    border: 1px solid rgba(234, 176, 92, 0.6);
     border-radius: 6px;
     padding: 6px 8px;
     font-size: 13px;
-    color: #1a1c28;
+    color: var(--cl-text-deep, #3d2010) !important;
     font-family: inherit;
     outline: none;
 }
 
 #aurelia-chat-window .cw-rec-clear {
-    background: rgba(217, 81, 34, 0.15);
-    color: #ff9b78;
+    background: transparent;
+    color: var(--cl-grenadine, #D95122);
     border: 1px solid rgba(217, 81, 34, 0.35);
     border-radius: 8px;
     padding: 8px;
     font-size: 12px;
+    font-family: inherit;
     cursor: pointer;
     margin-top: 4px;
 }

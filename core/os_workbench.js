@@ -225,21 +225,25 @@
             wrap.innerHTML = '<div class="wb-tasks-empty">還沒有任務清單。<br>在下面描述你的需求，按「規畫」。</div>';
             return;
         }
-        const ICON = { pending: '⬜', doing: '🔄', done: '✅' };
+        const ICON = {
+            pending: '<i class="fa-regular fa-square"></i>',
+            doing:   '<i class="fa-solid fa-arrows-rotate fa-spin"></i>',
+            done:    '<i class="fa-solid fa-square-check"></i>',
+        };
         const rows = _state.tasks.map(t => `
             <div class="wb-task wb-task-${t.status}">
-                <span class="wb-task-icon">${ICON[t.status] || '⬜'}</span>
+                <span class="wb-task-icon">${ICON[t.status] || ICON.pending}</span>
                 <span class="wb-task-text"></span>
             </div>
         `).join('');
         const doneN = _state.tasks.filter(t => t.status === 'done').length;
         wrap.innerHTML = `
             <div class="wb-tasks-head">
-                <span class="wb-tasks-title">📋 任務清單</span>
+                <span class="wb-tasks-title">任務清單</span>
                 <span class="wb-tasks-prog">${doneN} / ${_state.tasks.length}</span>
             </div>
             <div class="wb-tasks-list">${rows}</div>
-            ${_phase === 'gate' ? `<button class="wb-approve" id="wb-approve" type="button">👍 開始執行</button>` : ''}
+            ${_phase === 'gate' ? `<button class="wb-approve" id="wb-approve" type="button"><i class="fa-solid fa-play"></i> 開始執行</button>` : ''}
         `;
         // 任務文字用 textContent 填（避免注入）
         wrap.querySelectorAll('.wb-task-text').forEach((el, i) => {
@@ -256,21 +260,21 @@
         const roleEl = container.querySelector('#wb-roles');
         if (roleEl) {
             roleEl.innerHTML =
-                `🦀🔷 指導 <b>${_nameOf(_state.roles.director)}</b> · ` +
-                `執行 <b>${_nameOf(_state.roles.executor)}</b>`;
+                `指導 ${_avatarOf(_state.roles.director)} <b>${_nameOf(_state.roles.director)}</b> · ` +
+                `執行 ${_avatarOf(_state.roles.executor)} <b>${_nameOf(_state.roles.executor)}</b>`;
         }
     }
     function _updateRunBtn(container) {
         const btn = container.querySelector('#wb-run');
         if (!btn) return;
         if (_running) {
-            btn.textContent = '⏹ 停';
+            btn.innerHTML = '<i class="fa-solid fa-stop"></i> 停';
             btn.className = 'wb-run wb-run-stop';
             return;
         }
         btn.className = 'wb-run';
-        if (_phase === 'gate')      btn.textContent = '🔄 重新規畫';
-        else                        btn.textContent = '📋 規畫';
+        if (_phase === 'gate')      btn.innerHTML = '<i class="fa-solid fa-arrows-rotate"></i> 重新規畫';
+        else                        btn.innerHTML = '<i class="fa-solid fa-list-check"></i> 規畫';
     }
     function _render(container) {
         _renderSetup(container);
@@ -430,9 +434,28 @@
         _renderSetup(container);
     }
 
+    // 清空走兩段確認（原生 confirm 會被瀏覽器「禁止對話框」擋掉,窗內自己確認）
+    let _resetArmTimer = null;
     async function _onReset(container) {
         if (_running) return;
-        if (!confirm('清空整個工作檯（需求、任務清單、日誌）？此動作不可逆。')) return;
+        const btn = container.querySelector('#wb-reset');
+        if (!btn) return;
+        if (btn.dataset.armed !== '1') {
+            btn.dataset.armed = '1';
+            btn.classList.add('armed');
+            btn.innerHTML = '<i class="fa-solid fa-trash-can"></i> 確定清空？';
+            clearTimeout(_resetArmTimer);
+            _resetArmTimer = setTimeout(() => {
+                btn.dataset.armed = '';
+                btn.classList.remove('armed');
+                btn.innerHTML = '<i class="fa-solid fa-trash-can"></i>';
+            }, 3200);
+            return;
+        }
+        clearTimeout(_resetArmTimer);
+        btn.dataset.armed = '';
+        btn.classList.remove('armed');
+        btn.innerHTML = '<i class="fa-solid fa-trash-can"></i>';
         const dir = _state.targetDir, roles = _state.roles;   // 保留資料夾與角色設定
         _state = _blankState();
         _state.targetDir = dir;
@@ -453,17 +476,12 @@
 
         container.innerHTML = `
             <div class="wb-root">
-                <button class="wb-close" id="wb-close" title="關閉">✕</button>
-                <div class="wb-header">
-                    <div class="wb-title">🛠️ 工作檯</div>
-                    <div class="wb-sub">需求者 Rae · 指導者 · 執行者 —— 規畫、把關、執行</div>
-                </div>
                 <div class="wb-setup">
                     <input class="wb-dir" id="wb-dir" type="text" spellcheck="false"
                         placeholder="工作資料夾路徑（執行者只能在這裡動手）例：D:\\MyProject">
                     <div class="wb-setup-row">
                         <span class="wb-roles" id="wb-roles"></span>
-                        <button class="wb-swap" id="wb-swap" type="button" title="對調指導／執行">⇄ 互換</button>
+                        <button class="wb-swap" id="wb-swap" type="button" title="對調指導／執行"><i class="fa-solid fa-right-left"></i> 互換</button>
                     </div>
                 </div>
                 <div class="wb-tasks" id="wb-tasks"></div>
@@ -472,8 +490,8 @@
                     <textarea class="wb-input" id="wb-input" rows="1"
                         placeholder="描述你的需求（講不清楚也沒關係，指導者會幫你理清）…"></textarea>
                     <div class="wb-composer-row">
-                        <button class="wb-reset" id="wb-reset" type="button" title="清空工作檯">🗑️</button>
-                        <button class="wb-run" id="wb-run" type="button">📋 規畫</button>
+                        <button class="wb-reset" id="wb-reset" type="button" title="清空工作檯"><i class="fa-solid fa-trash-can"></i></button>
+                        <button class="wb-run" id="wb-run" type="button"><i class="fa-solid fa-list-check"></i> 規畫</button>
                     </div>
                 </div>
             </div>
@@ -484,7 +502,6 @@
         const runBtn   = container.querySelector('#wb-run');
         const swapBtn  = container.querySelector('#wb-swap');
         const resetBtn = container.querySelector('#wb-reset');
-        const closeBtn = container.querySelector('#wb-close');
 
         _renderLog(container);
         _render(container);
@@ -507,10 +524,6 @@
         if (runBtn)   runBtn.addEventListener('click', () => _onRunClick(container));
         if (swapBtn)  swapBtn.addEventListener('click', () => _onSwapRoles(container));
         if (resetBtn) resetBtn.addEventListener('click', () => _onReset(container));
-        if (closeBtn) closeBtn.addEventListener('click', () => {
-            if (_running && _abortCtrl) _abortCtrl.abort();
-            if (win.PhoneSystem && typeof win.PhoneSystem.goHome === 'function') win.PhoneSystem.goHome();
-        });
     }
 
     win.OS_WORKBENCH = { launch };

@@ -105,82 +105,20 @@
         `).join('') : '<div class="sp-row-empty">還沒有對話紀錄。<br>進 Claude 房間發訊息後就會累計。</div>';
 
         container.innerHTML = `
-            <style>
-                .sp-container { width: 100%; height: 100%; padding: 16px;
-                    background: linear-gradient(135deg, #fff8ec 0%, #fcefcc 100%);
-                    color: #3d2010;
-                    font-family: 'Playfair Display', Georgia, 'Songti TC', 'Microsoft JhengHei', serif;
-                    overflow: auto; box-sizing: border-box; }
-                .sp-header { font-size: 18px; font-weight: 700; margin-bottom: 16px;
-                    display: flex; align-items: center; gap: 8px; color: #3d2010;
-                    position: relative; }
-                .sp-header-sub { font-size: 11px; color: #896645; font-weight: 400; margin-left: 8px; }
-                .sp-close-btn {
-                    position: absolute; right: 0; top: -4px;
-                    background: transparent; border: 1px solid #EAB05C;
-                    color: #896645;
-                    width: 28px; height: 28px; border-radius: 50%;
-                    cursor: pointer; font-size: 14px;
-                    display: flex; align-items: center; justify-content: center;
-                    transition: all 0.2s; padding: 0;
-                }
-                .sp-close-btn:hover {
-                    background: rgba(217,81,34,0.15);
-                    color: #D95122;
-                    border-color: #D95122;
-                }
-                .sp-card { background: rgba(255,255,255,0.85); border: 1px solid #EAB05C;
-                    border-radius: 12px; padding: 14px 18px; margin-bottom: 12px;
-                    box-shadow: 0 2px 8px rgba(137,102,69,0.1); }
-                .sp-big { font-size: 32px; font-weight: 700; color: #D95122;
-                    text-align: center; margin: 4px 0; letter-spacing: 0.5px; }
-                .sp-sub { font-size: 12px; color: #896645; text-align: center; }
-                .sp-grid { display: grid; grid-template-columns: 1fr 1fr 1fr;
-                    gap: 10px; margin-bottom: 12px; }
-                .sp-grid-cell { background: rgba(255,255,255,0.85); border: 1px solid #EAB05C;
-                    border-radius: 10px; padding: 10px 6px; text-align: center; }
-                .sp-grid-num { font-size: 18px; font-weight: 700; color: #D95122; }
-                .sp-grid-label { font-size: 11px; color: #896645; margin-top: 2px; }
-                .sp-section-title { font-size: 13px; font-weight: 700; color: #896645;
-                    margin: 12px 0 6px 0; padding-left: 4px; }
-                .sp-list { background: rgba(255,255,255,0.85); border: 1px solid #EAB05C;
-                    border-radius: 12px; overflow: hidden;
-                    box-shadow: 0 2px 8px rgba(137,102,69,0.1); }
-                .sp-row { display: grid; grid-template-columns: 1.1fr 1fr 1.5fr 1fr;
-                    padding: 7px 12px; font-size: 12px; align-items: center;
-                    border-bottom: 1px solid rgba(234,176,92,0.2); }
-                .sp-row:last-child { border-bottom: none; }
-                .sp-row-ts { color: #896645; font-family: 'Cascadia Code', Consolas, monospace; }
-                .sp-row-cost { color: #D95122; font-weight: 600; text-align: right;
-                    font-family: 'Cascadia Code', Consolas, monospace; }
-                .sp-row-tokens { color: #896645; font-family: 'Cascadia Code', Consolas, monospace;
-                    font-size: 11px; text-align: center; }
-                .sp-row-model { color: #896645; font-family: 'Cascadia Code', Consolas, monospace;
-                    font-size: 11px; text-align: right; }
-                .sp-row-empty { padding: 30px 20px; text-align: center; color: #896645;
-                    opacity: 0.7; font-size: 13px; line-height: 1.6; }
-                .sp-clear-btn { margin-top: 12px; padding: 8px 14px;
-                    background: rgba(217,81,34,0.12); border: 1px solid rgba(217,81,34,0.4);
-                    color: #D95122; border-radius: 8px; cursor: pointer; font-size: 12px;
-                    font-family: inherit; transition: background 0.2s; }
-                .sp-clear-btn:hover { background: rgba(217,81,34,0.25); }
-            </style>
             <div class="sp-container">
-                <div class="sp-header">💰 額度面板<span class="sp-header-sub">累計 ${s.count} 次對話的本地統計</span><button class="sp-close-btn" id="sp-close-btn" title="關閉">✕</button></div>
-
                 <div class="sp-card">
                     <div class="sp-big">$${s.totalCost.toFixed(4)}</div>
-                    <div class="sp-sub">累計花費</div>
+                    <div class="sp-sub">累計花費 · ${s.count} 次對話</div>
                 </div>
 
                 <div class="sp-grid">
                     <div class="sp-grid-cell">
                         <div class="sp-grid-num">${_formatNum(s.totalIn)}</div>
-                        <div class="sp-grid-label">↑ input</div>
+                        <div class="sp-grid-label"><i class="fa-solid fa-arrow-up"></i> input</div>
                     </div>
                     <div class="sp-grid-cell">
                         <div class="sp-grid-num">${_formatNum(s.totalOut)}</div>
-                        <div class="sp-grid-label">↓ output</div>
+                        <div class="sp-grid-label"><i class="fa-solid fa-arrow-down"></i> output</div>
                     </div>
                     <div class="sp-grid-cell">
                         <div class="sp-grid-num">${s.cacheHitPct}%</div>
@@ -193,27 +131,21 @@
                     ${recentRows}
                 </div>
 
-                <button class="sp-clear-btn" id="sp-clear-btn">🗑️ 清空累計（不可逆）</button>
+                <button class="sp-clear-btn" id="sp-clear-btn" type="button"><i class="fa-solid fa-trash-can"></i> 清空累計</button>
             </div>
         `;
 
-        // 綁清空按鈕
+        // 清空走兩段確認（原生 confirm 會被瀏覽器「禁止對話框」擋掉）
         const clearBtn = container.querySelector('#sp-clear-btn');
         if (clearBtn) {
             clearBtn.addEventListener('click', () => {
-                if (confirm('清空所有累計花費紀錄？此動作不可逆。')) {
+                if (clearBtn.dataset.armed === '1') {
                     localStorage.removeItem(STORAGE_KEY);
                     launch(container);  // 重 render
-                }
-            });
-        }
-
-        // 綁關閉按鈕（走 PhoneSystem.goHome → control_center 註冊的 doClose）
-        const closeBtn = container.querySelector('#sp-close-btn');
-        if (closeBtn) {
-            closeBtn.addEventListener('click', () => {
-                if (window.PhoneSystem && typeof window.PhoneSystem.goHome === 'function') {
-                    window.PhoneSystem.goHome();
+                } else {
+                    clearBtn.dataset.armed = '1';
+                    clearBtn.classList.add('armed');
+                    clearBtn.innerHTML = '<i class="fa-solid fa-trash-can"></i> 確定清空？不可逆，再按一次';
                 }
             });
         }

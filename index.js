@@ -219,7 +219,7 @@
     // 手機瀏覽器把這批靜態檔快取得很兇,沒版本參數的話核心檔更新永遠到不了手機
     // (症狀:桌機是新版、手機停在幾個月前,甚至 chat_window 跟 chat_room 各停在不同版本)。
     // 檔案有改就把 VER +1,跟奧瑞亞 sw.js 的 CACHE_VERSION 同一套習慣。
-    const VER = 2;
+    const VER = 3;
 
     function loadCSS(href) {
         if (document.querySelector('link[data-ccr="' + href + '"]')) return;
@@ -248,7 +248,8 @@
     loadCSS(HERE + 'css/void_claude_recents.css'); // 對話切換 chip + 多會話列表
     loadCSS(HERE + 'css/void_claude_ask.css');      // AI 互動選項按鈕(ASK markers)
     loadCSS(HERE + 'css/os_workbench.css');         // 🛠️ 工作檯
-    loadCSS(HERE + 'css/os_board.css');             // 📝 留言板（💰額度面板自帶 inline style）
+    loadCSS(HERE + 'css/os_spend.css');             // 💰 額度
+    loadCSS(HERE + 'css/os_board.css');             // 📝 留言板
     loadCSS(HERE + 'css/launcher.css');
 
     const FILES = [
