@@ -226,7 +226,7 @@
     // 手機瀏覽器把這批靜態檔快取得很兇,沒版本參數的話核心檔更新永遠到不了手機
     // (症狀:桌機是新版、手機停在幾個月前,甚至 chat_window 跟 chat_room 各停在不同版本)。
     // 檔案有改就把 VER +1,跟奧瑞亞 sw.js 的 CACHE_VERSION 同一套習慣。
-    const VER = 11;
+    const VER = 12;
 
     function loadCSS(href) {
         if (document.querySelector('link[data-ccr="' + href + '"]')) return;
@@ -346,6 +346,35 @@
 
     if (document.body) mountLauncher();
     else document.addEventListener('DOMContentLoaded', mountLauncher);
+
+    // ====================================================================
+    // 5. 板子動靜 —— 丹留了新東西時,入口鈕亮一顆小點(最軟的提醒:不彈窗、不出聲)。
+    //    她的主軸在奧瑞亞,房間常被忘掉;這顆點是丹的聲音傳到她住的地方的方式。
+    //    peek=1 只偷看、不算「她翻過板子」;真正打開留言板那次才算讀過
+    //    (讀過的時間會回到丹的喚醒詞裡,他知道妳多久沒來)。
+    // ====================================================================
+    async function _checkBoardNews() {
+        try {
+            const CT = window.ClaudeTerminal;
+            const cfg = CT && CT.getConfig && CT.getConfig();
+            if (!cfg || !cfg.url || !cfg.key) return;
+            const url = cfg.url.replace(/\/v1\/chat\/completions$/, '/v1/board');
+            const r = await fetch(url + '?limit=20&peek=1', { headers: { 'Authorization': 'Bearer ' + cfg.key } });
+            if (!r.ok) return;
+            const data = await r.json();
+            const posts = Array.isArray(data.posts) ? data.posts : [];
+            if (!posts.length) return;
+            const newest = posts[0].created_at || '';
+            const seen = localStorage.getItem('ccr_board_seen') || '';
+            if (!newest || newest <= seen) return;
+            const hasProposal = posts.some(p => (p.created_at || '') > seen
+                && Array.isArray(p.tags) && p.tags.some(t => String(t).toLowerCase() === 'proposal'));
+            const btn = _getBtn();
+            btn.classList.add(hasProposal ? 'ccr-news-prop' : 'ccr-news');
+            btn.title = hasProposal ? '丹有想跟妳說的' : '板子上有新紙條';
+        } catch (e) { /* 連不上就安靜,這顆點不值得吵人 */ }
+    }
+    setTimeout(_checkBoardNews, 4000);
 
     console.log(TAG, '✅ 獨立房間擴展載入完成');
 })();

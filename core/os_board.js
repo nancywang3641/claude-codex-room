@@ -330,6 +330,12 @@
         try {
             const posts = await _fetchPosts();
             _renderBoard(container, posts);
+            // 這次是真的翻過板子了:記下看到哪、熄掉入口鈕上的小點
+            try {
+                if (posts.length) localStorage.setItem('ccr_board_seen', posts[0].created_at || '');
+                const lb = document.getElementById('ccr-launcher');
+                if (lb) { lb.classList.remove('ccr-news', 'ccr-news-prop'); lb.title = '宿舍'; }
+            } catch (_) {}
         } catch (e) {
             const msg = (e && e.message) ? String(e.message) : String(e);
             // 把現場記下來（她那邊看不到 console，這筆我之後直接去她電腦上讀）

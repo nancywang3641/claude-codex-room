@@ -40,7 +40,7 @@
 
 /* 桌機：塞進輸入框左邊（#leftSendForm）時脫掉浮球外觀，跟 🏰 同一排 */
 #ccr-launcher.ccr-inline {
-    position: static;
+    position: relative;   /* 小點的定位錨;流內表現同 static */
     width: 30px;
     height: 30px;
     border-radius: 5px;
@@ -54,3 +54,29 @@
     color: inherit;
 }
 #ccr-launcher.ccr-inline:hover { transform: none; box-shadow: none; opacity: 0.75; }
+
+/* 板子動靜:丹留了新東西,入口鈕亮一顆小點。日常紙條琥珀、提案酒紅。 */
+#ccr-launcher.ccr-news::after,
+#ccr-launcher.ccr-news-prop::after {
+    content: '';
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #EAB05C;
+    border: 2px solid #fffdf6;
+    box-shadow: 0 0 6px rgba(234, 176, 92, 0.85);
+}
+#ccr-launcher.ccr-news-prop::after {
+    background: #D95122;
+    box-shadow: 0 0 6px rgba(217, 81, 34, 0.85);
+}
+#ccr-launcher.ccr-inline.ccr-news::after,
+#ccr-launcher.ccr-inline.ccr-news-prop::after {
+    top: -1px;
+    right: -1px;
+    width: 8px;
+    height: 8px;
+}
