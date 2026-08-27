@@ -430,8 +430,30 @@
 
     // ⚙️ 設置子面板 —— Claude 連線預設管理 + 預設值（讀寫 os_claude_room_config）
     function _renderSettingsPanel(body) {
-        const OS = window.OS_SETTINGS;
+        let OS = window.OS_SETTINGS;
+        // 被別人整份蓋掉的話這裡先補回來，不必重載酒館
         if (!OS || typeof OS.getClaudeRoomConfig !== 'function') {
+            try {
+                if (typeof window.__CCR_ENSURE_SETTINGS__ === 'function') window.__CCR_ENSURE_SETTINGS__();
+            } catch (_) {}
+            OS = window.OS_SETTINGS;
+        }
+        if (!OS || typeof OS.getClaudeRoomConfig !== 'function') {
+            // 補不回來就把現場記下來（她的殼沒有 console，這筆之後直接從她電腦上讀）
+            try {
+                let framed = 'unknown';
+                try { framed = String(window.top !== window.self); } catch (_) { framed = 'cross'; }
+                localStorage.setItem('ccr_settings_diag', JSON.stringify({
+                    t: new Date().toISOString(),
+                    keys: window.OS_SETTINGS ? Object.keys(window.OS_SETTINGS).slice(0, 30) : null,
+                    hasEnsure: typeof window.__CCR_ENSURE_SETTINGS__,
+                    loaded: !!window.__CCR_LOADED__,
+                    base: String(window.__CCR_BASE__ || '').slice(0, 120),
+                    booted: String(window.__CCR_BOOTSTRAPPED__ || '').slice(0, 120),
+                    framed: framed,
+                    here: String(location.href).slice(0, 120),
+                }));
+            } catch (_) {}
             body.innerHTML = '<div class="cw-sub-missing">設定模組未載入</div>';
             return;
         }

@@ -49,7 +49,8 @@
     //    只在奧瑞亞不在場時才定義，避免雙份設定打架。
     //    儲存鍵沿用 'os_claude_room_config'，跟奧瑞亞共用 → 舊設定讀得到。
     // ====================================================================
-    if (!window.OS_SETTINGS || typeof window.OS_SETTINGS.getClaudeRoomConfig !== 'function') {
+    function _ensureOsSettingsShim() {
+        if (window.OS_SETTINGS && typeof window.OS_SETTINGS.getClaudeRoomConfig === 'function') return false;
         const CLAUDE_ROOM_STORAGE_KEY = 'os_claude_room_config';
 
         function loadClaudeRoomConfig() {
@@ -128,7 +129,13 @@
             },
         });
         console.log(TAG, 'OS_SETTINGS shim 就緒（獨立模式）');
+        return true;
     }
+    // 誰在我們之後整份指派 window.OS_SETTINGS，這組 shim 就被抹掉了
+    //（症狀：設置分頁寫「設定模組未載入」、底部欄按了沒反應）。
+    // 留一個補裝入口，任何時候發現不見都能補回來，不必重載整個酒館。
+    window.__CCR_ENSURE_SETTINGS__ = _ensureOsSettingsShim;
+    _ensureOsSettingsShim();
 
     // ====================================================================
     // 2. OS_DB shim —— IndexedDB 對話存檔（studio_chats）
@@ -219,7 +226,7 @@
     // 手機瀏覽器把這批靜態檔快取得很兇,沒版本參數的話核心檔更新永遠到不了手機
     // (症狀:桌機是新版、手機停在幾個月前,甚至 chat_window 跟 chat_room 各停在不同版本)。
     // 檔案有改就把 VER +1,跟奧瑞亞 sw.js 的 CACHE_VERSION 同一套習慣。
-    const VER = 10;
+    const VER = 11;
 
     function loadCSS(href) {
         if (document.querySelector('link[data-ccr="' + href + '"]')) return;
@@ -268,6 +275,9 @@
         try { await loadScript(HERE + f); }
         catch (e) { console.error(TAG, e); }
     }
+
+    // 載入期間別人可能整份蓋掉 OS_SETTINGS，這裡補一次
+    if (_ensureOsSettingsShim()) console.warn(TAG, 'OS_SETTINGS 被蓋掉過，已補回 getClaudeRoomConfig');
 
     // ====================================================================
     // 4. 入口 —— 點了開宿舍面板（一排門卡，點門進房）
