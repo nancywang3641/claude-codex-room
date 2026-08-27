@@ -56,11 +56,14 @@
     // 優先度：段落空行 > 單換行 > 句末標點 > 逗號 > 字數硬切
     // ===== Claude inline picker（聊天室上方橫條：model / effort / endpoint） =====
 
+    // Claude 5 家族(2026):Fable 5 是新的 Mythos 級旗艦,坐在 Opus 之上。
+    // 舊 4.x 只留 Opus 4.7 —— 既有存檔選的是它,拿掉的話 label 會退成裸 id。
     const CLAUDE_MODELS = [
-        { id: 'claude-opus-4-7',           label: 'Opus 4.7 ⭐'   },
-        { id: 'claude-opus-4-6',           label: 'Opus 4.6'      },
-        { id: 'claude-sonnet-4-6',         label: 'Sonnet 4.6'    },
+        { id: 'claude-fable-5',            label: 'Fable 5 ⭐'    },
+        { id: 'claude-opus-5',             label: 'Opus 5'        },
+        { id: 'claude-sonnet-5',           label: 'Sonnet 5'      },
         { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5'     },
+        { id: 'claude-opus-4-7',           label: 'Opus 4.7(舊)'  },
     ];
     // Codex CLI 走 ~/.codex/config.toml 決定預設主模型,也接受 --model 字串 hint。
     // 清單按 ChatGPT App / Codex 訂閱帳號當前能 access 的 model 命名(小寫破折號)。
@@ -92,7 +95,7 @@
     //   claude 兼容舊欄位 cfg.inlineModel(歷史遺產,純 Claude 時代用的)
     function _getProviderModel(cfg, prov) {
         const pm = (cfg && cfg.providerModels) || {};
-        if (prov === 'claude') return pm.claude || cfg.inlineModel || cfg.model || 'claude-opus-4-7';
+        if (prov === 'claude') return pm.claude || cfg.inlineModel || cfg.model || 'claude-fable-5';
         return pm[prov] || '';  // codex/deepseek 預設空 = 不指定、讓 CLI 自己用預設
     }
     // helper:設定「該 provider 的 model id」回寫進 cfg
@@ -127,7 +130,7 @@
     }
     function _shortModelLabel(modelId) {
         const m = CLAUDE_MODELS.find(x => x.id === modelId);
-        return m ? m.label.replace(' ⭐', '') : (modelId || 'Opus 4.7');
+        return m ? m.label.replace(' ⭐', '') : (modelId || 'Fable 5');
     }
     function _shortEffortLabel(eff) {
         if (!eff) return '🧠 預設';
@@ -176,9 +179,9 @@
     /** popup 內容生成 + 展開 */
     function _openClaudePickerPopup() {
         const cfg = _getClaudeRoomCfg();
-        if (!cfg) return;
+        if (!cfg) { console.warn('[claude-room] picker 打不開:OS_SETTINGS.getClaudeRoomConfig 不在(shim 被整份覆蓋或尚未載入)'); return; }
         const popup = _el('claude-picker-popup');
-        if (!popup) return;
+        if (!popup) { console.warn('[claude-room] picker 打不開:浮窗裡找不到 #claude-picker-popup(chat_window 版本不合,清瀏覽器快取)'); return; }
         const prov        = _provider();
         const models      = _modelsForProvider(prov);
         const curModel    = _getProviderModel(cfg, prov);
