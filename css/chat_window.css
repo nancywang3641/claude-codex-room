@@ -9,7 +9,7 @@
     z-index: 10000;
     display: none;               /* JS 控制 flex / none */
     flex-direction: column;
-    background: #1a1a2e;
+    background: #2a1a10;         /* 深焙咖啡:窗框跟屋內同一世界,不再是紫黑 */
     color: #FFF5E1;
     border-radius: 10px;
     box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
@@ -225,7 +225,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 6px 12px 6px 8px;
-    background: #1a1a2e;
+    background: #2a1a10;
     flex-shrink: 0;
 }
 
@@ -572,6 +572,10 @@
 
 #aurelia-chat-window .cw-set-field .cw-set-in {
     width: 110px;
+}
+
+#aurelia-chat-window .cw-set-field .cw-set-nick {
+    width: 150px;
 }
 
 /* 會話（多會話列表） */

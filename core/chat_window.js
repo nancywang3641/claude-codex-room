@@ -474,6 +474,34 @@
         });
         renderPresets();
 
+        // 模型取名:幫每個 Claude 模型取自己的名字(存 cfg.modelNames,picker 清單跟底部欄都會顯示)
+        const nameSec = document.createElement('div');
+        nameSec.className = 'cw-set-sec';
+        nameSec.innerHTML = '<div class="cw-set-h">模型取名（留空就用原名）</div>';
+        const modelList = (window.VoidClaudeRoom && window.VoidClaudeRoom.claudeModels) || [];
+        modelList.forEach(m => {
+            const row = document.createElement('label');
+            row.className = 'cw-set-field';
+            const span = document.createElement('span');
+            span.textContent = m.label;
+            const inp = document.createElement('input');
+            inp.type = 'text';
+            inp.className = 'cw-set-in cw-set-nick';
+            inp.placeholder = '取個名字…';
+            inp.value = (cfg.modelNames && cfg.modelNames[m.id]) || '';
+            inp.addEventListener('input', () => {
+                cfg.modelNames = cfg.modelNames || {};
+                const v = inp.value.trim();
+                if (v) cfg.modelNames[m.id] = v;
+                else delete cfg.modelNames[m.id];
+                save();
+            });
+            row.appendChild(span);
+            row.appendChild(inp);
+            nameSec.appendChild(row);
+        });
+        wrap.appendChild(nameSec);
+
         const defSec = document.createElement('div');
         defSec.className = 'cw-set-sec';
         defSec.innerHTML =
