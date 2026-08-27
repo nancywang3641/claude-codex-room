@@ -193,8 +193,8 @@
             url, key,
             presetId:   activePreset ? activePreset.id   : '',
             presetName: activePreset ? activePreset.name : '',
-            // model: 看當前 _provider 給對應 model(claude/codex/deepseek 各自存)
-            model: _modelFor(c, _provider),
+            // model: 鎖了模型的分身用自己那顆；沒鎖的（丹）照舊吃 picker 選的
+            model: _residentModel() || _modelFor(c, _provider),
             // 暴露完整 providerModels 供上層(sendGroup 群聊)按各別 provider 取用
             providerModels: c.providerModels || {},
             maxTokens: Number(c.maxTokens) || 4096,
@@ -203,6 +203,13 @@
             inlineEffort:  (c.inlineEffort  || '').trim(),
         };
     };
+
+    /** 當前住戶鎖定的模型；沒鎖回空字串 */
+    function _residentModel() {
+        if (typeof ClaudeTerminal.getActiveResident !== 'function') return '';
+        const r = ClaudeTerminal.getActiveResident();
+        return (r && r.provider === _provider && r.modelId) ? r.modelId : '';
+    }
 
     ClaudeTerminal.isConfigured = function() {
         const c = ClaudeTerminal.getConfig();
@@ -351,6 +358,7 @@
         codexActive:   'codex_active',
         deepseekConvs:  'deepseek_convs',
         deepseekActive: 'deepseek_active',
+        activeResident: 'claude_active_resident',
     };
     const CONV_IDB_PREFIX     = 'claude_conv_';
     const CODEX_IDB_PREFIX    = 'codex_conv_';
@@ -393,11 +401,52 @@
         if (tab === 'api')      return LS_KEYS.apiConvs;
         return LS_KEYS.maxConvs;
     }
-    function _activeKey(tab) {
+    function _activeKeyBase(tab) {
         if (tab === 'codex')    return LS_KEYS.codexActive;
         if (tab === 'deepseek') return LS_KEYS.deepseekActive;
         if (tab === 'api')      return LS_KEYS.apiActive;
         return LS_KEYS.maxActive;
+    }
+    /** 每位住戶各記各的「現在開著哪個會話」。內建住戶沿用原本的 key，舊資料不用搬 */
+    function _activeKey(tab) {
+        const rid = ClaudeTerminal.getActiveResidentId();
+        const base = _activeKeyBase(tab);
+        return rid === BUILTIN_OF_PROVIDER[_provider] ? base : base + '__' + rid;
+    }
+
+    // ---- 當前住戶：進哪個房間就由誰接手 ----
+    // 每個 provider 各記自己上次是哪位住戶（切去 Codex 再切回來，還是進老丹的房）。
+    // 記的住戶要是被刪了、或跟當前房間對不上，一律退回這個房間的內建住戶。
+
+    ClaudeTerminal.setActiveResident = function(id) {
+        const r = ClaudeTerminal.getResident(id);
+        if (!r) return null;
+        const map = _lsGetJson(LS_KEYS.activeResident, {}) || {};
+        map[r.provider] = r.id;
+        _lsSetJson(LS_KEYS.activeResident, map);
+        return r;
+    };
+
+    ClaudeTerminal.getActiveResident = function(provider) {
+        const prov = provider || _provider;
+        const list = ClaudeTerminal.listResidents();
+        const map = _lsGetJson(LS_KEYS.activeResident, {}) || {};
+        const want = map[prov];
+        let r = want ? list.find(x => x.id === want) : null;
+        if (!r || r.provider !== prov) r = list.find(x => x.id === BUILTIN_OF_PROVIDER[prov]) || null;
+        return r;
+    };
+
+    ClaudeTerminal.getActiveResidentId = function(provider) {
+        const r = ClaudeTerminal.getActiveResident(provider);
+        return r ? r.id : (BUILTIN_OF_PROVIDER[provider || _provider] || 'dan');
+    };
+
+    /** 這個 tab 的老會話原本屬於誰（宿舍之前只有內建那幾位） */
+    function _homeResidentOfTab(tab) {
+        if (tab === 'codex')    return 'aluo';
+        if (tab === 'deepseek') return 'sujingming';
+        return 'dan';
     }
     function _genConvId() {
         return 'conv_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
@@ -418,15 +467,34 @@
         _lsSetRaw(LS_KEYS.activeTab, TABS.includes(tab) ? tab : 'max');
     };
 
+    /** 這個 tab 底下所有住戶的會話。含一次性遷移：宿舍之前的老會話沒有 residentId，
+     *  整批歸給該 tab 原本的主人，一條都不能丟。只有資料層內部用。 */
+    function _allConvs(tab) {
+        const arr = _lsGetJson(_convsKey(tab), []);
+        const list = Array.isArray(arr) ? arr : [];
+        const home = _homeResidentOfTab(tab);
+        let migrated = false;
+        list.forEach(c => { if (c && !c.residentId) { c.residentId = home; migrated = true; } });
+        if (migrated) _lsSetJson(_convsKey(tab), list);
+        return list;
+    }
+    ClaudeTerminal._allConversations = _allConvs;
+
+    /** 當前住戶的會話——UI 看到的就是這一份 */
     ClaudeTerminal.listConversations = function(tab) {
         tab = _normalizeTab(tab);
-        const arr = _lsGetJson(_convsKey(tab), []);
-        return Array.isArray(arr) ? arr : [];
+        const rid = ClaudeTerminal.getActiveResidentId();
+        return _allConvs(tab).filter(c => c && c.residentId === rid);
     };
 
+    /** 存回當前住戶的會話清單。傳進來的只有這位住戶那一份，鄰居的要原樣留著——
+     *  整份直接寫回去會把別人的會話一起抹掉。 */
     ClaudeTerminal._saveConvsList = function(tab, list) {
         tab = _normalizeTab(tab);
-        _lsSetJson(_convsKey(tab), Array.isArray(list) ? list : []);
+        const rid = ClaudeTerminal.getActiveResidentId();
+        const mine = (Array.isArray(list) ? list : []).map(c => Object.assign({}, c, { residentId: rid }));
+        const others = _allConvs(tab).filter(c => c && c.residentId !== rid);
+        _lsSetJson(_convsKey(tab), mine.concat(others));
     };
 
     ClaudeTerminal.getActiveConvId = function(tab) {
@@ -555,7 +623,7 @@
         _migrationDone = true;
         try {
             // 已有 Max conv 就不 migrate（避免重跑）
-            if (ClaudeTerminal.listConversations('max').length) return;
+            if (_allConvs('max').length) return;
             if (!window.OS_DB || typeof window.OS_DB.getStudioChat !== 'function') return;
             const oldMsgs = await window.OS_DB.getStudioChat(LEGACY_IDB_KEY);
             if (!Array.isArray(oldMsgs) || !oldMsgs.length) return;
@@ -571,8 +639,10 @@
                 lastActive: Date.now(),
                 msgCount: oldMsgs.length,
             };
-            ClaudeTerminal._saveConvsList('max', [meta]);
-            ClaudeTerminal.setActiveConvId('max', id);
+            // 舊對話是丹的，直接寫進丹名下（不經當前住戶那條路）
+            meta.residentId = 'dan';
+            _lsSetJson(_convsKey('max'), [meta]);
+            _lsSetRaw(_activeKeyBase('max'), id);
             ClaudeTerminal.setActiveTab('max');
 
             if (typeof window.OS_DB.saveStudioChat === 'function') {
