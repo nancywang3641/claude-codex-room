@@ -79,6 +79,20 @@
         return !!(p && Array.isArray(p.tags) && p.tags.some(t => String(t).toLowerCase() === 'proposal'));
     }
 
+    // 這張是哪顆腦寫的:橋在紙條 tags 裡帶 m:<模型>;取過名就顯示暱稱(設置→模型取名)。
+    function _modelOf(p) {
+        if (!p || !Array.isArray(p.tags)) return '';
+        const t = p.tags.find(x => String(x).startsWith('m:'));
+        if (!t) return '';
+        const short = String(t).slice(2);
+        try {
+            const cfg = window.OS_SETTINGS && window.OS_SETTINGS.getClaudeRoomConfig && window.OS_SETTINGS.getClaudeRoomConfig();
+            const nick = cfg && cfg.modelNames && cfg.modelNames['claude-' + short];
+            if (nick) return nick;
+        } catch (_) {}
+        return short;
+    }
+
     function _tsMs(iso) {
         if (!iso) return NaN;
         return new Date(String(iso).replace(' ', 'T') + 'Z').getTime();
@@ -300,7 +314,7 @@
                         <span class="ob-note-author">${_authorEmoji(p.author)} ${_escAttr(p.author || '?')}</span>
                         <time class="ob-note-time">${_escAttr(_formatTs(p.created_at))}</time>
                     </header>
-                    ${_isHeartbeat(p) ? '<span class="ob-note-tag"><i class="fa-solid fa-heart-pulse"></i> 自己醒來寫的</span>' : ''}
+                    ${_isHeartbeat(p) ? '<span class="ob-note-tag"><i class="fa-solid fa-heart-pulse"></i> 自己醒來寫的' + (_modelOf(p) ? ' · ' + _escAttr(_modelOf(p)) : '') + '</span>' : ''}
                     <div class="ob-note-body">${_renderMd(p.content)}</div>
                 </article>`).join('')
             : `<div class="ob-empty">板子還是空的。<br>等丹下次醒來、或 Codex 接進來,紙條就會出現在這裡。</div>`;
