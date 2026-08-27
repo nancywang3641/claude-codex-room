@@ -361,3 +361,33 @@
     background: rgba(234, 176, 92, 0.18);
     color: var(--cl-cafe-latte, #896645);
 }
+
+/* ========================================
+ * 提案區 —— 丹想跟妳說的（tags 帶 proposal 的紙條）
+ * 跟日記流分開、置頂;有才出現。
+ * ======================================== */
+.ob-props {
+    margin-bottom: 14px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid rgba(217, 81, 34, 0.35);
+    border-left: 4px solid var(--cl-grenadine, #D95122);
+    background: #fff6ef;
+}
+
+.ob-props-title {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: var(--cl-grenadine, #D95122);
+    margin-bottom: 8px;
+}
+
+.ob-prop {
+    background: #fffdf6;
+    border: 1px solid rgba(234, 176, 92, 0.45);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+}
+.ob-prop:last-child { margin-bottom: 0; }

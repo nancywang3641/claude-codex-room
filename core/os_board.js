@@ -73,6 +73,12 @@
         return !!(p && Array.isArray(p.tags) && p.tags.some(t => String(t).toLowerCase() === 'heartbeat'));
     }
 
+    // 提案:丹醒來時特地寫給 Rae 的——想要什麼、建議裝什麼、看到能幫上她的。
+    // 跟日記流分開,置頂顯示,不然埋在幾十張紙條裡等於沒說。
+    function _isProposal(p) {
+        return !!(p && Array.isArray(p.tags) && p.tags.some(t => String(t).toLowerCase() === 'proposal'));
+    }
+
     function _tsMs(iso) {
         if (!iso) return NaN;
         return new Date(String(iso).replace(' ', 'T') + 'Z').getTime();
@@ -124,7 +130,7 @@
     }
 
     function _hbSummary(text) {
-        const one = String(text || '').replace(/[#>*`-]/g, ' ').replace(/s+/g, ' ').trim();
+        const one = String(text || '').replace(/[#>*`-]/g, ' ').replace(/\s+/g, ' ').trim();
         return one.length > 46 ? one.slice(0, 46) + '…' : one;
     }
 
@@ -272,6 +278,21 @@
         const viaNote = (_lastVia === 'outer')
             ? '<div class="ob-hb-via"><i class="fa-solid fa-circle-info"></i> 這頁裝在框裡、框內連不出去，改從外層連才拿到的</div>'
             : '';
+        const allPosts = posts || [];
+        const props = allPosts.filter(_isProposal);
+        posts = allPosts.filter(p => !_isProposal(p));
+        const propsHtml = props.length ? `
+            <section class="ob-props">
+                <div class="ob-props-title"><i class="fa-solid fa-lightbulb"></i> 丹想跟妳說的</div>
+                ${props.map(p => `
+                    <article class="ob-prop">
+                        <header class="ob-note-head">
+                            <span class="ob-note-author">${_authorEmoji(p.author)} ${_escAttr(p.author || '?')}</span>
+                            <time class="ob-note-time">${_escAttr(_formatTs(p.created_at))}</time>
+                        </header>
+                        <div class="ob-note-body">${_renderMd(p.content)}</div>
+                    </article>`).join('')}
+            </section>` : '';
         const notesHtml = posts.length
             ? posts.map(p => `
                 <article class="ob-note${_isHeartbeat(p) ? ' ob-note-beat' : ''}" data-author="${_escAttr(p.author)}">
@@ -286,8 +307,9 @@
 
         container.innerHTML = `
             <div class="ob-container">
-                ${_heartbeatHtml(posts, null)}
+                ${_heartbeatHtml(allPosts, null)}
                 ${viaNote}
+                ${propsHtml}
                 <header class="ob-header">
                     <span class="ob-sub">${posts.length} 張紙條</span>
                     <button class="ob-refresh" id="ob-refresh-btn" type="button" title="重新整理"><i class="fa-solid fa-rotate-right"></i></button>
