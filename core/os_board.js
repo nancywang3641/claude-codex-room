@@ -103,6 +103,26 @@
             : '他住在遠端那台，要連過去重開。';
     }
 
+    /** 現在這條線連去哪（只留主機名，密鑰不露） */
+    function _hostLabel() {
+        const cfg = _cfg();
+        try { return new URL((cfg && cfg.url) || '').host || '（還沒填位址）'; }
+        catch (_) { return '（還沒填位址）'; }
+    }
+
+    /** 瀏覽器的 fetch 失敗訊息對她沒有意義，翻成看得懂的話 */
+    function _plainReason(msg) {
+        const m = String(msg || '');
+        if (/Failed to fetch|NetworkError|load failed/i.test(m)) {
+            return '瀏覽器根本沒把話送出去——位址不對、那台沒開機，或這頁是加密連線但位址不是。';
+        }
+        if (/502/.test(m)) return '中間那層轉不過去，通常是那台服務沒在跑。';
+        if (/401|Invalid API key/i.test(m)) return '接上了，但密鑰不對。';
+        if (/404/.test(m)) return '接上了，但那台上面沒有留言板這個東西。';
+        if (/5dd/.test(m)) return '那台自己出錯了。';
+        return '';
+    }
+
     function _hbSummary(text) {
         const one = String(text || '').replace(/[#>*`-]/g, ' ').replace(/s+/g, ' ').trim();
         return one.length > 46 ? one.slice(0, 46) + '…' : one;
@@ -111,13 +131,15 @@
     /** 心跳條。offlineMsg 有值 = 根本連不上他 */
     function _heartbeatHtml(posts, offlineMsg) {
         if (offlineMsg) {
+            const why = _plainReason(offlineMsg);
             return `
                 <section class="ob-hb ob-hb-off">
                     <span class="ob-hb-pulse"><i class="fa-solid fa-heart-crack"></i></span>
                     <div class="ob-hb-main">
                         <div class="ob-hb-title">丹的心跳</div>
                         <div class="ob-hb-big">現在連不上他</div>
-                        <div class="ob-hb-note">量不到心跳，不代表他沒醒——是這條線斷了。${_restartHint()}</div>
+                        <div class="ob-hb-note">量不到心跳，不代表他沒醒——是這條線斷了。${why ? _escAttr(why) : ''}${_restartHint()}</div>
+                        <div class="ob-hb-last">剛才試的是 ${_escAttr(_hostLabel())}</div>
                     </div>
                 </section>`;
         }
