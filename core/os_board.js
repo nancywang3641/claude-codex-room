@@ -139,7 +139,10 @@
                         <div class="ob-hb-title">丹的心跳</div>
                         <div class="ob-hb-big">現在連不上他</div>
                         <div class="ob-hb-note">量不到心跳，不代表他沒醒——是這條線斷了。${why ? _escAttr(why) : ''}${_restartHint()}</div>
-                        <div class="ob-hb-last">剛才試的是 ${_escAttr(_hostLabel())}</div>
+                        <div class="ob-hb-last">剛才試的是 ${_escAttr(_hostLabel())}${
+                            _lastVia === 'both-failed' ? '，框裡框外都試過了' :
+                            _lastVia === 'no-outer'    ? '' : ''
+                        }${_frameNote() ? ' · ' + _escAttr(_frameNote()) : ''}</div>
                     </div>
                 </section>`;
         }
@@ -175,13 +178,58 @@
             </section>`;
     }
 
+    // 房間有機會被載在框裡（酒館助手是用 srcdoc 建框）。框裡自己那條線被擋掉的時候，
+    // 借外層那條再試一次——聊天走得通就表示外層是通的。
+    let _lastVia = 'self';
+
+    function _frameNote() {
+        try {
+            if (window.top === window.self) return '';
+            return '這頁被裝在框裡。';
+        } catch (_) {
+            return '這頁被裝在框裡（外層看不到）。';
+        }
+    }
+
+    function _outerWin() {
+        try {
+            if (window.parent && window.parent !== window) return window.parent;
+            if (window.top && window.top !== window) return window.top;
+        } catch (_) {}
+        return null;
+    }
+
+    async function _fetchEither(url, opts) {
+        let firstErr = null;
+        try {
+            const r = await fetch(url, opts);
+            _lastVia = 'self';
+            return r;
+        } catch (e) {
+            firstErr = e;
+        }
+        const up = _outerWin();
+        if (up && typeof up.fetch === 'function') {
+            try {
+                const r = await up.fetch(url, opts);
+                _lastVia = 'outer';
+                return r;
+            } catch (_) {
+                _lastVia = 'both-failed';
+            }
+        } else {
+            _lastVia = 'no-outer';
+        }
+        throw firstErr;
+    }
+
     async function _fetchPosts() {
         const url = _boardUrl();
         const cfg = _cfg();
         if (!url || !cfg || !cfg.key) {
             throw new Error('還沒填連線預設。回房間 → 右上「設置」→ 連線預設,填 URL 跟密鑰。');
         }
-        const resp = await fetch(url + '?limit=100', {
+        const resp = await _fetchEither(url + '?limit=100', {
             method: 'GET',
             headers: { 'Authorization': 'Bearer ' + cfg.key },
         });
@@ -198,6 +246,9 @@
     }
 
     function _renderBoard(container, posts) {
+        const viaNote = (_lastVia === 'outer')
+            ? '<div class="ob-hb-via"><i class="fa-solid fa-circle-info"></i> 這頁裝在框裡、框內連不出去，改從外層連才拿到的</div>'
+            : '';
         const notesHtml = posts.length
             ? posts.map(p => `
                 <article class="ob-note${_isHeartbeat(p) ? ' ob-note-beat' : ''}" data-author="${_escAttr(p.author)}">
@@ -213,6 +264,7 @@
         container.innerHTML = `
             <div class="ob-container">
                 ${_heartbeatHtml(posts, null)}
+                ${viaNote}
                 <header class="ob-header">
                     <span class="ob-sub">${posts.length} 張紙條</span>
                     <button class="ob-refresh" id="ob-refresh-btn" type="button" title="重新整理"><i class="fa-solid fa-rotate-right"></i></button>

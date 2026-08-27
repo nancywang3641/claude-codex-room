@@ -348,3 +348,16 @@
         flex-wrap: wrap;
     }
 }
+
+/* 框內連不出去、改從外層連的時候說一聲 */
+.ob-hb-via {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: -6px 0 12px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    font-size: 11px;
+    background: rgba(234, 176, 92, 0.18);
+    color: var(--cl-cafe-latte, #896645);
+}
