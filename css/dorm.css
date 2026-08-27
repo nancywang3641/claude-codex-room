@@ -1,0 +1,318 @@
+/* ============================================================
+ * css/dorm.css — 宿舍面板
+ * 深焙咖啡框 + 暖色紙內裡，跟房間窗框同一個世界。
+ * 全部 scoped 在 #ccr-dorm，不污染酒館。
+ * ============================================================ */
+
+#ccr-dorm {
+    position: fixed;
+    z-index: 10001;
+    display: none;              /* .dorm-on 才顯示 */
+    flex-direction: column;
+    width: 360px;
+    max-width: calc(100vw - 16px);
+    max-height: min(78vh, 720px);
+    background: #2a1a10;
+    border-radius: 12px;
+    box-shadow: 0 14px 44px rgba(0, 0, 0, 0.48);
+    overflow: hidden;
+    font-family: 'Noto Sans TC', -apple-system, BlinkMacSystemFont, sans-serif;
+    box-sizing: border-box;
+}
+#ccr-dorm.dorm-on { display: flex; }
+
+/* 手機：貼近全寬（實際座標由 dorm.js 算，酒館那邊會把 transform 吃掉，不能靠它置中） */
+#ccr-dorm.dorm-mobile {
+    width: calc(100vw - 24px);
+    max-height: 82vh;
+}
+
+/* ---- 頂列 ---- */
+.dorm-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    flex-shrink: 0;
+}
+.dorm-title {
+    font-size: 15px;
+    font-weight: bold;
+    letter-spacing: 2px;
+    color: #FFF5E1;
+}
+.dorm-x {
+    width: 26px;
+    height: 26px;
+    border: none;
+    border-radius: 6px;
+    background: rgba(255, 245, 225, 0.08);
+    color: rgba(255, 245, 225, 0.75);
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    padding: 0;
+}
+.dorm-x:hover { background: rgba(255, 245, 225, 0.16); color: #FFF5E1; }
+
+/* ---- 門卡清單（紙面）---- */
+.dorm-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: var(--cl-cream, #fdf7ec);
+}
+
+.dorm-card {
+    position: relative;
+    background: #fffdf6;
+    border: 1px solid rgba(234, 176, 92, 0.45);
+    border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(120, 80, 40, 0.10);
+    overflow: hidden;
+}
+.dorm-card.dorm-editing { border-color: var(--cl-grenadine, #D95122); }
+
+.dorm-door {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 34px 10px 10px;
+    border: none;
+    background: none;
+    cursor: pointer;
+    text-align: left;
+    font-family: inherit;
+    box-sizing: border-box;
+}
+.dorm-door:hover { background: rgba(234, 176, 92, 0.12); }
+
+/* 頭像 */
+.dorm-face {
+    position: relative;
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: linear-gradient(145deg, #f7ead1, #eed6a8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+.dorm-face-img img {
+    width: 100%;
+    height: 100%;
+    padding: 3px;
+    box-sizing: border-box;
+    object-fit: contain;
+}
+.dorm-face-icon {
+    color: var(--cl-text-deep, #3d2010);
+    font-size: 16px;
+}
+/* 阿洛：Codex 寵物 spritesheet 的第一格（8 欄 × 9 列） */
+.dorm-face-codex {
+    background-image: url(../core/assets/codex/codex-spritesheet.webp);
+    background-repeat: no-repeat;
+    background-size: 800% 900%;
+    background-position: 0% 0%;
+    background-color: #dfe9f5;
+    image-rendering: pixelated;
+}
+/* 分身的模型角標 */
+.dorm-badge {
+    position: absolute;
+    right: -1px;
+    bottom: -1px;
+    max-width: 30px;
+    padding: 1px 3px;
+    border-radius: 5px;
+    background: var(--cl-grenadine, #D95122);
+    color: #fff8ee;
+    font-size: 9px;
+    line-height: 1.3;
+    font-weight: bold;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dorm-who {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.dorm-name {
+    font-size: 14px;
+    font-weight: bold;
+    color: var(--cl-text-deep, #3d2010);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.dorm-sub {
+    font-size: 11px;
+    color: var(--cl-cafe-latte, #896645);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.dorm-go {
+    flex-shrink: 0;
+    font-size: 11px;
+    color: rgba(137, 102, 69, 0.55);
+}
+
+/* 鉛筆：桌機 hover 才出現，手機常駐 */
+.dorm-pen {
+    position: absolute;
+    right: 6px;
+    top: 6px;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: rgba(234, 176, 92, 0.18);
+    color: var(--cl-cafe-latte, #896645);
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+.dorm-card:hover .dorm-pen,
+.dorm-card.dorm-editing .dorm-pen { opacity: 1; }
+.dorm-pen:hover { background: rgba(234, 176, 92, 0.38); color: var(--cl-text-deep, #3d2010); }
+
+/* ---- 新住戶那張 ---- */
+.dorm-card.dorm-new {
+    background: none;
+    border-style: dashed;
+    box-shadow: none;
+}
+.dorm-card.dorm-new .dorm-face { background: rgba(234, 176, 92, 0.22); }
+.dorm-card.dorm-new .dorm-name { color: var(--cl-cafe-latte, #896645); }
+
+/* ---- 就地編輯列 ---- */
+.dorm-form {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 0 10px 10px;
+    border-top: 1px dashed rgba(234, 176, 92, 0.5);
+    margin-top: 2px;
+    padding-top: 8px;
+}
+/* 酒館主題對 input/select 寫了 !important 暗底，對衝（scoped 在自己 class 不外洩） */
+#ccr-dorm .dorm-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 7px 9px;
+    border: 1px solid rgba(234, 176, 92, 0.6) !important;
+    border-radius: 6px;
+    background: #ffffff !important;
+    color: var(--cl-text-deep, #3d2010) !important;
+    font-size: 12px;
+    font-family: inherit;
+    height: auto;
+    margin: 0;
+}
+#ccr-dorm .dorm-input:focus {
+    outline: none;
+    border-color: var(--cl-grenadine, #D95122) !important;
+}
+#ccr-dorm .dorm-input.dorm-warn {
+    border-color: var(--cl-grenadine, #D95122) !important;
+    background: #fff3ee !important;
+}
+
+.dorm-form-act {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.dorm-btn {
+    padding: 6px 12px;
+    border: none;
+    border-radius: 6px;
+    background: linear-gradient(135deg, var(--cl-beeswax, #EAB05C), var(--cl-grenadine, #D95122));
+    color: #fff8ee;
+    font-size: 12px;
+    font-weight: bold;
+    font-family: inherit;
+    cursor: pointer;
+}
+.dorm-btn:hover { filter: brightness(1.06); }
+.dorm-btn.dorm-del {
+    background: none;
+    border: 1px solid rgba(217, 81, 34, 0.45);
+    color: var(--cl-grenadine, #D95122);
+    font-weight: normal;
+}
+.dorm-btn.dorm-del:hover { background: rgba(217, 81, 34, 0.10); }
+.dorm-btn.dorm-del.dorm-armed {
+    background: var(--cl-grenadine, #D95122);
+    border-color: var(--cl-grenadine, #D95122);
+    color: #fff8ee;
+    font-weight: bold;
+}
+.dorm-hint {
+    font-size: 11px;
+    color: var(--cl-grenadine, #D95122);
+    min-height: 0;
+}
+
+/* ---- 走廊 ---- */
+.dorm-hall {
+    display: flex;
+    gap: 6px;
+    padding: 8px 12px 10px;
+    background: var(--cl-cream, #fdf7ec);
+    border-top: 1px solid rgba(234, 176, 92, 0.45);
+    flex-shrink: 0;
+}
+.dorm-hall-btn {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 7px 4px;
+    border: 1px solid rgba(234, 176, 92, 0.4);
+    border-radius: 8px;
+    background: #fffdf6;
+    color: var(--cl-cafe-latte, #896645);
+    font-size: 11px;
+    font-family: inherit;
+    cursor: pointer;
+}
+.dorm-hall-btn i { font-size: 14px; }
+.dorm-hall-btn:hover {
+    background: rgba(234, 176, 92, 0.18);
+    color: var(--cl-text-deep, #3d2010);
+}
+
+/* ---- 寬一點就兩欄 ---- */
+@media (min-width: 620px) {
+    #ccr-dorm { width: 560px; }
+    .dorm-list {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        align-content: start;
+    }
+    .dorm-card.dorm-editing { grid-column: 1 / -1; }
+}
+
+/* 手機：鉛筆常駐（沒有 hover 這回事） */
+@media (max-width: 600px) {
+    .dorm-pen { opacity: 1; }
+}

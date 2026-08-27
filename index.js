@@ -250,6 +250,7 @@
     loadCSS(HERE + 'css/os_workbench.css');         // 🛠️ 工作檯
     loadCSS(HERE + 'css/os_spend.css');             // 💰 額度
     loadCSS(HERE + 'css/os_board.css');             // 📝 留言板
+    loadCSS(HERE + 'css/dorm.css');                 // 🏠 宿舍面板
     loadCSS(HERE + 'css/launcher.css');
 
     const FILES = [
@@ -261,6 +262,7 @@
         'core/os_spend_panel.js',  // 💰 額度（OS_SPEND_PANEL，房間送訊息時 record 花費）
         'core/os_board.js',        // 📝 留言板（OS_BOARD，讀 cc-bridge /v1/board）
         'core/os_workbench.js',    // 🛠️ 工作檯（OS_WORKBENCH，用 ClaudeTerminal.sendWorkbench）
+        'core/dorm.js',         // 🏠 宿舍面板（DormPanel，💬 點開的門卡）
     ];
     for (const f of FILES) {
         try { await loadScript(HERE + f); }
@@ -268,7 +270,7 @@
     }
 
     // ====================================================================
-    // 4. 入口 —— 點了開房間選單（Claude / Codex / 蘇景明 / 群聊）
+    // 4. 入口 —— 點了開宿舍面板（一排門卡，點門進房）
     //    桌機：塞進輸入框左邊的 #leftSendForm（跟原本在奧瑞亞時同一個位置）
     //    手機 / 抓不到輸入框：右下角常駐浮球
     //    另註冊 /aurelia-chat 斜線命令 —— 原本在奧瑞亞註冊，QR 欄的 💬 按鈕靠它，接手才不會壞
@@ -286,7 +288,7 @@
         if (btn) return btn;
         btn = document.createElement('div');
         btn.id = 'ccr-launcher';
-        btn.title = 'Claude / Codex 房間';
+        btn.title = '宿舍';
         btn.textContent = '💬';
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -325,7 +327,7 @@
                 ctx.SlashCommandParser.addCommandObject(ctx.SlashCommand.fromProps({
                     name: 'aurelia-chat',
                     callback: () => { try { _openMenu(document.getElementById('qr--bar')); } catch (e) {} return ''; },
-                    helpString: '開啟 Claude / Codex 房間選單',
+                    helpString: '開啟宿舍面板',
                 }));
                 window.__CCR_CMD__ = true;
             }

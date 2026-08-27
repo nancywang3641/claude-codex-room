@@ -421,39 +421,6 @@
     box-shadow: 0 0 12px rgba(217, 81, 34, 0.4);
 }
 
-/* ── 啟動選單（酒館輸入列那顆鈕點開的 Claude/Codex 小選單）── */
-/* 掛在 body 上，不 scoped 在浮窗內 */
-#cw-launcher-menu {
-    position: fixed;
-    z-index: 10001;
-    display: none;
-    flex-direction: column;
-    gap: 2px;
-    padding: 4px;
-    background: #1a1a2e;
-    border: 1px solid rgba(234, 176, 92, 0.4);
-    border-radius: 8px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-    font-family: 'Noto Sans TC', -apple-system, BlinkMacSystemFont, sans-serif;
-}
-
-#cw-launcher-menu .cw-lm-item {
-    background: none;
-    border: none;
-    color: #FFF5E1;
-    font-family: inherit;
-    font-size: 13px;
-    text-align: left;
-    padding: 8px 14px;
-    border-radius: 6px;
-    cursor: pointer;
-    white-space: nowrap;
-}
-
-#cw-launcher-menu .cw-lm-item:hover {
-    background: rgba(255, 255, 255, 0.12);
-}
-
 /* ============================================================
  * 子面板內容：設置 / 會話（工作檯 / 額度 / 留言板在各自 css 檔）
  * 統一暖色紙皮,顏色吃 --cl-* 變數（Codex 房自動轉冷色）。

@@ -10,7 +10,6 @@
     const WIN_ID = 'aurelia-chat-window';
 
     let _winEl = null;
-    let _menuEl = null;              // Claude/Codex 啟動選單
     let _provider = 'claude';        // 'claude' | 'codex'
     let _isOpen = false;
     let _subPanel = null;            // 當前開啟的子面板名（null = 沒開）
@@ -723,7 +722,7 @@
         _winEl.classList.toggle('cw-group',    provider === 'group');
         _winEl.style.display = 'flex';
         _isOpen = true;
-        if (_menuEl) _menuEl.style.display = 'none';
+        if (window.DormPanel && typeof window.DormPanel.close === 'function') window.DormPanel.close();
         ChatWindow.closeSubPanel();
         // 進房間靜音大廳 BGM（窗本身不放 BGM）
         if (window.VoidAmbient && typeof window.VoidAmbient.pauseBgm === 'function') {
@@ -788,42 +787,13 @@
         }
     };
 
-    // 啟動選單：點酒館輸入列那顆鈕 → 跳小選單選 Claude / Codex
+    // 三個入口（輸入列那顆鈕、手機浮球、斜線命令）都走這支；開的是宿舍面板
     ChatWindow.toggleLauncherMenu = function (anchorEl) {
-        if (_menuEl && _menuEl.style.display !== 'none') {
-            _menuEl.style.display = 'none';
-            return;
+        if (window.DormPanel && typeof window.DormPanel.toggle === 'function') {
+            window.DormPanel.toggle(anchorEl);
+        } else {
+            console.warn('[ChatWindow] 宿舍面板尚未載入');
         }
-        if (!_menuEl) {
-            _menuEl = document.createElement('div');
-            _menuEl.id = 'cw-launcher-menu';
-            _menuEl.innerHTML =
-                '<button class="cw-lm-item" data-p="claude" type="button">🦀 Claude 的房間</button>' +
-                '<button class="cw-lm-item" data-p="codex" type="button">🔷 Codex 的房間</button>' +
-                '<button class="cw-lm-item" data-p="deepseek" type="button">🟢 蘇景明 的房間</button>' +
-                '<button class="cw-lm-item" data-p="group" type="button">👥 群聊區</button>';
-            document.body.appendChild(_menuEl);
-            _menuEl.querySelectorAll('.cw-lm-item').forEach(b => {
-                b.addEventListener('click', () => {
-                    _menuEl.style.display = 'none';
-                    ChatWindow.open(b.dataset.p);
-                });
-            });
-            document.addEventListener('click', (e) => {
-                if (!_menuEl || _menuEl.style.display === 'none') return;
-                if (_menuEl.contains(e.target)) return;
-                if (e.target && e.target.closest && e.target.closest('#aurelia-chat-launcher')) return;
-                _menuEl.style.display = 'none';
-            });
-        }
-        _menuEl.style.display = 'flex';
-        const r = anchorEl.getBoundingClientRect();
-        const mw = _menuEl.offsetWidth || 170;
-        const mh = _menuEl.offsetHeight || 84;
-        let left = r.left;
-        if (left + mw > window.innerWidth) left = window.innerWidth - mw - 8;
-        _menuEl.style.left = Math.max(8, left) + 'px';
-        _menuEl.style.top = Math.max(8, r.top - mh - 6) + 'px';
     };
 
     const _SUBPANEL_TITLES = {
