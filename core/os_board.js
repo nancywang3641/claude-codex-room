@@ -223,6 +223,29 @@
         throw firstErr;
     }
 
+    // 她的殼沒有 console，連不上的時候把現場寫進本機，之後直接從她電腦上讀。
+    // 只留一筆、覆蓋寫；不含密鑰。
+    function _writeDiag(obj) {
+        let line;
+        try { line = JSON.stringify(obj); } catch (_) { return; }
+        try { (window.parent || window).localStorage.setItem('ccr_board_diag', line); } catch (_) {}
+        try { localStorage.setItem('ccr_board_diag', line); } catch (_) {}
+        try { console.warn('[留言板診斷]', line); } catch (_) {}
+    }
+
+    /** 同源的東西連不連得到——連自己家都連不到就是這一層整個出不去 */
+    async function _probeSameOrigin() {
+        let origin = '';
+        try { origin = ((window.parent || window).location || location).origin || ''; } catch (_) {}
+        if (!origin || origin === 'null') return 'no-origin';
+        try {
+            const r = await fetch(origin + '/favicon.ico', { method: 'GET', cache: 'no-store' });
+            return 'ok ' + r.status;
+        } catch (e) {
+            return 'fail ' + ((e && e.name) || '') + ' ' + ((e && e.message) || '');
+        }
+    }
+
     async function _fetchPosts() {
         const url = _boardUrl();
         const cfg = _cfg();
@@ -287,6 +310,28 @@
             _renderBoard(container, posts);
         } catch (e) {
             const msg = (e && e.message) ? String(e.message) : String(e);
+            // 把現場記下來（她那邊看不到 console，這筆我之後直接去她電腦上讀）
+            try {
+                const probe = await _probeSameOrigin();
+                let framed = 'unknown', href = '', top = '';
+                try { framed = String(window.top !== window.self); } catch (_) { framed = 'cross'; }
+                try { href = String(location.href).slice(0, 140); } catch (_) {}
+                try { top = String((window.parent || window).location.href).slice(0, 140); } catch (_) { top = '(讀不到外層)'; }
+                _writeDiag({
+                    t: new Date().toISOString(),
+                    ver: 10,
+                    err: ((e && e.name) || '?') + ': ' + msg.slice(0, 160),
+                    via: _lastVia,
+                    host: _hostLabel(),
+                    framed: framed,
+                    here: href,
+                    outer: top,
+                    outerFetch: !!(_outerWin() && _outerWin().fetch),
+                    sameOrigin: probe,
+                    online: (typeof navigator !== 'undefined') ? navigator.onLine : '?',
+                    ua: (typeof navigator !== 'undefined') ? navigator.userAgent.slice(0, 100) : '',
+                });
+            } catch (_) {}
             container.innerHTML = `
                 <div class="ob-container">
                     ${_heartbeatHtml(null, msg)}
