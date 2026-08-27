@@ -218,6 +218,123 @@
     };
     ClaudeTerminal.getProvider = function() { return _provider; };
 
+    // ============== 住戶（宿舍）==============
+    // 每個 AI 是一位住戶：內建四位（丹 / 阿洛 / 蘇景明 / 群聊區）+ 使用者自訂的 Claude 分身。
+    // 住戶名冊存在 cfg.residents（os_claude_room_config）。那份 cfg 是跟別的模組共用的，
+    // 所以寫入一律「當場讀最新的 → 只動 residents → 存回」，不拿舊快照整份蓋。
+    const BUILTIN_RESIDENTS = [
+        { id: 'dan',        name: '丹',     provider: 'claude',   modelId: '', builtin: true },
+        { id: 'aluo',       name: '阿洛',   provider: 'codex',    modelId: '', builtin: true },
+        { id: 'sujingming', name: '蘇景明', provider: 'deepseek', modelId: '', builtin: true },
+        { id: 'group',      name: '群聊區', provider: 'group',    modelId: '', builtin: true },
+    ];
+    const RESIDENT_PROVIDERS = ['claude', 'codex', 'deepseek', 'group'];
+    /** provider → 該 provider 的內建住戶 id（沒指定住戶時東西歸誰） */
+    const BUILTIN_OF_PROVIDER = { claude: 'dan', codex: 'aluo', deepseek: 'sujingming', group: 'group' };
+    ClaudeTerminal.BUILTIN_OF_PROVIDER = BUILTIN_OF_PROVIDER;
+    const RESIDENT_NAME_MAX = 20;
+
+    function _normResident(r) {
+        if (!r || !r.id) return null;
+        const builtin = BUILTIN_RESIDENTS.some(b => b.id === r.id);
+        return {
+            id: String(r.id),
+            name: String(r.name == null ? '' : r.name).trim().slice(0, RESIDENT_NAME_MAX) || '住戶',
+            provider: RESIDENT_PROVIDERS.includes(r.provider) ? r.provider : 'claude',
+            modelId: String(r.modelId || '').trim(),
+            builtin,
+        };
+    }
+
+    /** 讀最新的房間設定；OS_SETTINGS 還沒就緒回 null */
+    function _cfgRead() {
+        if (!window.OS_SETTINGS || typeof window.OS_SETTINGS.getClaudeRoomConfig !== 'function') return null;
+        try { return window.OS_SETTINGS.getClaudeRoomConfig() || null; } catch (_) { return null; }
+    }
+
+    /** 只把 residents 寫回設定（其餘欄位原封不動） */
+    function _cfgWriteResidents(list) {
+        const cfg = _cfgRead();
+        if (!cfg || typeof window.OS_SETTINGS.saveClaudeRoomConfig !== 'function') return false;
+        cfg.residents = list;
+        try { window.OS_SETTINGS.saveClaudeRoomConfig(cfg); return true; }
+        catch (e) { console.warn('[ClaudeTerminal] 住戶名冊存檔失敗:', e); return false; }
+    }
+
+    /** 全部住戶（第一次呼叫會把內建四位寫進設定） */
+    ClaudeTerminal.listResidents = function() {
+        const cfg = _cfgRead();
+        const raw = (cfg && Array.isArray(cfg.residents)) ? cfg.residents : null;
+        if (!raw) {
+            const seeded = BUILTIN_RESIDENTS.map(_normResident);
+            _cfgWriteResidents(seeded);
+            return seeded;
+        }
+        const list = raw.map(_normResident).filter(Boolean);
+        // 自癒：內建四位要是被舊資料弄丟就補回原位（使用者改過的名字不動）
+        let repaired = false;
+        BUILTIN_RESIDENTS.forEach((b, i) => {
+            if (!list.some(r => r.id === b.id)) {
+                list.splice(Math.min(i, list.length), 0, _normResident(b));
+                repaired = true;
+            }
+        });
+        if (repaired) _cfgWriteResidents(list);
+        return list;
+    };
+
+    ClaudeTerminal.getResident = function(id) {
+        if (!id) return null;
+        return ClaudeTerminal.listResidents().find(r => r.id === id) || null;
+    };
+
+    /**
+     * 有 id 就更新、沒有就新增一位，回傳存好的住戶（存不成回 null）。
+     * 內建四位只准改名字，provider 與模型鎖死。
+     */
+    ClaudeTerminal.saveResident = function(resident) {
+        if (!resident) return null;
+        const list = ClaudeTerminal.listResidents();
+        const name = String(resident.name == null ? '' : resident.name).trim();
+        let next;
+        if (resident.id) {
+            const idx = list.findIndex(r => r.id === resident.id);
+            if (idx < 0) return null;
+            const cur = list[idx];
+            next = _normResident(cur.builtin ? {
+                id: cur.id, name: name || cur.name, provider: cur.provider, modelId: cur.modelId,
+            } : {
+                id: cur.id,
+                name: name || cur.name,
+                provider: resident.provider || cur.provider,
+                modelId: resident.modelId === undefined ? cur.modelId : resident.modelId,
+            });
+            list[idx] = next;
+        } else {
+            let id = 'r_' + Date.now().toString(36);
+            if (list.some(r => r.id === id)) id += Math.random().toString(36).slice(2, 5);
+            next = _normResident({
+                id,
+                name: name,
+                provider: resident.provider || 'claude',
+                modelId: resident.modelId || '',
+            });
+            list.push(next);
+        }
+        if (!_cfgWriteResidents(list)) return null;
+        return next;
+    };
+
+    /** 刪住戶；內建四位刪不掉，回 false */
+    ClaudeTerminal.deleteResident = function(id) {
+        if (!id) return false;
+        const list = ClaudeTerminal.listResidents();
+        const idx = list.findIndex(r => r.id === id);
+        if (idx < 0 || list[idx].builtin) return false;
+        list.splice(idx, 1);
+        return _cfgWriteResidents(list);
+    };
+
     // ============== Multi-conv 系統 ==============
     // Claude：兩 tab 'max'（訂閱版、PC dancc CLI）/ 'api'（VPS cc-bridge 等）。
     // Codex：單 tab 'codex'。localStorage 索引 + IndexedDB(studio_chats) 訊息
