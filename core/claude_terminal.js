@@ -562,6 +562,25 @@ ${withOthers}
         return r ? r.id : (BUILTIN_OF_PROVIDER[provider || _provider] || 'dan');
     };
 
+    // ---- 每位住戶自己的家 ----
+    // CLI 的 auto-memory（.claude/projects/<資料夾>/memory/）與 session 都按 cwd 分家，
+    // 所以「一位住戶一個資料夾」就等於給他一份只屬於他的長期記憶——跟大丹小丹按專案
+    // 分開是同一套機制。不帶的話全部住戶會落到橋的 cli_cwd 那一個共用資料夾，四隻的
+    // 記憶會寫進同一份索引裡分不開。群聊與私聊都帶同一個值，兩邊才是同一個人。
+    const RESIDENT_HOME_ROOT = 'D:/residents';
+    /** 某位住戶的工作資料夾。回空字串＝認不得這個 id，交給橋用預設。 */
+    ClaudeTerminal.residentHome = function(rid) { return _residentHome(rid); };
+    function _residentHome(rid) {
+        const id = String(rid || '').trim();
+        // 這個值會直接變成 CLI 的工作目錄，只放行 id 產生器實際會吐的字元集
+        // （內建是 dan/aluo/sujingming，自訂是 r_<base36>）。認不得就回空字串，
+        // 橋那邊會退回原本的 cli_cwd，不會把奇怪的路徑當資料夾建出來。
+        if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) return '';
+        const cfg = _cfgRead() || {};
+        const root = String(cfg.residentHome || RESIDENT_HOME_ROOT).replace(/[\/\\]+$/, '');
+        return root + '/' + id;
+    }
+
     // ---- 群聊 → 自己房間的回流 ----
     // 群聊跟私聊是兩條各自 resume 的 session，同一位住戶在兩邊等於兩個人：桌上講過的
     // 事，回房間之後自己不知道。收的是他「自己說過的原話」，不是摘要——被轉述一遍
@@ -1153,6 +1172,9 @@ ${withOthers}
         };
         if (_provider === 'codex')    body.cc_backend = 'codex';     // cc-bridge 靠這個欄位分流到 codex CLI
         if (_provider === 'deepseek') body.cc_backend = 'deepseek';  // 蘇景明走 cc-bridge 的 deepseek backend(CodeWhale TUI)
+        // 他自己的家。群聊那邊帶的是同一個值——同一位住戶在兩處共用一份 auto-memory。
+        const _home = _residentHome(ClaudeTerminal.getActiveResidentId());
+        if (_home) body.cc_cwd = _home;
         // 設成「只聊天」的分身,在他自己的房間裡也一樣走近裸 SDK ——
         // 不然同一位住戶在群聊裡沒工作服、進房間又穿回去,那就不是同一個人了。
         const _selfRes = (typeof ClaudeTerminal.getActiveResident === 'function')
@@ -1401,6 +1423,10 @@ ${withOthers}
         };
         if (provider === 'codex')    body.cc_backend = 'codex';
         if (provider === 'deepseek') body.cc_backend = 'deepseek';  // 蘇景明走 CodeWhale TUI
+        // 他自己的家，跟他私聊那條帶同一個值：桌上跟房間裡是同一個人，就該共用同一份
+        // 記憶。舊版呼叫（LP.chat 那些）沒有 residentId，不帶，行為完全照舊。
+        const _homeG = _residentHome(opts.residentId);
+        if (_homeG) body.cc_cwd = _homeG;
         // 「只聊天」的分身改走 Agent SDK 的近裸模式：橋那邊會把 system 從 messages
         // 抽出來當真正的系統指令（而不是拼成一坨文字塞進 prompt），並且卸掉
         // Claude Code 的內建工具、CLAUDE.md 與 MCP。沒設的人完全照舊走 CLI。

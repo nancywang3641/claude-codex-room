@@ -226,7 +226,7 @@
     // 手機瀏覽器把這批靜態檔快取得很兇,沒版本參數的話核心檔更新永遠到不了手機
     // (症狀:桌機是新版、手機停在幾個月前,甚至 chat_window 跟 chat_room 各停在不同版本)。
     // 檔案有改就把 VER +1,跟奧瑞亞 sw.js 的 CACHE_VERSION 同一套習慣。
-    const VER = 33;
+    const VER = 34;
 
     function loadCSS(href) {
         if (document.querySelector('link[data-ccr="' + href + '"]')) return;
