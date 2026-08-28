@@ -19,7 +19,8 @@
     };
 
     let _transcript = [];   // [{ speaker:'rae'|'recap'|<residentId>, content, ts, usage? }]
-    let _seen = {};         // residentId → 已被送到第幾則 transcript index（沒有的當 -1）
+    const SEEN_KEY = 'group_seen';   // 閱讀進度：residentId → 已被送到第幾則 transcript index
+    let _seen = {};         // 沒有記錄的當 -1
     let _loaded = false;    // load() 跑過沒 —— 沒跑過就往 _transcript 推東西會蓋掉 OS_DB 那份
     let _busy = false;
     let _streamEl = null;   // 渲染目標（窗內 chat-stream）
@@ -110,6 +111,23 @@
 
     function _seenOf(rid) { return _seen[rid] == null ? -1 : _seen[rid]; }
 
+    // 🚨 閱讀進度一定要落地。以前它只活在記憶體裡，每次 load() 都用「假設大家都跟上了」
+    // 重建 —— 於是「在宿舍面板推了一則入席告示 → 打開群聊窗（觸發 load）→ 發訊息」
+    // 這條路上，那則告示會在 load 時被算成已讀，永遠送不出去。三個人同時回報
+    // 「沒收到離席通知」就是這個。
+    function _saveSeen() {
+        try { _lsSet(SEEN_KEY, JSON.stringify(_seen)); } catch (_) {}
+    }
+    function _loadSeen() {
+        try {
+            const raw = _lsGet(SEEN_KEY);
+            const o = raw ? JSON.parse(raw) : null;
+            return (o && typeof o === 'object' && !Array.isArray(o)) ? o : null;
+        } catch (_) { return null; }
+    }
+    /** 推進某人的閱讀進度並落地 —— 直接寫 _seen[x] 的地方都要換成這支 */
+    function _markSeen(rid, idx) { _seen[rid] = idx; _saveSeen(); }
+
     function _lsGet(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }
     function _lsSet(k, v) {
         try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (_) {}
@@ -150,17 +168,25 @@
         });
         if (migrated) _save();
 
-        // 各人的 session 都已續到上次存檔點 → seen 設為 transcript 末端
-        _seen = {};
-        const end = _transcript.length - 1;
-        _seatIds().forEach(function (id) { _seen[id] = end; });
-        // 退席後又回來的人也不能重看整段（他的 session 裡本來就有）
-        _transcript.forEach(function (m) {
-            if (m && m.speaker !== 'rae' && m.speaker !== 'recap' && m.speaker !== 'sys'
-                && _seen[m.speaker] == null) {
-                _seen[m.speaker] = end;
-            }
-        });
+        // 閱讀進度優先用存下來的那份 —— 每次 load 都重算的話，
+        // load 之前剛推進去、還沒送給任何人的告示會被當成已讀。
+        const saved = _loadSeen();
+        if (saved) {
+            _seen = saved;
+        } else {
+            // 還沒有存檔（第一次跑到新版）：沿用舊行為當一次性遷移，
+            // 把在場的人都當成已經跟上了，免得他們突然被倒整段舊逐字稿。
+            _seen = {};
+            const end = _transcript.length - 1;
+            _seatIds().forEach(function (id) { _seen[id] = end; });
+            _transcript.forEach(function (m) {
+                if (m && m.speaker !== 'rae' && m.speaker !== 'recap' && m.speaker !== 'sys'
+                    && _seen[m.speaker] == null) {
+                    _seen[m.speaker] = end;
+                }
+            });
+            _saveSeen();
+        }
         _loaded = true;
     };
 
@@ -186,7 +212,11 @@
         // 主詞一定要是 Rae。「阿洛 離席了」是主動語態，他們會讀成他自己決定走的，
         // 然後開始猜他是不是不高興 —— 實際上是她按了那顆椅子。用詞跟門卡上那顆鈕一致。
         const text = 'Rae 把 ' + who + (seated ? ' 請上桌了' : ' 請下桌了');
-        const note = seated ? '' : '他已經不在這張桌上，不會再回話';
+        // 順便報一次現在桌上有誰：他們 session 開頭那份同桌名單是當時寫死的，
+        // 之後不會變 —— 不講的話他們會一直以為已經走掉的人還坐在那，只是沒說話。
+        const roster = _seats().map(function (x) { return x.name; }).join('、');
+        const note = (seated ? '' : '他已經不在這張桌上，不會再回話。')
+                   + (roster ? '現在桌上是：' + roster + '。' : '現在桌上沒有人了。');
         return _announce(text, note).catch(function (e) {
             console.warn('[ChatGroup] 入席告示失敗：', e);
         });
@@ -615,7 +645,7 @@
         const seenAt = _transcript.length - 1;
         if (!delta.trim()) {
             if (!opts.gameTurn) {
-                _seen[rid] = seenAt;
+                _markSeen(rid, seenAt);
                 return { spoke: false, failed: false, markers: {} };
             }
             // 遊戲回合沒新增量（例：開局先手的第一手）→ 催落子
@@ -683,7 +713,7 @@
         const reply = (result.reply || '').trim();
         if (/^\[PASS\]$/i.test(reply)) {
             if (typingWrap && typingWrap.parentNode) typingWrap.parentNode.removeChild(typingWrap);
-            _seen[rid] = seenAt;
+            _markSeen(rid, seenAt);
             return { spoke: false, failed: false, markers: {} };
         }
 
@@ -723,7 +753,7 @@
         if (!transcriptText && !imgAtts) {
             // 整則只有 <lobbyPanel>、沒文字沒標記沒圖：移掉空氣泡，不進 transcript
             if (typingWrap && typingWrap.parentNode) typingWrap.parentNode.removeChild(typingWrap);
-            _seen[rid] = seenAt;
+            _markSeen(rid, seenAt);
             await _flushRename(rid, markers, renamed);
             return { spoke: true, failed: false, markers: markers };
         }
@@ -741,7 +771,7 @@
         const turnEntry = { speaker: rid, content: transcriptText, ts: Date.now(), usage: result.usage || null };
         if (imgAtts) turnEntry.attachments = imgAtts;
         _transcript.push(turnEntry);
-        _seen[rid] = seenAt;
+        _markSeen(rid, seenAt);
         _save();
         await _flushRename(rid, markers, renamed);
         // 他點名了誰 —— 上層據此決定要不要把那些人叫進來接話（@ 自己不算）
@@ -1061,6 +1091,7 @@
             // transcript reset + 塞入摘要;_seen 清空(全部當 -1),下次 sendUserMessage 會把摘要 + 新訊息一起送
             _transcript = [{ speaker: 'recap', content: recap, ts: Date.now() }];
             _seen = {};
+            _saveSeen();
             _save();
             if (_streamEl) ChatGroup.hydrate(_streamEl);
             restore();
@@ -1082,6 +1113,7 @@
         _busy = false;
         _transcript = [];
         _seen = {};
+        _saveSeen();
         _clearAllSids();
         _save();
         if (_streamEl) ChatGroup.hydrate(_streamEl);
