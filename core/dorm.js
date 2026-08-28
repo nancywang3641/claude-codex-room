@@ -8,8 +8,6 @@
  */
 (function (DormPanel) {
     'use strict';
-
-    const PANEL_ID = 'ccr-dorm';
     const NAME_MAX = 20;
 
     let _el = null;
@@ -17,8 +15,6 @@
     let _delArmed = null;     // 兩段確認：已經按過第一下的住戶 id
     let _delTimer = null;
     let _opening = false;     // 擋連點兩張門卡
-    let _docBound = false;
-    let _openedAt = 0;
 
     function _CT() { return window.ClaudeTerminal || null; }
 
@@ -151,11 +147,7 @@
         const CT = _CT();
         const all = (CT && typeof CT.listResidents === 'function') ? CT.listResidents() : [];
         const newOpen = _editing === '__new__' ? ' dorm-editing' : '';
-        let h = '<div class="dorm-head">'
-            + '<span class="dorm-title">宿舍</span>'
-            + '<button type="button" class="dorm-x" title="關起來"><i class="fa-solid fa-xmark"></i></button>'
-            + '</div>';
-        h += '<div class="dorm-list">';
+        let h = '<div class="dorm-list">';
         all.forEach(r => { h += _cardHtml(r, all); });
         h += '<div class="dorm-card dorm-new' + newOpen + '" data-id="__new__">'
             + '<button type="button" class="dorm-door dorm-door-new">'
@@ -173,8 +165,6 @@
             + '</div>';
         _el.innerHTML = h;
         _bind();
-        // 展開編輯列會把面板撐高，位置要跟著重算，不然底下的走廊會被擠出畫面
-        if (DormPanel.isOpen()) _position();
     }
 
     function _disarmDelete() {
@@ -183,7 +173,8 @@
     }
 
     function _bind() {
-        _el.querySelector('.dorm-x').addEventListener('click', DormPanel.close);
+        const x = _el.querySelector('.dorm-x');   // 嵌進主窗之後就沒有這顆了
+        if (x) x.addEventListener('click', DormPanel.close);
 
         _el.querySelectorAll('.dorm-card').forEach(card => {
             const id = card.dataset.id;
@@ -325,109 +316,66 @@
         if (!r) return;
         _armOpening();
         CT.setActiveResident(r.id);
-        DormPanel.close();
-        Promise.resolve(CW.open(r.provider)).catch(e => console.warn('[DormPanel] 進房失敗', e));
+        // 就地換頁 —— 以前這裡是關掉宿舍浮層、再開一個房間浮窗，
+        // 兩個窗各自定位，畫面上就成了兩塊各飄各的東西。
+        Promise.resolve(CW.showRoom(r.provider)).catch(e => console.warn('[DormPanel] 進房失敗', e));
     }
 
     function _enterHall(panel) {
         const CW = window.ChatWindow;
         if (!CW || _opening) return;
         _armOpening();
-        DormPanel.close();
-        // 先讓房間開起來（open 的同步段已經把舊子面板收掉），再馬上把要去的那頁疊上去。
-        // 不等 open 的 promise：房間讀歷史可能要好幾秒（進過群聊之後特別慢），
-        // 等它等於按了沒反應。
-        const opening = CW.open('claude');
+        // 走廊那三個（工作檯／留言板／額度）是主窗的子面板，窗已經開著，直接疊上去就好。
+        // 不必先把房間讀起來 —— 那會多等好幾秒（進過群聊之後特別慢），而且看完子面板
+        // 按「‹ 返回」本來就該回到宿舍，不是掉進某個房間。
         if (typeof CW.openSubPanel === 'function') CW.openSubPanel(panel);
-        Promise.resolve(opening).catch(e => console.warn('[DormPanel] 進房失敗', e));
     }
 
-    function _ensureEl() {
-        if (_el) return _el;
-        _el = document.createElement('div');
-        _el.id = PANEL_ID;
-        // 面板內的點擊不往外冒：展開編輯列會把 innerHTML 整份換掉，等事件冒到 document 時
-        // 被點的那個節點已經不在面板裡了，「點外面關閉」那條會誤判成點外面、把面板自己關掉。
-        _el.addEventListener('click', (e) => e.stopPropagation());
-        document.body.appendChild(_el);
-        if (!_docBound) {
-            _docBound = true;
-            document.addEventListener('click', (e) => {
-                if (!DormPanel.isOpen()) return;
-                // 開面板的那一下會在 document 上再響一次（酒館的 jQuery 會自己補派一輪，
-                // 原生 stopPropagation 攔不住），剛開的頭幾百毫秒一律不當成「點外面」
-                if (Date.now() - _openedAt < 400) return;
-                if (_el.contains(e.target)) return;
-                if (e.target && e.target.closest && e.target.closest('#ccr-launcher')) return;
-                DormPanel.close();
-            });
-            document.addEventListener('keydown', (e) => {
-                if (e.key === 'Escape' && DormPanel.isOpen()) DormPanel.close();
-            });
-            window.addEventListener('resize', () => {
-                if (DormPanel.isOpen()) _position(_anchorEl);
-            });
-        }
-        return _el;
-    }
-
-    let _anchorEl = null;
-
-    function _position(anchor) {
-        if (!_el) return;
-        _anchorEl = anchor || _anchorEl;
-        if (window.matchMedia('(max-width: 600px)').matches) {
-            _el.classList.add('dorm-mobile');
-            const mw = _el.offsetWidth, mh = _el.offsetHeight;
-            _el.style.left = Math.max(8, (window.innerWidth - mw) / 2) + 'px';
-            _el.style.top = Math.max(8, (window.innerHeight - mh) / 2) + 'px';
-            return;
-        }
-        _el.classList.remove('dorm-mobile');
-        const rect = (_anchorEl && _anchorEl.getBoundingClientRect) ? _anchorEl.getBoundingClientRect() : null;
-        const w = _el.offsetWidth || 360;
-        const h = _el.offsetHeight || 420;
-        if (!rect || (!rect.width && !rect.height)) {
-            _el.style.left = Math.max(8, (window.innerWidth - w) / 2) + 'px';
-            _el.style.top = Math.max(8, (window.innerHeight - h) / 2) + 'px';
-            return;
-        }
-        let left = rect.left;
-        if (left + w > window.innerWidth - 8) left = window.innerWidth - w - 8;
-        let top = rect.top - h - 8;
-        if (top < 8) top = Math.min(rect.bottom + 8, window.innerHeight - h - 8);
-        _el.style.left = Math.max(8, left) + 'px';
-        _el.style.top = Math.max(8, top) + 'px';
-    }
-
-    DormPanel.isOpen = function () {
-        return !!(_el && _el.classList.contains('dorm-on'));
-    };
-
-    DormPanel.close = function () {
-        _disarmDelete();
-        _editing = null;
-        if (_el) _el.classList.remove('dorm-on');
-    };
-
-    DormPanel.open = function (anchorEl) {
-        _openedAt = Date.now();
-        _ensureEl();
+    /**
+     * 把門卡畫進主窗的宿舍頁。以前 DormPanel 自己造一個 #ccr-dorm 浮層、自己算座標、
+     * 自己處理「點外面關掉」—— 那套整組拿掉了，現在它只負責內容。
+     */
+    DormPanel.renderInto = function (container) {
+        if (!container) return;
+        _el = container;
         _editing = null;
         _disarmDelete();
         _render();
-        _el.classList.add('dorm-on');
-        _position(anchorEl || document.getElementById('ccr-launcher'));
     };
 
-    DormPanel.toggle = function (anchorEl) {
-        if (DormPanel.isOpen()) DormPanel.close();
-        else DormPanel.open(anchorEl);
+    // 以下三支保留原本的名字（輸入列那顆鈕、手機浮球、斜線命令都在叫它們），
+    // 但實作全部轉給主窗 —— 宿舍已經是主窗的一頁，不是獨立的東西。
+    DormPanel.open = function () {
+        const CW = window.ChatWindow;
+        if (CW && typeof CW.openDorm === 'function') CW.openDorm();
     };
 
-    /** 住戶名字改了、面板開著就重畫 */
+    DormPanel.toggle = function () {
+        const CW = window.ChatWindow;
+        if (!CW) return;
+        // 已經開著而且正停在宿舍頁 → 收起來；其他情況一律帶她回宿舍
+        if (typeof CW.isOpen === 'function' && CW.isOpen()
+            && typeof CW.getView === 'function' && CW.getView() === 'dorm') {
+            CW.close();
+        } else if (typeof CW.openDorm === 'function') {
+            CW.openDorm();
+        }
+    };
+
+    DormPanel.close = function () {
+        const CW = window.ChatWindow;
+        if (CW && typeof CW.close === 'function') CW.close();
+    };
+
+    DormPanel.isOpen = function () {
+        const CW = window.ChatWindow;
+        return !!(CW && typeof CW.isOpen === 'function' && CW.isOpen()
+                  && typeof CW.getView === 'function' && CW.getView() === 'dorm');
+    };
+
+    /** 住戶名字改了、正停在宿舍頁就重畫 */
     DormPanel.refresh = function () {
-        if (DormPanel.isOpen()) _render();
+        if (DormPanel.isOpen() && _el) _render();
     };
 
     console.log('[DormPanel] 宿舍面板已載入');

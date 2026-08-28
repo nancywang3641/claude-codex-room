@@ -26,6 +26,47 @@
     box-shadow: none;
 }
 #aurelia-chat-window.cw-window.cw-embedded .cw-close { display: none; }
+
+/* ---- 主窗的兩頁：宿舍（門卡）／房間（對話）----
+   一個窗、兩頁，點門卡就地切過去，標題列的「‹」切回來。
+   以前是兩個獨立浮層，同時開著會在畫面上疊成兩塊各飄各的。 */
+#aurelia-chat-window .cw-dorm {
+    display: none;
+    flex: 1;
+    min-height: 0;
+    flex-direction: column;
+    overflow: hidden;
+}
+#aurelia-chat-window.cw-view-dorm .cw-dorm { display: flex; }
+#aurelia-chat-window.cw-view-dorm .cw-body { display: none; }
+
+/* 返回鍵只在房間頁出現 —— 停在宿舍就是最外層，沒有「回去」可言 */
+#aurelia-chat-window .cw-back {
+    display: none;
+    width: 26px;
+    height: 26px;
+    margin-right: 6px;
+    padding: 0;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 6px;
+    background: rgba(255, 245, 225, 0.08);
+    color: rgba(255, 245, 225, 0.75);
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+}
+#aurelia-chat-window:not(.cw-view-dorm) .cw-back { display: flex; }
+#aurelia-chat-window .cw-back:hover { background: rgba(255, 245, 225, 0.18); color: #FFF5E1; }
+
+/* 宿舍頁的工具列只留「設置」：工作檯／留言板／額度走廊上就有，會話與摘要是房間的事 */
+#aurelia-chat-window.cw-view-dorm .cw-tool-btn[data-panel="workbench"],
+#aurelia-chat-window.cw-view-dorm .cw-tool-btn[data-panel="spend"],
+#aurelia-chat-window.cw-view-dorm .cw-tool-btn[data-panel="board"],
+#aurelia-chat-window.cw-view-dorm .cw-tool-btn[data-panel="recents"],
+#aurelia-chat-window.cw-view-dorm .cw-tool-compact { display: none; }
 .cw-tab-bar { display: none; }
 #aurelia-chat-window.cw-window.cw-embedded .cw-tab-bar {
     display: flex; gap: 6px; padding: 8px 10px 0; flex-shrink: 0;

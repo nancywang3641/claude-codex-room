@@ -68,6 +68,7 @@
         el.className = 'cw-window';
         el.innerHTML = `
             <div class="cw-titlebar" id="cw-titlebar">
+                <button class="cw-back" id="cw-back" type="button" title="回宿舍"><i class="fa-solid fa-chevron-left"></i></button>
                 <span class="cw-identity" id="cw-identity">${_identityText('claude')}</span>
                 <div class="cw-toolbar">
                     <button class="cw-tool-btn" data-panel="settings"  type="button" title="設置"><i class="fa-solid fa-gear"></i></button>
@@ -79,6 +80,7 @@
                 </div>
                 <button class="cw-close" id="cw-close" type="button" title="關閉">✕</button>
             </div>
+            <div class="cw-dorm" id="cw-dorm"></div>
             <div class="cw-body" id="cw-body">
                 <div class="cw-canvas" id="cw-canvas" style="display:none;">
                     <div class="cw-canvas-bar">
@@ -129,6 +131,7 @@
         document.body.appendChild(el);
 
         el.querySelector('#cw-close').addEventListener('click', () => ChatWindow.close());
+        el.querySelector('#cw-back').addEventListener('click', () => ChatWindow.showDorm());
         el.querySelector('#cw-subpanel-close').addEventListener('click', () => ChatWindow.closeSubPanel());
         el.querySelectorAll('.cw-tool-btn').forEach(b => {
             b.addEventListener('click', () => {
@@ -792,7 +795,8 @@
         _winEl.classList.toggle('cw-group',    provider === 'group');
         _winEl.style.display = 'flex';
         _isOpen = true;
-        if (window.DormPanel && typeof window.DormPanel.close === 'function') window.DormPanel.close();
+        _winEl.classList.remove('cw-view-dorm');   // 進房間就離開宿舍頁
+        _view = 'room';
         ChatWindow.closeSubPanel();
         // 進房間靜音大廳 BGM（窗本身不放 BGM）
         if (window.VoidAmbient && typeof window.VoidAmbient.pauseBgm === 'function') {
@@ -801,6 +805,65 @@
         _syncTabBar();
         await _loadRoom(provider);
     }
+
+    // ── 主窗的兩頁：宿舍（門卡）跟房間（對話）──
+    // 以前這兩個是各自獨立的浮層，同時開著會在畫面上疊成兩個窗。
+    // 現在是同一個窗的兩頁，點門卡就地切過去，標題列的「‹」切回來。
+    let _view = 'room';
+
+    function _applyView(v) {
+        _view = (v === 'dorm') ? 'dorm' : 'room';
+        if (!_winEl) return;
+        _winEl.classList.toggle('cw-view-dorm', _view === 'dorm');
+        if (_view === 'dorm') {
+            const idEl = _winEl.querySelector('#cw-identity');
+            if (idEl) idEl.textContent = '宿舍';
+            ChatWindow.closeSubPanel();
+        }
+    }
+
+    ChatWindow.getView = function () { return _view; };
+
+    /** 把窗擺好、顯示出來（open 跟 openDorm 共用這段） */
+    function _ensureWindowOnScreen() {
+        if (!_winEl) _winEl = _buildWindow();
+        // 浮窗模式：若先前被嵌進手機殼，復原成浮窗（尺寸/位置/回 body）
+        if (_winEl.classList.contains('cw-embedded')) {
+            _winEl.classList.remove('cw-embedded');
+            const size = _sizeForViewport(); const pos = _centerPos(size);
+            _winEl.style.width = size.w + 'px'; _winEl.style.height = size.h + 'px';
+            _winEl.style.left = pos.left + 'px'; _winEl.style.top = pos.top + 'px';
+        }
+        if (_winEl.parentElement !== document.body) document.body.appendChild(_winEl);
+    }
+
+    /** 開窗並停在宿舍頁 —— 三個入口（輸入列鈕、手機浮球、斜線命令）都走這支 */
+    ChatWindow.openDorm = function () {
+        _ensureWindowOnScreen();
+        _winEl.style.display = 'flex';
+        _isOpen = true;
+        if (window.VoidAmbient && typeof window.VoidAmbient.pauseBgm === 'function') {
+            window.VoidAmbient.pauseBgm();
+        }
+        ChatWindow.showDorm();
+    };
+
+    /** 切到宿舍頁（門卡由 DormPanel 畫進來，名冊每次現讀） */
+    ChatWindow.showDorm = function () {
+        if (!_winEl) return;
+        _applyView('dorm');
+        const host = _winEl.querySelector('#cw-dorm');
+        if (host && window.DormPanel && typeof window.DormPanel.renderInto === 'function') {
+            window.DormPanel.renderInto(host);
+        }
+    };
+
+    /** 切到某位住戶的房間（門卡點下去走這支，不再開新窗） */
+    ChatWindow.showRoom = async function (provider) {
+        _ensureWindowOnScreen();
+        _applyView('room');
+        await _applyProvider(provider);
+    };
 
     ChatWindow.open = async function (provider) {
         if (!_winEl) _winEl = _buildWindow();

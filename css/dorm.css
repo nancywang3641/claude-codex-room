@@ -1,59 +1,11 @@
 /* ============================================================
- * css/dorm.css — 宿舍面板
- * 深焙咖啡框 + 暖色紙內裡，跟房間窗框同一個世界。
- * 全部 scoped 在 #ccr-dorm，不污染酒館。
+ * css/dorm.css — 宿舍（主窗裡的一頁）
+ * 深焙咖啡框 + 暖色紙內裡，跟房間同一個世界。
+ *
+ * 2026-08-28：宿舍本來是自己一個 #ccr-dorm 浮層，跟房間窗各飄各的，
+ * 同時開著畫面上就是兩塊。現在它是主窗的一頁（#cw-dorm），外框、標題列、
+ * 定位、「點外面關掉」那整組都由主窗接手，這裡只剩門卡與走廊本身。
  * ============================================================ */
-
-#ccr-dorm {
-    position: fixed;
-    z-index: 10001;
-    display: none;              /* .dorm-on 才顯示 */
-    flex-direction: column;
-    width: 360px;
-    max-width: calc(100vw - 16px);
-    max-height: min(78vh, 720px);
-    background: #2a1a10;
-    border-radius: 12px;
-    box-shadow: 0 14px 44px rgba(0, 0, 0, 0.48);
-    overflow: hidden;
-    font-family: 'Noto Sans TC', -apple-system, BlinkMacSystemFont, sans-serif;
-    box-sizing: border-box;
-}
-#ccr-dorm.dorm-on { display: flex; }
-
-/* 手機：貼近全寬（實際座標由 dorm.js 算，酒館那邊會把 transform 吃掉，不能靠它置中） */
-#ccr-dorm.dorm-mobile {
-    width: calc(100vw - 24px);
-    max-height: 82vh;
-}
-
-/* ---- 頂列 ---- */
-.dorm-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 12px;
-    flex-shrink: 0;
-}
-.dorm-title {
-    font-size: 15px;
-    font-weight: bold;
-    letter-spacing: 2px;
-    color: #FFF5E1;
-}
-.dorm-x {
-    width: 26px;
-    height: 26px;
-    border: none;
-    border-radius: 6px;
-    background: rgba(255, 245, 225, 0.08);
-    color: rgba(255, 245, 225, 0.75);
-    cursor: pointer;
-    font-size: 13px;
-    line-height: 1;
-    padding: 0;
-}
-.dorm-x:hover { background: rgba(255, 245, 225, 0.16); color: #FFF5E1; }
 
 /* ---- 門卡清單（紙面）---- */
 .dorm-list {
@@ -68,6 +20,7 @@
 }
 
 .dorm-card {
+    flex-shrink: 0;
     position: relative;
     background: #fffdf6;
     border: 1px solid rgba(234, 176, 92, 0.45);
@@ -242,7 +195,7 @@
     padding-top: 8px;
 }
 /* 酒館主題對 input/select 寫了 !important 暗底，對衝（scoped 在自己 class 不外洩） */
-#ccr-dorm .dorm-input {
+.cw-dorm .dorm-input {
     width: 100%;
     box-sizing: border-box;
     padding: 7px 9px;
@@ -255,11 +208,11 @@
     height: auto;
     margin: 0;
 }
-#ccr-dorm .dorm-input:focus {
+.cw-dorm .dorm-input:focus {
     outline: none;
     border-color: var(--cl-grenadine, #D95122) !important;
 }
-#ccr-dorm .dorm-input.dorm-warn {
+.cw-dorm .dorm-input.dorm-warn {
     border-color: var(--cl-grenadine, #D95122) !important;
     background: #fff3ee !important;
 }
@@ -330,17 +283,10 @@
     color: var(--cl-text-deep, #3d2010);
 }
 
-/* ---- 寬一點就兩欄 ---- */
-@media (min-width: 620px) {
-    #ccr-dorm { width: 560px; }
-    .dorm-list {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        align-content: start;
-    }
-    .dorm-card.dorm-editing { grid-column: 1 / -1; }
-}
-
+/* 兩欄那條拿掉了：門卡以前住在會跟著視窗變寬的浮層裡，兩欄放得下；
+   現在住在固定 480px 的主窗中，media query 卻還是看瀏覽器視窗寬 ——
+   桌機一開就變兩欄、每欄只剩 220px，頭像＋名字＋副標＋兩顆鈕全擠成一團。
+   窗就這麼寬，單欄才讀得下。 */
 /* 手機：鉛筆常駐（沒有 hover 這回事） */
 @media (max-width: 600px) {
     .dorm-pen { opacity: 1; }
