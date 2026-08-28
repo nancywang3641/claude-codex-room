@@ -168,10 +168,14 @@
     // 入席 / 離席 / 改名這種事發生在宿舍面板，群聊當下可能根本沒開。
     // 所以它進 transcript（而不是只畫一行字）：一來下次打開看得到，
     // 二來——真正的重點——其他人會透過傳話增量知道桌上多了誰、誰改了名。
-    async function _announce(text) {
+    // note = 只講給 AI 聽的後果（例如「他不會再回話」）。她看畫面不需要那句廢話，
+    // 但他們需要——不然照樣 @ 一個已經不在的人、照樣等他回。
+    async function _announce(text, note) {
         if (!text) return;
         if (!_loaded) await ChatGroup.load();   // 沒 load 過就 push 會把 OS_DB 那份蓋成空的
-        _transcript.push({ speaker: 'sys', content: text, ts: Date.now() });
+        const entry = { speaker: 'sys', content: text, ts: Date.now() };
+        if (note) entry.note = note;
+        _transcript.push(entry);
         _save();
         if (_streamEl) _renderSystemLine(text);
     }
@@ -179,11 +183,11 @@
     /** 誰上桌 / 下桌。dorm 面板點椅子時呼叫（fire-and-forget）。 */
     ChatGroup.announceSeat = function (rid, seated) {
         const who = _labelOf(rid);
-        // 帶一句後果：光說「離席了」他們還是會繼續 @ 他、等他回話
-        const text = seated
-            ? who + ' 入席了'
-            : who + ' 離席了，已經不在這張桌上，不會再回話';
-        return _announce(text).catch(function (e) {
+        // 主詞一定要是 Rae。「阿洛 離席了」是主動語態，他們會讀成他自己決定走的，
+        // 然後開始猜他是不是不高興 —— 實際上是她按了那顆椅子。用詞跟門卡上那顆鈕一致。
+        const text = 'Rae 把 ' + who + (seated ? ' 請上桌了' : ' 請下桌了');
+        const note = seated ? '' : '他已經不在這張桌上，不會再回話';
+        return _announce(text, note).catch(function (e) {
             console.warn('[ChatGroup] 入席告示失敗：', e);
         });
     };
@@ -197,15 +201,21 @@
         if (!rid) return Promise.resolve();
         _clearSid(rid);
         if (!wasSeated) return Promise.resolve();   // 本來就不在桌上，沒什麼好報的
-        return _announce((name || rid) + ' 搬走了，之後不會再出現').catch(function (e) {
+        return _announce('Rae 把 ' + (name || rid) + ' 請走了', '他之後不會再出現').catch(function (e) {
             console.warn('[ChatGroup] 搬走告示失敗：', e);
         });
     };
 
-    /** 有人改名。改的是誰、從什麼變成什麼，桌上的人要知道。 */
-    ChatGroup.announceRename = function (oldName, newName) {
+    /**
+     * 有人改名。byRae=true 是她在門卡上改的，false 是他自己吐 [RENAME|] 改的 ——
+     * 兩者語態不能共用，不然他們分不出是被改名還是自己改的。
+     */
+    ChatGroup.announceRename = function (oldName, newName, byRae) {
         if (!oldName || !newName || oldName === newName) return Promise.resolve();
-        return _announce(oldName + ' 改名叫 ' + newName + ' 了').catch(function (e) {
+        const text = byRae
+            ? 'Rae 把 ' + oldName + ' 改名叫 ' + newName
+            : oldName + ' 改名叫 ' + newName + ' 了';
+        return _announce(text).catch(function (e) {
             console.warn('[ChatGroup] 改名告示失敗：', e);
         });
     };
@@ -557,7 +567,7 @@
             // 一位沒見過的參與者在講話，或當雜訊跳過（實測就是這樣，沒人反應）。
             // 寫成一句自我說明的通知，不必靠 system prompt 解釋，改完當場生效。
             lines.push(m.speaker === 'sys'
-                ? '（聊天室通知）' + m.content
+                ? '（聊天室通知）' + m.content + (m.note ? ' —— ' + m.note : '')
                 : '[' + _labelOf(m.speaker) + ']: ' + m.content);
             if (m.ts) prevTs = m.ts;
         }

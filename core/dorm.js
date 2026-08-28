@@ -247,7 +247,7 @@
                     // 在席的人改了名，桌上其他人要知道 —— 不然逐字稿的講者前綴會無聲換人
                     if (oldName && oldName !== name && CT.isGroupSeated(id)
                         && window.ChatGroup && typeof window.ChatGroup.announceRename === 'function') {
-                        window.ChatGroup.announceRename(oldName, name);
+                        window.ChatGroup.announceRename(oldName, name, true);   // 她改的
                     }
                     _syncOpenRoom(id);
                 }
