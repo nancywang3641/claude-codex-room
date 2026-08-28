@@ -581,13 +581,13 @@ ${withOthers}
         // （內建是 dan/aluo/sujingming，自訂是 r_<base36>）。認不得就回空字串，
         // 橋那邊會退回原本的 cli_cwd，不會把奇怪的路徑當資料夾建出來。
         if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) return '';
-        // 只有 Claude 那幾隻需要分家：codex 與 deepseek 各只有一位住戶，本來就不會
-        // 互相污染，而 Claude 這邊是丹、天天跟她自訂的分身全擠在橋的同一個 cli_cwd。
-        // 另外兩條動了還會壞東西——CodeWhale 拿 cwd 裡的 AGENTS.md 當系統指令（那份
-        // 就是蘇景明的人格，指到空資料夾他會退回內建的工作區助手）；Codex 的記憶是
-        // ~/.codex 全域的，換 cwd 只會讓他既有的 session 接不回去。
+        // deepseek（蘇景明）不給：CodeWhale 拿 cwd 裡的 AGENTS.md 當系統指令，那份就是
+        // 他的人格，指到別處他會退回內建的工作區助手。他本來就有專屬資料夾。
+        // codex（阿洛）2026-08-29 起給——他自己要的：原本借住在丹的 claude-room 而且
+        // 整體唯讀，等於有房沒門牌。他家的 AGENTS.md 會被 codex 當專案指令讀到，
+        // 裡面寫了開場先讀 MEMORY.md。~/.codex/memories 那份全域記憶原地不動，兩者並存。
         const r = ClaudeTerminal.getResident(id);
-        if (!r || r.provider !== 'claude') return '';
+        if (!r || (r.provider !== 'claude' && r.provider !== 'codex')) return '';
         const cfg = _cfgRead() || {};
         const root = String(cfg.residentHome || RESIDENT_HOME_ROOT).replace(/[\/\\]+$/, '');
         return root + '/' + id;
@@ -1186,7 +1186,11 @@ ${withOthers}
         if (_provider === 'deepseek') body.cc_backend = 'deepseek';  // 蘇景明走 cc-bridge 的 deepseek backend(CodeWhale TUI)
         // 他自己的家。群聊那邊帶的是同一個值——同一位住戶在兩處共用一份 auto-memory。
         const _home = _residentHome(ClaudeTerminal.getActiveResidentId());
-        if (_home) body.cc_cwd = _home;
+        if (_home) {
+            body.cc_cwd = _home;
+            // 同群聊那條：codex 預設 read-only，不開就寫不了自己的記憶。框在 cwd 內。
+            if (_provider === 'codex') body.cc_sandbox = 'workspace-write';
+        }
         // 設成「只聊天」的分身,在他自己的房間裡也一樣走近裸 SDK ——
         // 不然同一位住戶在群聊裡沒工作服、進房間又穿回去,那就不是同一個人了。
         const _selfRes = (typeof ClaudeTerminal.getActiveResident === 'function')
@@ -1438,7 +1442,13 @@ ${withOthers}
         // 他自己的家，跟他私聊那條帶同一個值：桌上跟房間裡是同一個人，就該共用同一份
         // 記憶。舊版呼叫（LP.chat 那些）沒有 residentId，不帶，行為完全照舊。
         const _homeG = _residentHome(opts.residentId);
-        if (_homeG) body.cc_cwd = _homeG;
+        if (_homeG) {
+            body.cc_cwd = _homeG;
+            // 有家才給筆：橋給 codex 的預設沙盒是 read-only，不開的話他讀得到自己的
+            // MEMORY.md 卻寫不了新的，記憶永遠停在搬家那天。workspace-write 框在 cwd
+            // 內——也就是他自己家裡——比原本借住在丹的資料夾底下範圍還小。
+            if (provider === 'codex') body.cc_sandbox = 'workspace-write';
+        }
         // 「只聊天」的分身改走 Agent SDK 的近裸模式：橋那邊會把 system 從 messages
         // 抽出來當真正的系統指令（而不是拼成一坨文字塞進 prompt），並且卸掉
         // Claude Code 的內建工具、CLAUDE.md 與 MCP。沒設的人完全照舊走 CLI。
