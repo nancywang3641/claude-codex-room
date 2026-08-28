@@ -61,6 +61,17 @@
     }
 
     /** 顯示名。退席／被刪的住戶仍要有名字，不然舊訊息會變成一串 id。 */
+    /**
+     * 標記的參數剛好是格式說明裡的佔位字 → 那是抄範例，不是真的要下指令。
+     * 天天跟丹都吐過「原因」兩個字 —— 那不是誰填的理由，那是範例本身。
+     * 丹的建議是「視為誤觸、不執行」，比我原本的「照常執行但不顯示括號」對。
+     */
+    function _isPlaceholderArg(v) {
+        const t = String(v == null ? '' : v).trim();
+        if (!t) return false;
+        return /^(原因|理由|說明|一句話說明|新名字|名字|…|\.{2,}|reason|why|name|new_?name)$/i.test(t);
+    }
+
     function _labelOf(sp) {
         if (sp === 'rae')   return 'Rae';
         if (sp === 'recap') return '前情提要';
@@ -238,8 +249,7 @@
         // 他們會照著格式說明抄，連佔位字一起抄進來（天天跟丹都吐了「原因」兩個字）。
         // 那不是理由，是模板漏字 —— 印出來看起來像沒寫完。
         const said = String(reason == null ? '' : reason).trim();
-        const isPlaceholder = /^(原因|理由|一句話說明|說明|reason|why)$/i.test(said);
-        const text = who + ' 自己下桌了' + (said && !isPlaceholder ? '（' + said + '）' : '');
+        const text = who + ' 自己下桌了' + (said && !_isPlaceholderArg(said) ? '（' + said + '）' : '');
         const roster = _seats().map(function (x) { return x.name; }).join('、');
         await _announce(text,
             '他已經不在這張桌上，不會再回話；要他回來得由 Rae 請他上桌。'
@@ -287,6 +297,7 @@
         if (!cur) return { ok: false, reason: '查無此住戶' };
         const name = String(raw == null ? '' : raw).replace(/\s+/g, ' ').trim();
         if (!name) return { ok: false, reason: '名字是空的' };
+        if (_isPlaceholderArg(name)) return { ok: false, reason: '那是格式說明裡的佔位字，不是名字' };
         if (name.length > 20) return { ok: false, reason: '名字太長（最多 20 字）' };
         if (name === cur.name) return { ok: false, reason: '本來就叫這個' };
         // 這三個是講者前綴會用到的字，被拿去當名字會讓逐字稿分不清誰在講話
@@ -531,16 +542,18 @@
      * _outsideCode ：只對非程式碼的部分做替換，給「剝標記」用 —— 反引號裡那份是
      *                他要展示的內容，剝掉會變成一對空反引號，反而看不懂。
      */
+    // 反引號、程式碼段、各種引號 —— 標記出現在這些裡面就是「在引述它」。
+    // 他們討論規格時不一定會用 Markdown 反引號，中文引號同樣常見。
+    const RE_QUOTED = /(```[\s\S]*?```|`[^`\n]*`|「[^」\n]*」|『[^』\n]*』|“[^”\n]*”|"[^"\n]*")/g;
+
     function _codeStripped(text) {
-        return String(text == null ? '' : text)
-            .replace(/```[\s\S]*?```/g, ' ')
-            .replace(/`[^`\n]*`/g, ' ');
+        return String(text == null ? '' : text).replace(RE_QUOTED, ' ');
     }
     function _outsideCode(text, fn) {
-        // split 帶捕獲組 → 奇數格是程式碼，原樣留著
+        // split 帶捕獲組 → 奇數格是被引起來的，原樣留著
         return String(text == null ? '' : text)
-            .split(/(```[\s\S]*?```|`[^`\n]*`)/g)
-            .map(function (p, i) { return i % 2 === 1 ? p : fn(p); })
+            .split(RE_QUOTED)
+            .map(function (p, i) { return i % 2 === 1 ? p : fn(p == null ? '' : p); })
             .join('');
     }
 
@@ -778,7 +791,7 @@
         // 他自己要下桌：先從名單移除，這輪剩下的人不會再被他影響；
         // 告示等這則講完再發（順序才對：先聽他把話講完，再宣布他走了）。
         let leftReason = null;
-        if (markers.leave != null) {
+        if (markers.leave != null && !_isPlaceholderArg(markers.leave)) {
             const CTx = _CT();
             if (CTx && typeof CTx.setGroupSeat === 'function' && CTx.setGroupSeat(rid, false)) {
                 leftReason = markers.leave || '';
