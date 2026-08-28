@@ -637,6 +637,9 @@
     // 兩則之間隔多久才值得標一行。低於這個當同一段對話，不吵。
     const GAP_MARK_MS = 30 * 60 * 1000;
 
+    // 一則發言多長算「長篇」。桌上一出現這種，後面的人就會照著寫。
+    const LONG_POST_CHARS = 400;
+
     /** 把毫秒差說成人話。給 AI 看的，不用精確到秒。 */
     function _fmtGap(ms) {
         const min = Math.round(ms / 60000);
@@ -663,6 +666,7 @@
     function _buildDelta(rid) {
         const seenIdx = _seenOf(rid);
         const lines = [];
+        let longest = 0;                 // 這批增量裡最長的一則發言（系統通知不算）
         // 從「他上次看到的那則」起算，第一段間隔才算得出來
         let prevTs = (seenIdx >= 0 && _transcript[seenIdx]) ? _transcript[seenIdx].ts : null;
         const lastSeenTs = prevTs;   // 迴圈會一路改 prevTs，開頭那行要用的是原始值
@@ -671,6 +675,9 @@
             if (m.speaker === rid) {          // 他自己的話已在他 session 裡，但時間要當基準
                 if (m.ts) prevTs = m.ts;
                 continue;
+            }
+            if (m.speaker !== 'sys' && m.content) {
+                longest = Math.max(longest, String(m.content).length);
             }
             if (prevTs && m.ts && (m.ts - prevTs) >= GAP_MARK_MS) {
                 lines.push('（隔了 ' + _fmtGap(m.ts - prevTs) + '）');
@@ -689,7 +696,15 @@
         // 時間是背景資訊，不是議題；連續對話裡不該出現。
         const idle = lastSeenTs == null ? Infinity : (Date.now() - lastSeenTs);
         const head = idle >= GAP_MARK_MS ? ('（現在 ' + _fmtClock(Date.now()) + '）\n\n') : '';
-        return head + lines.join('\n\n');
+        // 這條增量本身就是下一個人的範例：一有人交了長篇，後面每個人都會照那個
+        // 形狀寫，再滾回增量餵給下一位，越滾越像研討會。system prompt 只在開場送
+        // 一次，壓不住每輪都在更新的實例——擋法要跟對手同一層、同一班車到，所以
+        // 掛在增量尾巴。只在現場真的出現長篇時才掛：常駐會被讀成背景雜訊，跟
+        // 每輪報時被當成話題是同一種壞法。
+        const tail = longest >= LONG_POST_CHARS
+            ? '\n\n（這裡是聊天不是開會。不必先整理別人說了什麼——講你自己想講的，三五句。）'
+            : '';
+        return head + lines.join('\n\n') + tail;
     }
 
     // 跟 _buildDelta 同範圍：收集增量涵蓋的 rae 附件（去掉 thumb，cc-bridge 只要 path）
