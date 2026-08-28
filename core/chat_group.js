@@ -26,6 +26,8 @@
     let _streamEl = null;   // 渲染目標（窗內 chat-stream）
     let _game = null;             // 遊戲模式：{ players:[p1,p2], turnIdx, moveCount, raeResolver, endSignal }
     let _pendingAttachments = []; // 待送附件：{path,filename,mime,size,thumb} 或 {_uploading:true,filename,mime,size}
+    let _leftAt = {};             // residentId → 他離開時 transcript 的位置
+    let _needBrief = {};          // residentId → 回桌摘要要涵蓋的區間 { from, to }
     let _following = false;       // 正在跑 AI 互相接話的續輪
     let _followAbort = false;     // 她在續輪期間插話了 → 停下來讓她先講
     let _queued = null;           // 續輪期間她送出的東西，停下來之後接著跑
@@ -229,11 +231,21 @@
         const note = (seated ? '' : '他已經不在這張桌上，不會再回話。')
                    + (roster ? '現在桌上是：' + roster + '。' : '現在桌上沒有人了。');
         return _announce(text, note).then(function () {
-            // 回來的人從現在開始聽,不倒帶:進度推到「入席告示的前一則」,
-            // 所以他看得到自己被請回來,但拿不到離席期間的逐字稿——下桌就是真的離開。
-            // 要讓他補脈絡的話按摘要重啟,那時進度全清,前情提要每個人都會收到。
-            // (推進度必須在回來這一刻做,不能在下桌時做——離席期間的話是那之後才長出來的。)
-            if (seated) _markSeen(rid, _transcript.length - 2);
+            if (seated) {
+                // 回來的人從現在開始聽，不倒帶：進度推到「入席告示的前一則」，
+                // 所以他看得到自己被請回來，但拿不到離席期間的逐字稿。
+                // （推進度必須在回來這一刻做，不能在下桌時做 —— 離席期間的話是那之後才長出來的。）
+                const back = _transcript.length - 2;
+                if (_leftAt[rid] != null && back > _leftAt[rid]) {
+                    // 但也不能讓他兩手空空回來 —— 排一份「你不在的時候」的摘要，
+                    // 下次輪到他講話時附在最前面。只給他一個人，不佔別人的增量。
+                    _needBrief[rid] = { from: _leftAt[rid], to: back };
+                }
+                delete _leftAt[rid];
+                _markSeen(rid, back);
+            } else {
+                _leftAt[rid] = _transcript.length - 1;   // 從這裡開始是他沒看到的
+            }
         }).catch(function (e) {
             console.warn('[ChatGroup] 入席告示失敗：', e);
         });
@@ -254,6 +266,7 @@
         await _announce(text,
             '他已經不在這張桌上，不會再回話；要他回來得由 Rae 請他上桌。'
             + (roster ? '現在桌上是：' + roster + '。' : '現在桌上沒有人了。'));
+        _leftAt[rid] = _transcript.length - 1;
         _markSeen(rid, _transcript.length - 1);
     }
 
@@ -701,12 +714,56 @@
         else await _announce(_labelOf(rid) + ' 想改名叫「' + markers.rename + '」，沒改成：' + renamed.reason);
     }
 
+    const BRIEF_MIN_MSGS = 3;    // 離席期間少於這麼多則就不值得花一次呼叫
+
+    /**
+     * 「你不在的這段時間」摘要。回桌的人不補逐字稿是對的（那是他們自己定的規矩），
+     * 但兩手空空回來也不行 —— 阿洛跟天天回桌後只能靠別人講話自己拼脈絡。
+     * 走 Sonnet，跟 🧹 摘要重啟同一條路：Rae 的 Max 訂閱配額用不完，後台雜活 0 元。
+     * 失敗就算了，回空字串 —— 補不到脈絡總比卡住不能講話好。
+     */
+    async function _makeBrief(rid) {
+        const need = _needBrief[rid];
+        if (!need) return '';
+        delete _needBrief[rid];
+        const missed = _transcript
+            .slice(need.from + 1, need.to + 1)
+            .filter(function (m) { return m && m.speaker !== 'sys' && (m.content || '').trim(); });
+        if (missed.length < BRIEF_MIN_MSGS) return '';
+        if (!window.ClaudeTerminal || typeof window.ClaudeTerminal.sendRaw !== 'function') return '';
+
+        const script = missed.map(function (m) {
+            return '[' + _labelOf(m.speaker) + ']\n' + (m.content || '').trim();
+        }).join('\n\n');
+        try {
+            const r = await window.ClaudeTerminal.sendRaw({
+                provider: 'claude',
+                model: 'sonnet',
+                messages: [
+                    { role: 'system', content:
+                        '下面是一段群聊紀錄。有一個人中途離開、現在回來了，你要用一小段話讓他跟上。\n\n' +
+                        '規則:\n' +
+                        '1. 100 字以內，第三人稱、自然中文\n' +
+                        '2. 只講結論、決定，還有沒完的事；跳過寒暄與已經解決的小問題\n' +
+                        '3. 直接輸出內容，不要標題、不要開場白' },
+                    { role: 'user', content: script },
+                ],
+            });
+            return ((r && r.reply) || '').trim();
+        } catch (e) {
+            console.warn('[ChatGroup] 回桌摘要生成失敗：', e);
+            return '';
+        }
+    }
+
     // ── 一個 AI 的回合 ──
     // opts.gameTurn=true：遊戲回合，即使沒有新增量也要催它落子
     // 回傳 { spoke:bool, failed:bool, markers:{game,move,gameover} }
     async function _runTurn(rid, opts) {
         opts = opts || {};
+        const brief = await _makeBrief(rid);
         let delta = _buildDelta(rid);
+        if (brief && delta) delta = '（你不在的這段時間，桌上發生的事：' + brief + '）\n\n' + delta;
         const deltaAttachments = _collectDeltaAttachments(rid);
         // 他這一輪實際看到哪裡為止。回合結束一律用這個數字，別再取當下的
         // _transcript.length-1 —— 這中間可能插進了他沒看過的東西（有人入席、
@@ -1173,6 +1230,7 @@
             _transcript = [{ speaker: 'recap', content: recap, ts: Date.now() }];
             _seen = {};
             _saveSeen();
+            _leftAt = {}; _needBrief = {};   // 位置全變了，舊的區間沒有意義
             _save();
             if (_streamEl) ChatGroup.hydrate(_streamEl);
             restore();
@@ -1195,6 +1253,7 @@
         _transcript = [];
         _seen = {};
         _saveSeen();
+        _leftAt = {}; _needBrief = {};
         _clearAllSids();
         _save();
         if (_streamEl) ChatGroup.hydrate(_streamEl);
