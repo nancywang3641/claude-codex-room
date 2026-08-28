@@ -816,20 +816,24 @@
     color: #d9534f;
 }
 
-/* 🧹 摘要 & 重啟產生的「前情提要」分隔卡:置中、灰底、淡邊框、跟氣泡完全分開 */
+/* 🧹 摘要 & 重啟產生的「前情提要」分隔卡:置中、淡底、虛線邊框、跟氣泡完全分開。
+   配色要跟著訊息流走 —— 流底是 #ece9f0 的淺紙底(見 .cw-body-group .claude-chat-stream)，
+   這張卡原本是深色時代的淺米字，換成淺底之後等於白紙寫白字。
+   底比氣泡的純白再淡一點、字比氣泡再灰一點：看得清楚，但一眼認得出它不是誰的發言。 */
 #aurelia-chat-window .cg-recap-card {
     align-self: stretch;
     margin: 8px 12px 14px;
     padding: 10px 14px;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px dashed rgba(255, 245, 225, 0.35);
+    background: rgba(255, 255, 255, 0.6);
+    border: 1px dashed rgba(108, 92, 231, 0.42);
     border-radius: 10px;
-    color: #d8d2c4;
+    color: #4a4458;
 }
 #aurelia-chat-window .cg-recap-hdr {
     font-size: 11px;
     font-weight: 700;
-    color: #b9a880;
+    /* 比 Rae 氣泡那顆紫再壓深一階:11px 粗體在 WCAG 算一般文字,#6c5ce7 只有 4.52 太貼邊 */
+    color: #5b4bc4;
     margin-bottom: 6px;
     text-transform: none;
     letter-spacing: 0.5px;

@@ -379,6 +379,10 @@
         // 群聊區：交給 ChatGroup，跳過單房間流程
         if (provider === 'group') {
             if (cwBody) cwBody.classList.add('cw-body-group');
+            // 群聊區不走單房間那條路，placeholder 得自己設 ——
+            // 不設的話會留著上一個房間的名字（從阿洛房切進來就寫「對 Codex 說點什麼」）
+            const inEl = _winEl && _winEl.querySelector('#cw-input');
+            if (inEl) inEl.placeholder = '對大家說點什麼...';
             const stream = _winEl && _winEl.querySelector('#claude-chat-stream');
             if (window.ChatGroup) {
                 await window.ChatGroup.load();

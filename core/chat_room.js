@@ -42,11 +42,20 @@
 
     // 套用浮窗聊天室 UI（picker 文字 / 立繪 / 輸入框 placeholder）
     function _applyClaudeRoomUi() {
-        const isCodex = _provider() === 'codex';
         _setClaudePortraitState('living');
         _updateClaudePickerLabel();
         const inputField = _el('cw-input');
-        if (inputField) inputField.placeholder = isCodex ? '對 Codex 說點什麼...' : '對 Claude 說點什麼...';
+        if (!inputField) return;
+        // 名字跟著住戶走（房間標題本來就是「🦀 老丹 的房間」，這裡不該還寫死 Claude）
+        const prov = _provider();
+        const CT = window.ClaudeTerminal;
+        let who = '';
+        if (CT && typeof CT.getActiveResident === 'function') {
+            const r = CT.getActiveResident(prov);
+            if (r && r.name) who = r.name;
+        }
+        if (!who) who = prov === 'codex' ? 'Codex' : (prov === 'deepseek' ? '蘇景明' : 'Claude');
+        inputField.placeholder = '對 ' + who + ' 說點什麼...';
     }
 
     // 浮窗化後大廳傳送門按鈕為固定文字（🦀 Claude / 🔷 Codex），不再反映房間狀態
