@@ -1331,6 +1331,11 @@ ${withOthers}
         };
         if (provider === 'codex')    body.cc_backend = 'codex';
         if (provider === 'deepseek') body.cc_backend = 'deepseek';  // 蘇景明走 CodeWhale TUI
+        // 群聊這條 system 帶的是「場景」——桌上有誰、別人的發言會標講者前綴、
+        // 沒話講可以回 [PASS]——不是人格。CodeWhale 那條路預設把 system 整條丟掉
+        // （人格由 AGENTS.md 接手），所以得明講這份要留，否則蘇景明根本不知道
+        // 自己在群聊，只會退回一對一模式一直問 Rae「你人在幹嘛」。
+        body.keep_system = true;
         if (sid) body.session_id = sid;
         if (Array.isArray(opts.attachments) && opts.attachments.length) body.attachments = opts.attachments;
         if (Number.isFinite(cfg.temperature)) body.temperature = cfg.temperature;

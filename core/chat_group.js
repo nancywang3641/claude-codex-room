@@ -516,6 +516,7 @@
         const lines = [];
         // 從「他上次看到的那則」起算，第一段間隔才算得出來
         let prevTs = (seenIdx >= 0 && _transcript[seenIdx]) ? _transcript[seenIdx].ts : null;
+        const lastSeenTs = prevTs;   // 迴圈會一路改 prevTs，開頭那行要用的是原始值
         for (let i = seenIdx + 1; i < _transcript.length; i++) {
             const m = _transcript[i];
             if (m.speaker === rid) {          // 他自己的話已在他 session 裡，但時間要當基準
@@ -529,7 +530,12 @@
             if (m.ts) prevTs = m.ts;
         }
         if (!lines.length) return '';         // 沒有新東西 —— 別讓時間行自己撐成一則增量
-        return '（現在 ' + _fmtClock(Date.now()) + '）\n\n' + lines.join('\n\n');
+        // 「現在幾點」只在真的隔了一段時間才報。每輪都塞的話模型會把它當話題——
+        // 蘇景明就連著三輪在報時(08:46、08:48、08:50)，還反問她「你人在幹嘛」。
+        // 時間是背景資訊，不是議題；連續對話裡不該出現。
+        const idle = lastSeenTs == null ? Infinity : (Date.now() - lastSeenTs);
+        const head = idle >= GAP_MARK_MS ? ('（現在 ' + _fmtClock(Date.now()) + '）\n\n') : '';
+        return head + lines.join('\n\n');
     }
 
     // 跟 _buildDelta 同範圍：收集增量涵蓋的 rae 附件（去掉 thumb，cc-bridge 只要 path）
