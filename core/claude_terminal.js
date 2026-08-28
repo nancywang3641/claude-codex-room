@@ -576,6 +576,12 @@ ${withOthers}
         // （內建是 dan/aluo/sujingming，自訂是 r_<base36>）。認不得就回空字串，
         // 橋那邊會退回原本的 cli_cwd，不會把奇怪的路徑當資料夾建出來。
         if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) return '';
+        // deepseek（蘇景明）不給新家：CodeWhale 拿 cwd 裡的 AGENTS.md 當系統指令，
+        // 那份就是他的人格。指到一個空資料夾等於把人格弄丟，他會退回內建的
+        // 「這個工作區的 coding agent」。他本來就有自己的專屬資料夾，橋那邊的
+        // deepseek_cwd 指著它，不必也不該搬。
+        const r = ClaudeTerminal.getResident(id);
+        if (r && r.provider === 'deepseek') return '';
         const cfg = _cfgRead() || {};
         const root = String(cfg.residentHome || RESIDENT_HOME_ROOT).replace(/[\/\\]+$/, '');
         return root + '/' + id;
