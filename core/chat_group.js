@@ -25,7 +25,16 @@
     let _streamEl = null;   // 渲染目標（窗內 chat-stream）
     let _game = null;             // 遊戲模式：{ players:[p1,p2], turnIdx, moveCount, raeResolver, endSignal }
     let _pendingAttachments = []; // 待送附件：{path,filename,mime,size,thumb} 或 {_uploading:true,filename,mime,size}
+    let _following = false;       // 正在跑 AI 互相接話的續輪
+    let _followAbort = false;     // 她在續輪期間插話了 → 停下來讓她先講
+    let _queued = null;           // 續輪期間她送出的東西，停下來之後接著跑
     const GAME_TURN_LIMIT = 60;   // 安全閥：總手數上限，防無限迴圈 + 訂閱額度爆
+
+    // ── AI 之間自己接話（她發一次言之後）──
+    // 有人在回覆裡 @ 了別人，就自動把被 @ 的人叫進來回，不必她再推一把。
+    // 兩道煞車缺一不可：沒有的話 A@B、B@A 會永遠打乒乓，燒的是她的錢。
+    const FOLLOW_MAX_ROUNDS = 3;   // 她發一次言，AI 最多自己接幾輪
+    const FOLLOW_MAX_PER_ID = 2;   // 同一個人在這段期間最多被自動叫幾次
 
     function _CT() { return window.ClaudeTerminal || null; }
 
@@ -702,7 +711,9 @@
         _seen[rid] = seenAt;
         _save();
         await _flushRename(rid, markers, renamed);
-        return { spoke: true, failed: false, markers: markers };
+        // 他點名了誰 —— 上層據此決定要不要把那些人叫進來接話（@ 自己不算）
+        const calls = _parseMentions(transcriptText).filter(function (x) { return x !== rid; });
+        return { spoke: true, failed: false, markers: markers, calls: calls };
     }
 
     // ── 自動多輪遊戲迴圈 ──
@@ -841,8 +852,19 @@
         text = text || '';
         const hasAtt = _pendingAttachments.some(function (a) { return a && a.path; });
         if (!text.trim() && !hasAtt) return;
-        // 一般忙碌中（非遊戲）→ 擋，不動 pending，使用者可稍後重送
-        if (!_game && _busy) return;
+        // 一般忙碌中（非遊戲）→ 擋，不動 pending，使用者可稍後重送。
+        // 例外是 AI 正在互相接話：她插話代表她要主導，停下續輪、把這句排隊，
+        // 當前這個人講完就換她 —— 直接 return 會把她打的字吃掉，那最惱人。
+        if (!_game && _busy) {
+            if (!_queued) {
+                // 續輪的話停下來讓她先講;主輪本來就會跑完,排隊等它結束就好。
+                if (_following) _followAbort = true;
+                _queued = { text: text, atts: _pendingAttachments.slice() };
+                _pendingAttachments = [];
+                _renderPendingAttachments();
+            }
+            return;
+        }
 
         // 快照待送附件（只取上傳完成、有 path 的），清空 pending
         const atts = _pendingAttachments
@@ -884,15 +906,75 @@
                 return;
             }
             const order = mentions.length > 0 ? mentions : _shuffle(seated);
+            let pending = [];
             for (let i = 0; i < order.length; i++) {
                 const r = await _runTurn(order[i]);
                 if (_maybeStartGame(order[i], r)) return;   // 開局了 → 交給遊戲迴圈
+                if (r && r.calls) pending = pending.concat(r.calls);
             }
+            await _runFollowUps(pending);
         } finally {
             // 進了遊戲模式則 _busy 維持 true（由 _endGameInternal 釋放）；否則放掉
             if (!_game) _busy = false;
         }
+        // 她在續輪期間插的話，現在輪到她
+        if (!_game && _queued) {
+            const q = _queued;
+            _queued = null;
+            _pendingAttachments = q.atts || [];
+            _renderPendingAttachments();
+            await ChatGroup.sendUserMessage(q.text);
+        }
     };
+
+    /**
+     * AI 互相接話：把上一輪被 @ 到的人叫進來回，他們回覆裡再 @ 誰就再接一輪。
+     * 停下來的條件有四個 —— 沒人被點名、輪數到頂、同一個人被叫太多次、她插話了。
+     * 到頂還有人排隊就留一行系統字，不然畫面上看起來像無故斷掉。
+     */
+    async function _runFollowUps(initial) {
+        let pending = _dedupeSeated(initial);
+        if (!pending.length) return;
+        const calledCount = {};
+        let round = 0;
+        _following = true;
+        _followAbort = false;
+        try {
+            while (pending.length && round < FOLLOW_MAX_ROUNDS && !_followAbort) {
+                round++;
+                const batch = pending.filter(function (id) {
+                    return (calledCount[id] || 0) < FOLLOW_MAX_PER_ID;
+                });
+                pending = [];
+                for (let i = 0; i < batch.length; i++) {
+                    if (_followAbort) break;
+                    const id = batch[i];
+                    calledCount[id] = (calledCount[id] || 0) + 1;
+                    const r = await _runTurn(id);
+                    if (_maybeStartGame(id, r)) { _following = false; return; }
+                    if (r && r.calls) pending = pending.concat(r.calls);
+                }
+                pending = _dedupeSeated(pending).filter(function (id) {
+                    return (calledCount[id] || 0) < FOLLOW_MAX_PER_ID;
+                });
+            }
+            if (pending.length && !_followAbort) {
+                _renderSystemLine('（還有人想接話，這輪先停在這裡 —— 說句話就會繼續）');
+            }
+        } finally {
+            _following = false;
+        }
+    }
+
+    /** 去重 + 只留還在席的（被 @ 的人可能剛好下桌了） */
+    function _dedupeSeated(ids) {
+        const seated = _seatIds();
+        const out = [];
+        (ids || []).forEach(function (id) {
+            if (id && out.indexOf(id) < 0 && seated.indexOf(id) >= 0) out.push(id);
+        });
+        return out;
+    }
 
     // ── 摘要 & 重啟:對話太長時用一次 Sonnet 把整段壓成「前情提要」,
     //    清三人 session(各自的 CLI session 也 reset → 從零開始 stateful 對話),
