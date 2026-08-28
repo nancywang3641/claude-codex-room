@@ -287,6 +287,36 @@
    現在住在固定 480px 的主窗中，media query 卻還是看瀏覽器視窗寬 ——
    桌機一開就變兩欄、每欄只剩 220px，頭像＋名字＋副標＋兩顆鈕全擠成一團。
    窗就這麼寬，單欄才讀得下。 */
+/* ---- 只聊天 / 也能動手 ----
+   兩顆並排的切換，跟模型下拉同一排。選中的那顆用實心底反白，
+   沒選的維持紙面色 —— 一眼看得出現在是哪一種，不用讀說明。 */
+.dorm-mode {
+    display: flex;
+    gap: 0;
+    border: 1px solid rgba(137, 102, 69, 0.35);
+    border-radius: 7px;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+.dorm-mode-btn {
+    flex: 1;
+    padding: 6px 8px;
+    border: none;
+    background: transparent;
+    color: var(--cl-cafe-latte, #896645);
+    font-size: 12px;
+    line-height: 1.2;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.dorm-mode-btn + .dorm-mode-btn { border-left: 1px solid rgba(137, 102, 69, 0.28); }
+.dorm-mode-btn:hover { background: rgba(234, 176, 92, 0.16); }
+.dorm-mode-btn.active {
+    background: var(--cl-grenadine, #D95122);
+    color: #fff;
+    font-weight: 700;
+}
+
 /* 手機：鉛筆常駐（沒有 hover 這回事） */
 @media (max-width: 600px) {
     .dorm-pen { opacity: 1; }

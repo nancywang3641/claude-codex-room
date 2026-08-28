@@ -64,7 +64,7 @@
             const seats = (CT && typeof CT.listGroupSeats === 'function') ? CT.listGroupSeats() : [];
             return seats.length ? seats.map(x => x.name).join('、') : '還沒有人上桌';
         }
-        if (r.modelId) return _modelLabel(r.modelId);
+        if (r.modelId) return _modelLabel(r.modelId) + (r.chatOnly ? ' · 只聊天' : '');
         const cfg = _cfg();
         const cur = (cfg.providerModels && cfg.providerModels.claude) || cfg.inlineModel || cfg.model || '';
         return cur ? _modelLabel(cur) : '想用哪顆都行';
@@ -105,6 +105,13 @@
                 h += '<option value="' + _esc(m.id) + '"' + sel + '>' + _esc(_modelLabel(m.id)) + '</option>';
             });
             h += '</select>';
+            // 只聊天 = 不帶 Claude Code 那套工具與系統指令進來（省三萬多 token 的 context）。
+            // 預設「也能動手」—— 那是既有行為，不改變任何人的預期。
+            const chatOn = !!(r && r.chatOnly);
+            h += '<div class="dorm-mode">'
+               + '<button type="button" class="dorm-mode-btn' + (chatOn ? '' : ' active') + '" data-mode="work">也能動手</button>'
+               + '<button type="button" class="dorm-mode-btn' + (chatOn ? ' active' : '') + '" data-mode="chat">只聊天</button>'
+               + '</div>';
         }
         h += '<div class="dorm-form-act">';
         h += '<button type="button" class="dorm-btn dorm-save">' + (isNew ? '住進來' : '改好了') + '</button>';
@@ -213,6 +220,12 @@
             const del = form.querySelector('.dorm-del');
 
             form.addEventListener('click', (e) => e.stopPropagation());
+            form.querySelectorAll('.dorm-mode-btn').forEach(b => {
+                b.addEventListener('click', () => {
+                    form.querySelectorAll('.dorm-mode-btn').forEach(x => x.classList.remove('active'));
+                    b.classList.add('active');
+                });
+            });
             nameIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') save.click(); });
             nameIn.addEventListener('input', () => {
                 nameIn.classList.remove('dorm-warn');
@@ -229,12 +242,17 @@
                     nameIn.focus();
                     return;
                 }
+                const modeBtn = form.querySelector('.dorm-mode-btn.active');
+                const chatOnly = !!(modeBtn && modeBtn.dataset.mode === 'chat');
                 if (id === '__new__') {
-                    CT.saveResident({ name: name, provider: 'claude', modelId: modelIn ? modelIn.value : '' });
+                    CT.saveResident({ name: name, provider: 'claude',
+                                      modelId: modelIn ? modelIn.value : '', chatOnly: chatOnly });
                 } else {
                     const before = CT.getResident(id);
                     const oldName = before ? before.name : '';
-                    CT.saveResident({ id: id, name: name, modelId: modelIn ? modelIn.value : undefined });
+                    CT.saveResident({ id: id, name: name,
+                                      modelId: modelIn ? modelIn.value : undefined,
+                                      chatOnly: modeBtn ? chatOnly : undefined });
                     // 在席的人改了名，桌上其他人要知道 —— 不然逐字稿的講者前綴會無聲換人
                     if (oldName && oldName !== name && CT.isGroupSeated(id)
                         && window.ChatGroup && typeof window.ChatGroup.announceRename === 'function') {

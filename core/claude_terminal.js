@@ -255,11 +255,18 @@ ${withOthers}
     function _normResident(r) {
         if (!r || !r.id) return null;
         const builtin = BUILTIN_RESIDENTS.some(b => b.id === r.id);
+        const provider = RESIDENT_PROVIDERS.includes(r.provider) ? r.provider : 'claude';
         return {
             id: String(r.id),
             name: String(r.name == null ? '' : r.name).trim().slice(0, RESIDENT_NAME_MAX) || '住戶',
-            provider: RESIDENT_PROVIDERS.includes(r.provider) ? r.provider : 'claude',
+            provider,
             modelId: String(r.modelId || '').trim(),
+            // 「只聊天」= 走 Agent SDK 的近裸模式：沒有 Claude Code 那套系統指令、
+            // 沒有內建工具、不讀 CLAUDE.md 與 MCP。純陪聊的分身用這個，省下的
+            // 不是錢（訂閱吃掉了）而是三萬多 token 的 context。
+            // 只有自訂的 Claude 分身能設 —— 內建那幾位要留著工具幹活
+            //（丹要寫留言板、跑工作檯），拔掉他們的工具等於把功能砍了。
+            chatOnly: !builtin && provider === 'claude' && !!r.chatOnly,
             builtin,
         };
     }
@@ -326,6 +333,7 @@ ${withOthers}
                 name: name || cur.name,
                 provider: resident.provider || cur.provider,
                 modelId: resident.modelId === undefined ? cur.modelId : resident.modelId,
+                chatOnly: resident.chatOnly === undefined ? cur.chatOnly : resident.chatOnly,
             });
             list[idx] = next;
         } else {
@@ -336,6 +344,7 @@ ${withOthers}
                 name: name,
                 provider: resident.provider || 'claude',
                 modelId: resident.modelId || '',
+                chatOnly: !!resident.chatOnly,
             });
             list.push(next);
         }
@@ -1092,6 +1101,11 @@ ${withOthers}
         };
         if (_provider === 'codex')    body.cc_backend = 'codex';     // cc-bridge 靠這個欄位分流到 codex CLI
         if (_provider === 'deepseek') body.cc_backend = 'deepseek';  // 蘇景明走 cc-bridge 的 deepseek backend(CodeWhale TUI)
+        // 設成「只聊天」的分身,在他自己的房間裡也一樣走近裸 SDK ——
+        // 不然同一位住戶在群聊裡沒工作服、進房間又穿回去,那就不是同一個人了。
+        const _selfRes = (typeof ClaudeTerminal.getActiveResident === 'function')
+            ? ClaudeTerminal.getActiveResident() : null;
+        if (_selfRes && _selfRes.chatOnly) { body.use_sdk = true; body.bare = true; }
         if (incomingSid) body.session_id = incomingSid;
         if (Number.isFinite(cfg.temperature)) body.temperature = cfg.temperature;
         if (Number.isFinite(cfg.top_p)) body.top_p = cfg.top_p;
@@ -1335,6 +1349,13 @@ ${withOthers}
         };
         if (provider === 'codex')    body.cc_backend = 'codex';
         if (provider === 'deepseek') body.cc_backend = 'deepseek';  // 蘇景明走 CodeWhale TUI
+        // 「只聊天」的分身改走 Agent SDK 的近裸模式：橋那邊會把 system 從 messages
+        // 抽出來當真正的系統指令（而不是拼成一坨文字塞進 prompt），並且卸掉
+        // Claude Code 的內建工具、CLAUDE.md 與 MCP。沒設的人完全照舊走 CLI。
+        if (seat && seat.chatOnly) {
+            body.use_sdk = true;
+            body.bare = true;
+        }
         // 群聊這條 system 帶的是「場景」——桌上有誰、別人的發言會標講者前綴、
         // 沒話講可以回 [PASS]——不是人格。CodeWhale 那條路預設把 system 整條丟掉
         // （人格由 AGENTS.md 接手），所以得明講這份要留，否則蘇景明根本不知道
