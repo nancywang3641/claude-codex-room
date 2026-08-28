@@ -906,11 +906,13 @@
         if (result.usage && window.OS_SPEND_PANEL && typeof window.OS_SPEND_PANEL.record === 'function') {
             try { window.OS_SPEND_PANEL.record(result.usage); } catch (_) {}
         }
-        // 記下他這條 session 現在多大。cache_read 才是累積量，input_tokens 在有快取時
-        // 幾乎是 0 —— 只看 input_tokens 的話水位永遠不會漲，自動整理等於沒接。
+        // 記下他這條 session 現在多大。只認橋新加的 context_tokens——那是最後一則
+        // assistant 的 input + cache_read + cache_creation，也就是「當下有多滿」。
+        // usage 裡其他那幾個欄位是整個 session 的累積總帳，同一條 session 實測當下
+        // 102k、累積 1160k，拿累積值當水位會判成隨時都爆了。舊版橋沒有這個欄位，
+        // 那就寧可不自動整理，也不要憑一個意思不對的數字亂壓。
         if (result.usage) {
-            const u = result.usage;
-            const w = Number(u.cache_read_input_tokens || 0) + Number(u.input_tokens || 0);
+            const w = Number(result.usage.context_tokens || 0);
             if (Number.isFinite(w) && w > 0) _ctxWater[rid] = w;
         }
 
