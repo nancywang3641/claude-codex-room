@@ -235,7 +235,11 @@
      */
     async function _announceSelfLeave(rid, reason) {
         const who = _labelOf(rid);
-        const text = who + ' 自己下桌了' + (reason ? '（' + reason + '）' : '');
+        // 他們會照著格式說明抄，連佔位字一起抄進來（天天跟丹都吐了「原因」兩個字）。
+        // 那不是理由，是模板漏字 —— 印出來看起來像沒寫完。
+        const said = String(reason == null ? '' : reason).trim();
+        const isPlaceholder = /^(原因|理由|一句話說明|說明|reason|why)$/i.test(said);
+        const text = who + ' 自己下桌了' + (said && !isPlaceholder ? '（' + said + '）' : '');
         const roster = _seats().map(function (x) { return x.name; }).join('、');
         await _announce(text,
             '他已經不在這張桌上，不會再回話；要他回來得由 Rae 請他上桌。'
@@ -518,6 +522,28 @@
 
     // 先手/後手欄位認：住戶名字、住戶 id、'rae'，外加舊的 provider 代號（claude/codex/deepseek）。
     // 回住戶 id（或 'rae'）；認不出來回 null。
+    /**
+     * 🚨 標記寫在反引號裡就是「在談論它」，不是在下指令。
+     * 丹在說明「別人照抄了那個標記」的同一則裡把自己弄下桌 —— 他引用了它，
+     * 而解析器不分引用與執行。這是所有標記共通的問題（LEAVE / RENAME / GAME / MOVE）。
+     *
+     * _codeStripped：把程式碼段換成空白，給「找標記」用。
+     * _outsideCode ：只對非程式碼的部分做替換，給「剝標記」用 —— 反引號裡那份是
+     *                他要展示的內容，剝掉會變成一對空反引號，反而看不懂。
+     */
+    function _codeStripped(text) {
+        return String(text == null ? '' : text)
+            .replace(/```[\s\S]*?```/g, ' ')
+            .replace(/`[^`\n]*`/g, ' ');
+    }
+    function _outsideCode(text, fn) {
+        // split 帶捕獲組 → 奇數格是程式碼，原樣留著
+        return String(text == null ? '' : text)
+            .split(/(```[\s\S]*?```|`[^`\n]*`)/g)
+            .map(function (p, i) { return i % 2 === 1 ? p : fn(p); })
+            .join('');
+    }
+
     function _normPlayer(v) {
         const raw = String(v == null ? '' : v).trim();
         if (!raw) return null;
@@ -537,7 +563,7 @@
 
     // 解析回覆裡的遊戲標記。回 { game:{p1,p2}|null, move:string|null, gameover:string|null }
     function _parseGameMarkers(text) {
-        const t = text || '';
+        const t = _codeStripped(text);   // 引用不算下指令
         const g = t.match(RE_GAME);
         const m = t.match(RE_MOVE);
         const o = t.match(RE_GAMEOVER);
@@ -559,19 +585,24 @@
 
     // 給對手看：剝掉 <lobbyPanel> 大 HTML（畫布已渲染、不重送），保留遊戲標記
     function _stripForTranscript(text) {
-        // RENAME / LEAVE 也剝掉：系統告示已經講過這件事，留著只會讓別人跟著學那個標記
-        return (text || '').replace(RE_PANEL, '').replace(RE_RENAME, '').replace(RE_LEAVE, '').trim();
+        // RENAME / LEAVE 也剝掉：系統告示已經講過這件事，留著只會讓別人跟著學那個標記。
+        // 但反引號裡那份不動 —— 那是他在講解，不是在下指令。
+        return _outsideCode(text, function (s) {
+            return s.replace(RE_PANEL, '').replace(RE_RENAME, '').replace(RE_LEAVE, '');
+        }).trim();
     }
 
     // 給氣泡顯示：剝掉 panel + 所有遊戲標記
     function _stripForDisplay(text) {
-        return (text || '')
-            .replace(RE_PANEL, '')
-            .replace(RE_GAME, '')
-            .replace(RE_MOVE, '')
-            .replace(RE_GAMEOVER, '')
-            .replace(RE_RENAME, '')
-            .replace(RE_LEAVE, '')
+        return _outsideCode(text, function (s) {
+            return s
+                .replace(RE_PANEL, '')
+                .replace(RE_GAME, '')
+                .replace(RE_MOVE, '')
+                .replace(RE_GAMEOVER, '')
+                .replace(RE_RENAME, '')
+                .replace(RE_LEAVE, '');
+        })
             .replace(/[ \t]+\n/g, '\n')      // 標記剝掉後行尾留的空白
             .replace(/\n{3,}/g, '\n\n')      // 標記剝掉後留下的空行 → 收斂成單一段落間距
             .trim();
