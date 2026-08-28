@@ -217,10 +217,31 @@
         const roster = _seats().map(function (x) { return x.name; }).join('、');
         const note = (seated ? '' : '他已經不在這張桌上，不會再回話。')
                    + (roster ? '現在桌上是：' + roster + '。' : '現在桌上沒有人了。');
-        return _announce(text, note).catch(function (e) {
+        return _announce(text, note).then(function () {
+            // 回來的人從現在開始聽,不倒帶:進度推到「入席告示的前一則」,
+            // 所以他看得到自己被請回來,但拿不到離席期間的逐字稿——下桌就是真的離開。
+            // 要讓他補脈絡的話按摘要重啟,那時進度全清,前情提要每個人都會收到。
+            // (推進度必須在回來這一刻做,不能在下桌時做——離席期間的話是那之後才長出來的。)
+            if (seated) _markSeen(rid, _transcript.length - 2);
+        }).catch(function (e) {
             console.warn('[ChatGroup] 入席告示失敗：', e);
         });
     };
+
+    /**
+     * 他自己吐 [LEAVE|原因] 走人。跟「Rae 把他請下桌」分開講 —— 語態不同，
+     * 而且她必須看得出來這是他自己決定的，不是她按錯。
+     * 回不來是刻意的：桌上狀態只有她掌握，不然大家會自己溜走再自己溜回來。
+     */
+    async function _announceSelfLeave(rid, reason) {
+        const who = _labelOf(rid);
+        const text = who + ' 自己下桌了' + (reason ? '（' + reason + '）' : '');
+        const roster = _seats().map(function (x) { return x.name; }).join('、');
+        await _announce(text,
+            '他已經不在這張桌上，不會再回話；要他回來得由 Rae 請他上桌。'
+            + (roster ? '現在桌上是：' + roster + '。' : '現在桌上沒有人了。'));
+        _markSeen(rid, _transcript.length - 1);
+    }
 
     /**
      * 住戶整個被刪掉（門卡的「請他搬走」）。
@@ -493,6 +514,7 @@
     const RE_MOVE     = /\[MOVE\|([^\]]*)\]/i;
     const RE_GAMEOVER = /\[GAMEOVER\|([^\]]*)\]/i;
     const RE_RENAME   = /\[RENAME\|([^\]]*)\]/i;
+    const RE_LEAVE    = /\[LEAVE\|([^\]]*)\]/i;
 
     // 先手/後手欄位認：住戶名字、住戶 id、'rae'，外加舊的 provider 代號（claude/codex/deepseek）。
     // 回住戶 id（或 'rae'）；認不出來回 null。
@@ -525,18 +547,20 @@
             if (p1 && p2) game = { p1: p1, p2: p2 };
         }
         const rn = t.match(RE_RENAME);
+        const lv = t.match(RE_LEAVE);
         return {
             game: game,
             move: m ? m[1].trim() : null,
             gameover: o ? o[1].trim() : null,
             rename: rn ? rn[1].trim() : null,
+            leave: lv ? lv[1].trim() : null,
         };
     }
 
     // 給對手看：剝掉 <lobbyPanel> 大 HTML（畫布已渲染、不重送），保留遊戲標記
     function _stripForTranscript(text) {
-        // RENAME 也剝掉：系統告示已經講過這件事，留著只會讓別人跟著學那個標記
-        return (text || '').replace(RE_PANEL, '').replace(RE_RENAME, '').trim();
+        // RENAME / LEAVE 也剝掉：系統告示已經講過這件事，留著只會讓別人跟著學那個標記
+        return (text || '').replace(RE_PANEL, '').replace(RE_RENAME, '').replace(RE_LEAVE, '').trim();
     }
 
     // 給氣泡顯示：剝掉 panel + 所有遊戲標記
@@ -547,6 +571,7 @@
             .replace(RE_MOVE, '')
             .replace(RE_GAMEOVER, '')
             .replace(RE_RENAME, '')
+            .replace(RE_LEAVE, '')
             .replace(/[ \t]+\n/g, '\n')      // 標記剝掉後行尾留的空白
             .replace(/\n{3,}/g, '\n\n')      // 標記剝掉後留下的空行 → 收斂成單一段落間距
             .trim();
@@ -719,6 +744,16 @@
 
         const markers = _parseGameMarkers(result.reply);
 
+        // 他自己要下桌：先從名單移除，這輪剩下的人不會再被他影響；
+        // 告示等這則講完再發（順序才對：先聽他把話講完，再宣布他走了）。
+        let leftReason = null;
+        if (markers.leave != null) {
+            const CTx = _CT();
+            if (CTx && typeof CTx.setGroupSeat === 'function' && CTx.setGroupSeat(rid, false)) {
+                leftReason = markers.leave || '';
+            }
+        }
+
         // 他自己要改名：先改掉，這則氣泡的表頭就用新名字（他講這句話時已經叫新的了）
         let renamed = null;
         if (markers.rename) {
@@ -755,6 +790,7 @@
             if (typingWrap && typingWrap.parentNode) typingWrap.parentNode.removeChild(typingWrap);
             _markSeen(rid, seenAt);
             await _flushRename(rid, markers, renamed);
+            if (leftReason !== null) await _announceSelfLeave(rid, leftReason);
             return { spoke: true, failed: false, markers: markers };
         }
         if (!displayText && !imgAtts) {
@@ -774,6 +810,7 @@
         _markSeen(rid, seenAt);
         _save();
         await _flushRename(rid, markers, renamed);
+        if (leftReason !== null) await _announceSelfLeave(rid, leftReason);
         // 他點名了誰 —— 上層據此決定要不要把那些人叫進來接話（@ 自己不算）
         const calls = _parseMentions(transcriptText).filter(function (x) { return x !== rid; });
         return { spoke: true, failed: false, markers: markers, calls: calls };
