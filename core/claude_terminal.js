@@ -1494,6 +1494,9 @@ ${withOthers}
         };
         if (provider === 'codex')    body.cc_backend = 'codex';
         if (provider === 'deepseek') body.cc_backend = 'deepseek';
+        // opts.cwd：給需要落檔的那種呼叫用（群聊歸檔員要把摘要 append 進檔案）。
+        // 不給就照舊落到橋的預設工作目錄。
+        if (opts.cwd) body.cc_cwd = String(opts.cwd);
         if (Number.isFinite(cfg.temperature)) body.temperature = cfg.temperature;
         if (Number.isFinite(cfg.top_p)) body.top_p = cfg.top_p;
 

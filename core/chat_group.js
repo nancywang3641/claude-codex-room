@@ -19,6 +19,16 @@
     };
 
     let _transcript = [];   // [{ speaker:'rae'|'recap'|<residentId>, content, ts, usage? }]
+
+    // ── 上下文水位：什麼時候該自己整理一次 ──
+    // 看的是 cache_read_input_tokens 而不是 input_tokens：開了 prompt caching 之後
+    // input_tokens 幾乎永遠是個位數，真正累積在 session 裡的量全在 cache_read。
+    // （實測他們四個當時的水位是 44k / 64k / 67k / 76k，而 input_tokens 都是 1~3。）
+    // 門檻取 Opus 上限的一半：壓縮本身要把整份逐字稿送給 Sonnet，也吃 token，
+    // 留一半才不會發生「想整理卻已經塞不下」。
+    const CTX_COMPACT_AT = 100000;
+    let _ctxWater = {};     // rid → 那個人 session 當下的實際 context 大小
+    let _autoCompacting = false;   // 自動整理進行中，別重入
     const SEEN_KEY = 'group_seen';   // 閱讀進度：residentId → 已被送到第幾則 transcript index
     let _seen = {};         // 沒有記錄的當 -1
     let _loaded = false;    // load() 跑過沒 —— 沒跑過就往 _transcript 推東西會蓋掉 OS_DB 那份
@@ -896,6 +906,13 @@
         if (result.usage && window.OS_SPEND_PANEL && typeof window.OS_SPEND_PANEL.record === 'function') {
             try { window.OS_SPEND_PANEL.record(result.usage); } catch (_) {}
         }
+        // 記下他這條 session 現在多大。cache_read 才是累積量，input_tokens 在有快取時
+        // 幾乎是 0 —— 只看 input_tokens 的話水位永遠不會漲，自動整理等於沒接。
+        if (result.usage) {
+            const u = result.usage;
+            const w = Number(u.cache_read_input_tokens || 0) + Number(u.input_tokens || 0);
+            if (Number.isFinite(w) && w > 0) _ctxWater[rid] = w;
+        }
 
         const displayText = _stripForDisplay(result.reply);
         const transcriptText = _stripForTranscript(result.reply);
@@ -1142,6 +1159,9 @@
             // 進了遊戲模式則 _busy 維持 true（由 _endGameInternal 釋放）；否則放掉
             if (!_game) _busy = false;
         }
+        // 水位到頂就自己整理一次。放在這裡而不是等她按掃把：她說她懶得開新 session，
+        // 而沒人整理的話 context 遲早塞不下，到那時候是所有人一起講不了話。
+        await _maybeAutoCompact();
         // 她在續輪期間插的話，現在輪到她
         if (!_game && _queued) {
             const q = _queued;
@@ -1205,6 +1225,89 @@
     //    清三人 session(各自的 CLI session 也 reset → 從零開始 stateful 對話),
     //    把摘要塞回 transcript 第 0 條,下次 Rae 一發訊息就會把摘要當前情送給三人。
     //    走 Claude Sonnet:Rae 的 Max 訂閱配額用不完,後台雜活 0 元最划算。
+    /** 桌上最滿的那條 session 有多大。空的就回 0。 */
+    function _maxCtxWater() {
+        const seated = _seatIds();
+        let max = 0;
+        seated.forEach(function (id) {
+            const w = Number(_ctxWater[id] || 0);
+            if (w > max) max = w;
+        });
+        return max;
+    }
+
+    // 水位到頂 → 自己跑一次整理。看最滿的那個人而不是平均：
+    // 塞不下是個人的事，有人常 PASS 不代表話多的那個沒滿。
+    async function _maybeAutoCompact() {
+        if (_game || _autoCompacting) return;
+        const water = _maxCtxWater();
+        if (water < CTX_COMPACT_AT) return;
+        _autoCompacting = true;
+        try {
+            _renderSystemLine('上下文快滿了（' + Math.round(water / 1000) + 'k），自己整理一下。');
+            const r = await ChatGroup.compact();
+            if (r && r.ok) {
+                _ctxWater = {};   // 每個人都重新 boot 了，水位歸零重算
+            } else if (r && r.reason === 'too_short') {
+                // 對話很短卻已經滿了：壓也壓不出東西，別每輪都試一次刷版面。
+                // 拉高這一輪的門檻讓它安靜，下次真的又漲上來再說。
+                _ctxWater = {};
+            } else {
+                _renderSystemLine('這次沒整理成，等下再試。');
+            }
+        } catch (e) {
+            _renderSystemLine('整理時出了狀況：' + ((e && e.message) || e));
+        } finally {
+            _autoCompacting = false;
+        }
+    }
+
+    // 桌子自己的檔案櫃（不是誰的家）。壓縮出來的前情提要一段一段往這裡疊，
+    // 疊過的就不再重壓——現在的做法是每次把「上次的摘要＋這段新對話」重壓一次，
+    // 壓到第三輪，第一段已經是摘要的摘要的摘要。落了檔就不會再被動到。
+    const GROUP_ARCHIVE_DIR = 'D:/residents/_group';
+
+    // ── 收走之前，先讓他們自己留 ──
+    // 他們四個都是 CLI、手上都有工具，本來就寫得了自己的 memory/，缺的是時機：
+    // 群聊是連續閒聊，沒有「這輪結束了」那個節點，每輪都停下來寫又太貴。
+    // 壓縮前正好就是那個節點。讓當事人自己寫而不是找人代筆——被轉述過的記憶
+    // 讀起來會變成別人寫給他的信，那正是要避免的。
+    async function _letThemKeep() {
+        const seats = _seats();
+        if (!seats.length) return;
+        _renderSystemLine('桌上這段要收進檔案了 —— 先讓大家各自留下想記的。');
+        for (const seat of seats) {
+            const rid = seat.id;
+            const home = (_CT() && typeof _CT().residentHome === 'function') ? _CT().residentHome(rid) : '';
+            if (!home) continue;   // 沒有家就沒地方寫（蘇景明的家在別處，他那條由他自己的 AGENTS.md 管）
+            const delta = _buildDelta(rid);
+            const ask =
+                (delta ? delta + '\n\n' : '') +
+                '（系統）桌上這段對話馬上要被壓成前情提要收走，逐字稿不會留。\n' +
+                '這是你自己決定要留什麼的時候：真的之後還會被牽動的事，寫進 ' + home + '/memory/ 一事一檔，\n' +
+                '再回 ' + home + '/MEMORY.md 補一行索引。沒有值得留的就說沒有，那也是有效回答——\n' +
+                '不必為了交差硬記，流水帳比空白更糟。寫完用一句話說你留了什麼就好，不用複述內容。';
+            try {
+                const sid = _lsGet(_sidKey(rid));
+                const r = await window.ClaudeTerminal.sendGroup({
+                    residentId: rid,
+                    selfName:   _labelOf(rid),
+                    otherNames: seats.filter(x => x.id !== rid).map(x => x.name),
+                    model:      seat.seatModelId || '',
+                    sessionId:  sid,
+                    userText:   ask,
+                });
+                if (r && r.sessionId) _lsSet(_sidKey(rid), r.sessionId);
+                const said = _stripForDisplay(r && r.reply || '').trim();
+                if (said && !/^\[PASS\]$/i.test(said)) _renderSystemLine(_labelOf(rid) + '：' + said.slice(0, 120));
+            } catch (e) {
+                // 誰寫失敗就算了，不能卡住整個整理流程——壓縮比個人記憶更急，
+                // context 滿了是所有人都講不了話。
+                _renderSystemLine('（' + _labelOf(rid) + ' 這次沒留成，跳過）');
+            }
+        }
+    }
+
     ChatGroup.compact = async function () {
         if (_busy) return { ok: false, reason: 'busy' };
         if (_game)  return { ok: false, reason: 'in_game' };
@@ -1215,6 +1318,10 @@
         _busy = true;
         const restore = () => { _busy = false; };
         try {
+            // ① 先給每個人一輪，讓他們自己把要留的寫進自己的 memory/
+            await _letThemKeep();
+
+            // ② 才輪到壓縮
             // 把所有舊訊息(含舊 recap)組成可讀的對話腳本給 Sonnet
             const scriptLines = compactable.map(m => {
                 const tag = _labelOf(m.speaker);
@@ -1223,19 +1330,30 @@
             }).join('\n\n');
 
             const _who = _seats().map(x => x.name).join('、') || '幾個 AI';
+            const _arch = GROUP_ARCHIVE_DIR + '/群聊摘要.md';
             const sysPrompt =
-                '你是個對話摘要助手。下方是 Rae 跟 ' + _who + ' 的群聊紀錄,' +
-                '幫我壓縮成一頁「前情提要」,供他們之後接續聊天用。\n\n' +
+                '你是這張桌子的歸檔員。下方是 Rae 跟 ' + _who + ' 的群聊紀錄,' +
+                '把它壓成一段「前情提要」,供他們之後接續聊天用。\n\n' +
                 '規則:\n' +
                 '1. 用第三人稱、自然中文敘述(像「Rae 跟大家聊到 X,某某說 Y,某某吐槽 Z」)\n' +
                 '2. 保留:主題、結論、未完的事、人物之間的梗或語感\n' +
                 '3. 跳過:重複的問候、寒暄、純表情、已解決的小問題\n' +
                 '4. 控制在 300-600 字之間(對話越長可以越長,但別超過)\n' +
-                '5. 直接輸出摘要本文,不要加標題、不要加「以下是摘要:」這種開場白';
+                '5. 直接輸出摘要本文,不要加標題、不要加「以下是摘要:」這種開場白\n\n' +
+                '寫完之後,把這一段「附加」到 ' + _arch + ' 的檔尾(檔案或資料夾不存在就建),\n' +
+                '格式是一行 `## <今天日期> <時:分>` 標頭,底下接你剛寫的那段。\n' +
+                '⚠️ 只能 append,絕對不要改寫或重壓檔案裡已經有的段落——那些是之前壓好的,\n' +
+                '再壓一次就會變成摘要的摘要,越早的越糊。每一段都停在它當時寫下的樣子。\n' +
+                '寫檔失敗不要重試也不要報錯給我,直接把摘要本文吐出來就好,那才是這次的交付。\n' +
+                '你的回覆只放摘要本文,不要提到你寫了檔案。';
 
             const r = await window.ClaudeTerminal.sendRaw({
                 provider: 'claude',
                 model: 'sonnet',  // 強制 Sonnet,不被使用者當前選的 opus 干擾
+                // 桌子的檔案櫃：她走 claude CLI、手上本來就有讀寫工具,只是以前沒給
+                // 工作目錄,落在橋的預設(丹的舊資料夾)。指到這裡她才寫得成摘要檔,
+                // 也才讀得到前面幾段、知道哪些已經記過。
+                cwd: GROUP_ARCHIVE_DIR,
                 messages: [
                     { role: 'system', content: sysPrompt },
                     { role: 'user',   content: scriptLines },
