@@ -179,7 +179,11 @@
     /** 誰上桌 / 下桌。dorm 面板點椅子時呼叫（fire-and-forget）。 */
     ChatGroup.announceSeat = function (rid, seated) {
         const who = _labelOf(rid);
-        return _announce(who + (seated ? ' 入席了' : ' 離席了')).catch(function (e) {
+        // 帶一句後果：光說「離席了」他們還是會繼續 @ 他、等他回話
+        const text = seated
+            ? who + ' 入席了'
+            : who + ' 離席了，已經不在這張桌上，不會再回話';
+        return _announce(text).catch(function (e) {
             console.warn('[ChatGroup] 入席告示失敗：', e);
         });
     };
@@ -193,7 +197,7 @@
         if (!rid) return Promise.resolve();
         _clearSid(rid);
         if (!wasSeated) return Promise.resolve();   // 本來就不在桌上，沒什麼好報的
-        return _announce((name || rid) + ' 搬走了').catch(function (e) {
+        return _announce((name || rid) + ' 搬走了，之後不會再出現').catch(function (e) {
             console.warn('[ChatGroup] 搬走告示失敗：', e);
         });
     };
@@ -549,7 +553,12 @@
             if (prevTs && m.ts && (m.ts - prevTs) >= GAP_MARK_MS) {
                 lines.push('（隔了 ' + _fmtGap(m.ts - prevTs) + '）');
             }
-            lines.push('[' + _labelOf(m.speaker) + ']: ' + m.content);
+            // 系統告示不能長得跟發言一樣 —— 標成「[系統]: …」的話，他們會把它讀成
+            // 一位沒見過的參與者在講話，或當雜訊跳過（實測就是這樣，沒人反應）。
+            // 寫成一句自我說明的通知，不必靠 system prompt 解釋，改完當場生效。
+            lines.push(m.speaker === 'sys'
+                ? '（聊天室通知）' + m.content
+                : '[' + _labelOf(m.speaker) + ']: ' + m.content);
             if (m.ts) prevTs = m.ts;
         }
         if (!lines.length) return '';         // 沒有新東西 —— 別讓時間行自己撐成一則增量
