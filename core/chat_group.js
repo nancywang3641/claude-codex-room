@@ -74,6 +74,28 @@
     const _FACE = { claude: '🦀', codex: '🔷', deepseek: '🟢' };
     function _hdrTextOf(sp) { return (_FACE[_provOf(sp)] || '🦀') + ' ' + _labelOf(sp); }
 
+    /**
+     * 把表頭填成「🦀 名字 · 模型」。分小機之後同一顆 Claude 會有好幾位坐在桌上，
+     * 光看名字認不出是哪顆腦在講話 —— 模型那截用淡色小字掛在後面，不搶名字。
+     * Codex / DeepSeek 各只有一位，不標。
+     */
+    function _fillHdr(el, sp) {
+        if (!el) return;
+        el.textContent = '';
+        const nameEl = document.createElement('span');
+        nameEl.className = 'cg-hdr-name';
+        nameEl.textContent = _hdrTextOf(sp);
+        el.appendChild(nameEl);
+        const CT = _CT();
+        const model = (CT && typeof CT.residentModelLabel === 'function') ? CT.residentModelLabel(sp) : '';
+        if (model) {
+            const mEl = document.createElement('span');
+            mEl.className = 'cg-hdr-model';
+            mEl.textContent = '· ' + model;
+            el.appendChild(mEl);
+        }
+    }
+
     /** 舊 transcript / 舊參數裡的 provider 字串 → 住戶 id */
     function _normSpeaker(sp) { return LEGACY_SPEAKER[sp] || sp; }
 
@@ -249,7 +271,7 @@
         if (speaker !== 'rae') {
             const hdr = document.createElement('div');
             hdr.className = 'cg-bubble-hdr cg-hdr-' + css;
-            hdr.textContent = _hdrTextOf(speaker);
+            _fillHdr(hdr, speaker);
             wrap.appendChild(hdr);
         }
         const b = document.createElement('div');
@@ -273,7 +295,7 @@
         wrap.className = 'cg-bubble-wrap cg-from-' + css;
         const hdr = document.createElement('div');
         hdr.className = 'cg-bubble-hdr cg-hdr-' + css;
-        hdr.textContent = _hdrTextOf(speaker);
+        _fillHdr(hdr, speaker);
         const b = document.createElement('div');
         b.className = 'cg-bubble cg-from-' + css + ' cg-typing';
         b.textContent = '正在輸入…';
@@ -566,8 +588,7 @@
         if (markers.rename) {
             renamed = _aiRename(rid, markers.rename);
             if (renamed.ok && typingWrap) {
-                const hdrEl = typingWrap.querySelector('.cg-bubble-hdr');
-                if (hdrEl) hdrEl.textContent = _hdrTextOf(rid);
+                _fillHdr(typingWrap.querySelector('.cg-bubble-hdr'), rid);
             }
         }
 

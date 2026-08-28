@@ -39,12 +39,11 @@
             .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
-    /** 模型的顯示名：她在設置裡取過名字就用她取的 */
+    /** 模型的顯示名（共用資料層那支，別在這裡再養一份） */
     function _modelLabel(id) {
+        const CT = _CT();
+        if (CT && typeof CT.modelLabel === 'function') return CT.modelLabel(id);
         if (!id) return '';
-        const cfg = _cfg();
-        const nick = cfg.modelNames && cfg.modelNames[id];
-        if (nick) return nick;
         const m = _models().find(x => x.id === id);
         return m ? m.label : id;
     }

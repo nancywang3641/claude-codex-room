@@ -397,6 +397,31 @@ ${withOthers}
         return out;
     };
 
+    /** model id → 顯示名。她在設置裡取過暱稱就用她取的，否則用模型清單的 label。 */
+    ClaudeTerminal.modelLabel = function(modelId) {
+        if (!modelId) return '';
+        const cfg = _cfgRead();
+        const nick = cfg && cfg.modelNames && cfg.modelNames[modelId];
+        if (nick && String(nick).trim()) return String(nick).trim();
+        const room = window.VoidClaudeRoom;
+        const list = (room && Array.isArray(room.claudeModels)) ? room.claudeModels : [];
+        const found = list.find(x => x.id === modelId);
+        return found ? String(found.label).replace(' ⭐', '') : modelId;
+    };
+
+    /**
+     * 這位住戶實際在用的模型顯示名。沒鎖模型的（丹）就是房間 picker 選的那顆。
+     * 只有 Claude 系有意義 —— Codex / DeepSeek 各只有一位，標了也分不出什麼。
+     */
+    ClaudeTerminal.residentModelLabel = function(rid) {
+        const r = ClaudeTerminal.getResident(rid);
+        if (!r || r.provider !== 'claude') return '';
+        if (r.modelId) return ClaudeTerminal.modelLabel(r.modelId);
+        const cfg = _cfgRead() || {};
+        const cur = (cfg.providerModels && cfg.providerModels.claude) || cfg.inlineModel || cfg.model || '';
+        return cur ? ClaudeTerminal.modelLabel(cur) : '';
+    };
+
     ClaudeTerminal.isGroupSeated = function(id) {
         return !!id && _rawSeats().indexOf(id) >= 0;
     };

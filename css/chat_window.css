@@ -767,6 +767,12 @@
     font-weight: 700;
     padding: 0 4px;
 }
+/* 名字後面那截模型：同色但淡、不粗體 —— 要看得到，但不跟名字搶 */
+#aurelia-chat-window .cg-hdr-model {
+    margin-left: 5px;
+    font-weight: 400;
+    opacity: 0.62;
+}
 #aurelia-chat-window .cg-hdr-claude   { color: #c77b3a; }
 #aurelia-chat-window .cg-hdr-codex    { color: #3f6fc4; }
 #aurelia-chat-window .cg-hdr-deepseek { color: #4f9a5a; }  /* 蘇景明:綠色,跟單聊房同色系 */
