@@ -40,7 +40,13 @@
 
 /* 桌機：塞進輸入框左邊（#leftSendForm）時脫掉浮球外觀，跟 🏰 同一排 */
 #ccr-launcher.ccr-inline {
-    position: relative;   /* 小點的定位錨;流內表現同 static */
+    /* 小點(::after)要一個定位錨,所以留 relative 不能用 static;
+       但基底 #ccr-launcher 是浮球那套、帶著 right:18px/bottom:18px,
+       relative 會把它們當偏移量吃下去 —— 元素會從輸入列裡往左上各挪 18px,
+       正好壓在隔壁的 🏰 上面。position 換了就得把配套的位移一起清掉。 */
+    position: relative;
+    right: auto;
+    bottom: auto;
     width: 30px;
     height: 30px;
     border-radius: 5px;

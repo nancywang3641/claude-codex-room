@@ -485,15 +485,51 @@
             .trim();
     }
 
+    // 兩則之間隔多久才值得標一行。低於這個當同一段對話，不吵。
+    const GAP_MARK_MS = 30 * 60 * 1000;
+
+    /** 把毫秒差說成人話。給 AI 看的，不用精確到秒。 */
+    function _fmtGap(ms) {
+        const min = Math.round(ms / 60000);
+        if (min < 60) return min + ' 分鐘';
+        const hr = Math.round(min / 60);
+        if (hr < 24) return hr + ' 小時';
+        const day = Math.round(hr / 24);
+        if (day < 30) return day + ' 天';
+        const mon = Math.round(day / 30);
+        if (mon < 12) return mon + ' 個月';
+        return Math.round(mon / 12) + ' 年';
+    }
+
+    function _fmtClock(ts) {
+        const d = new Date(ts);
+        const p = n => String(n).padStart(2, '0');
+        return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+             + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+    }
+
     // ── 傳話增量：transcript 自 _seen[rid] 之後、非他自己的話 ──
+    // 開頭永遠標現在幾點，中間隔久了插一行 —— 他的 session 裡沒有任何時間資訊，
+    // 不講的話她隔一週回來，那一輪對他而言跟「剛剛」沒有分別。
     function _buildDelta(rid) {
+        const seenIdx = _seenOf(rid);
         const lines = [];
-        for (let i = _seenOf(rid) + 1; i < _transcript.length; i++) {
+        // 從「他上次看到的那則」起算，第一段間隔才算得出來
+        let prevTs = (seenIdx >= 0 && _transcript[seenIdx]) ? _transcript[seenIdx].ts : null;
+        for (let i = seenIdx + 1; i < _transcript.length; i++) {
             const m = _transcript[i];
-            if (m.speaker === rid) continue;  // 他自己的話已在他 session 裡
+            if (m.speaker === rid) {          // 他自己的話已在他 session 裡，但時間要當基準
+                if (m.ts) prevTs = m.ts;
+                continue;
+            }
+            if (prevTs && m.ts && (m.ts - prevTs) >= GAP_MARK_MS) {
+                lines.push('（隔了 ' + _fmtGap(m.ts - prevTs) + '）');
+            }
             lines.push('[' + _labelOf(m.speaker) + ']: ' + m.content);
+            if (m.ts) prevTs = m.ts;
         }
-        return lines.join('\n\n');
+        if (!lines.length) return '';         // 沒有新東西 —— 別讓時間行自己撐成一則增量
+        return '（現在 ' + _fmtClock(Date.now()) + '）\n\n' + lines.join('\n\n');
     }
 
     // 跟 _buildDelta 同範圍：收集增量涵蓋的 rae 附件（去掉 thumb，cc-bridge 只要 path）
