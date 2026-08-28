@@ -476,7 +476,10 @@ ${withOthers}
         deepseekConvs:  'deepseek_convs',
         deepseekActive: 'deepseek_active',
         activeResident: 'claude_active_resident',
+        groupCarry:     'ccr_group_carry',
     };
+    // 他在群聊講過的話，等他下次回自己房間時帶進去。上限是總字數，滿了丟最舊的。
+    const GROUP_CARRY_MAX_CHARS = 3000;
     const CONV_IDB_PREFIX     = 'claude_conv_';
     const CODEX_IDB_PREFIX    = 'codex_conv_';
     const DEEPSEEK_IDB_PREFIX = 'deepseek_conv_';
@@ -558,6 +561,49 @@ ${withOthers}
         const r = ClaudeTerminal.getActiveResident(provider);
         return r ? r.id : (BUILTIN_OF_PROVIDER[provider || _provider] || 'dan');
     };
+
+    // ---- 群聊 → 自己房間的回流 ----
+    // 群聊跟私聊是兩條各自 resume 的 session，同一位住戶在兩邊等於兩個人：桌上講過的
+    // 事，回房間之後自己不知道。收的是他「自己說過的原話」，不是摘要——被轉述一遍
+    // 讀起來就成了別人寫給他的信，那正是要修的東西。別人的發言不收，那會把整桌的話
+    // 搬進他的私人記憶，開了就收不回來。
+    /** 群聊那邊每講完一則就丟一份過來（只丟他自己的話）。 */
+    ClaudeTerminal.pushGroupCarry = function(rid, text, otherNames) {
+        const t = String(text || '').trim();
+        if (!rid || !t) return;
+        const all = _lsGetJson(LS_KEYS.groupCarry, {}) || {};
+        const mine = Array.isArray(all[rid]) ? all[rid] : [];
+        mine.push({
+            text: t,
+            others: (Array.isArray(otherNames) ? otherNames : []).filter(Boolean).map(String),
+            ts: Date.now(),
+        });
+        // 從最舊的開始丟，直到總長度回到上限內。留不下全部也要留最近的。
+        let total = mine.reduce((n, x) => n + (x.text ? x.text.length : 0), 0);
+        while (mine.length > 1 && total > GROUP_CARRY_MAX_CHARS) {
+            total -= (mine.shift().text || '').length;
+        }
+        all[rid] = mine;
+        _lsSetJson(LS_KEYS.groupCarry, all);
+    };
+
+    /** 讀走並清空某位住戶的回流。回空字串表示沒有東西要帶。 */
+    ClaudeTerminal.takeGroupCarry = function(rid) { return _takeGroupCarry(rid); };
+    function _takeGroupCarry(rid) {
+        if (!rid) return '';
+        const all = _lsGetJson(LS_KEYS.groupCarry, {}) || {};
+        const mine = Array.isArray(all[rid]) ? all[rid] : [];
+        if (!mine.length) return '';
+        delete all[rid];
+        _lsSetJson(LS_KEYS.groupCarry, all);
+        // 同桌名單取最後一則的：中途有人上下桌時，最後那次才是他離開桌子時的狀態
+        const others = (mine[mine.length - 1].others || []).filter(Boolean);
+        const who = others.length ? ('跟 ' + others.join('、') + ' 同桌') : '在桌上';
+        return '（在這之前你去過群聊區，' + who + '。以下是你在那邊說過的話，一則一段，'
+             + '是你自己的原話不是轉述——當成你的記憶讀，不必回應它們。）\n\n'
+             + mine.map(x => x.text).join('\n\n---\n\n')
+             + '\n\n（群聊區的部分到此為止。下面是 Rae 在你自己房間裡跟你說的話。）';
+    }
 
     /** 這個 tab 的老會話原本屬於誰（宿舍之前只有內建那幾位） */
     function _homeResidentOfTab(tab) {
@@ -1080,17 +1126,23 @@ ${withOthers}
         await ClaudeTerminal.saveHistory(updatedHistory);
 
         const incomingSid = ClaudeTerminal.getSessionId();
+        // 他從群聊區帶回來的話：接在這一輪前面送過去，但「不」寫進 history —— 上面那則
+        // newUserMsg 存的是她原本打的字。回流是給他讀的記憶，不是她講過的話，混進逐字稿
+        // 之後她翻自己的對話會看到一大段不是她寫的東西，下次開新 session 還會被當成
+        // 她的發言重送一次。
+        const carry = _takeGroupCarry(ClaudeTerminal.getActiveResidentId());
+        const apiUserText = carry ? (carry + '\n\n' + userText) : userText;
         // 新 session 把 Aurelia 房間 system prompt 注入第一條（含 ASK marker 規則）
         // resume 模式不重送 system（已在 session log 裡了，重送可能干擾續接）
         const sysPrompt = _provider === 'codex'    ? CODEX_ROOM_SYSTEM_PROMPT
                         : _provider === 'deepseek' ? DEEPSEEK_ROOM_SYSTEM_PROMPT
                         :                            CLAUDE_ROOM_SYSTEM_PROMPT;
         const apiMessages = incomingSid
-            ? [{ role: 'user', content: userText }]
+            ? [{ role: 'user', content: apiUserText }]
             : [
                 { role: 'system', content: sysPrompt },
                 ...history.slice(-HISTORY_LIMIT).map(m => ({ role: m.role, content: m.content })),
-                { role: 'user', content: userText }
+                { role: 'user', content: apiUserText }
               ];
 
         const body = {

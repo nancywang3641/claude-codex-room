@@ -923,6 +923,15 @@
         const turnEntry = { speaker: rid, content: transcriptText, ts: Date.now(), usage: result.usage || null };
         if (imgAtts) turnEntry.attachments = imgAtts;
         _transcript.push(turnEntry);
+        // 同一份話也留一份給他自己的房間：群聊跟私聊各自 resume，不回流的話同一位住戶
+        // 在兩邊就是兩個人。收的是剝過標記的原話（[MOVE] 那些是對桌上講的，回房間沒有
+        // 意義），別人說了什麼不收。
+        if (transcriptText) {
+            const CTc = _CT();
+            if (CTc && typeof CTc.pushGroupCarry === 'function') {
+                CTc.pushGroupCarry(rid, transcriptText, _seats().filter(x => x.id !== rid).map(x => x.name));
+            }
+        }
         _markSeen(rid, seenAt);
         _save();
         await _flushRename(rid, markers, renamed);
