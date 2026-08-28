@@ -20,6 +20,7 @@
 
     let _transcript = [];   // [{ speaker:'rae'|'recap'|<residentId>, content, ts, usage? }]
     let _seen = {};         // residentId → 已被送到第幾則 transcript index（沒有的當 -1）
+    let _loaded = false;    // load() 跑過沒 —— 沒跑過就往 _transcript 推東西會蓋掉 OS_DB 那份
     let _busy = false;
     let _streamEl = null;   // 渲染目標（窗內 chat-stream）
     let _game = null;             // 遊戲模式：{ players:[p1,p2], turnIdx, moveCount, raeResolver, endSignal }
@@ -53,6 +54,7 @@
     function _labelOf(sp) {
         if (sp === 'rae')   return 'Rae';
         if (sp === 'recap') return '前情提要';
+        if (sp === 'sys')   return '系統';
         const s = _seatOf(sp);
         if (s) return s.name;
         const CT = _CT();
@@ -123,11 +125,65 @@
         _seatIds().forEach(function (id) { _seen[id] = end; });
         // 退席後又回來的人也不能重看整段（他的 session 裡本來就有）
         _transcript.forEach(function (m) {
-            if (m && m.speaker !== 'rae' && m.speaker !== 'recap' && _seen[m.speaker] == null) {
+            if (m && m.speaker !== 'rae' && m.speaker !== 'recap' && m.speaker !== 'sys'
+                && _seen[m.speaker] == null) {
                 _seen[m.speaker] = end;
             }
         });
+        _loaded = true;
     };
+
+    // ── 系統告示 ──
+    // 入席 / 離席 / 改名這種事發生在宿舍面板，群聊當下可能根本沒開。
+    // 所以它進 transcript（而不是只畫一行字）：一來下次打開看得到，
+    // 二來——真正的重點——其他人會透過傳話增量知道桌上多了誰、誰改了名。
+    async function _announce(text) {
+        if (!text) return;
+        if (!_loaded) await ChatGroup.load();   // 沒 load 過就 push 會把 OS_DB 那份蓋成空的
+        _transcript.push({ speaker: 'sys', content: text, ts: Date.now() });
+        _save();
+        if (_streamEl) _renderSystemLine(text);
+    }
+
+    /** 誰上桌 / 下桌。dorm 面板點椅子時呼叫（fire-and-forget）。 */
+    ChatGroup.announceSeat = function (rid, seated) {
+        const who = _labelOf(rid);
+        return _announce(who + (seated ? ' 入席了' : ' 離席了')).catch(function (e) {
+            console.warn('[ChatGroup] 入席告示失敗：', e);
+        });
+    };
+
+    /** 有人改名。改的是誰、從什麼變成什麼，桌上的人要知道。 */
+    ChatGroup.announceRename = function (oldName, newName) {
+        if (!oldName || !newName || oldName === newName) return Promise.resolve();
+        return _announce(oldName + ' 改名叫 ' + newName + ' 了').catch(function (e) {
+            console.warn('[ChatGroup] 改名告示失敗：', e);
+        });
+    };
+
+    /**
+     * AI 自己改名（回覆裡吐 [RENAME|新名字]）。
+     * 回 { ok, reason } —— 改成了就順手告示，沒改成也告示一行，
+     * 不然他會以為改好了、之後都自稱新名字，桌上其他人卻還叫他舊的。
+     */
+    function _aiRename(rid, raw) {
+        const CT = _CT();
+        if (!CT || typeof CT.saveResident !== 'function') return { ok: false, reason: '資料層沒載入' };
+        const cur = _seatOf(rid) || (typeof CT.getResident === 'function' ? CT.getResident(rid) : null);
+        if (!cur) return { ok: false, reason: '查無此住戶' };
+        const name = String(raw == null ? '' : raw).replace(/\s+/g, ' ').trim();
+        if (!name) return { ok: false, reason: '名字是空的' };
+        if (name.length > 20) return { ok: false, reason: '名字太長（最多 20 字）' };
+        if (name === cur.name) return { ok: false, reason: '本來就叫這個' };
+        // 這三個是講者前綴會用到的字，被拿去當名字會讓逐字稿分不清誰在講話
+        if (['Rae', 'rae', '系統', '前情提要'].indexOf(name) >= 0) return { ok: false, reason: '這個名字被系統用掉了' };
+        const clash = (typeof CT.listResidents === 'function' ? CT.listResidents() : [])
+            .some(function (x) { return x.id !== rid && x.name === name; });
+        if (clash) return { ok: false, reason: '已經有人叫這個名字' };
+        const saved = CT.saveResident({ id: rid, name: name });
+        if (!saved) return { ok: false, reason: '存檔失敗' };
+        return { ok: true, oldName: cur.name, newName: name };
+    }
 
     // ── 渲染 ──
     function _scrollBottom() { if (_streamEl) _streamEl.scrollTop = _streamEl.scrollHeight; }
@@ -332,6 +388,8 @@
             return;
         }
         _transcript.forEach(function (m) {
+            // 系統告示（入席 / 離席 / 改名）→ 置中一行，不是氣泡
+            if (m.speaker === 'sys') { _renderSystemLine(m.content); return; }
             // 系統注入提示、純標記行（如落子）剝完是空的 —— 不渲染
             if (m.speaker === 'rae' && m.content && m.content.indexOf('（系統）') === 0) return;
             const hasAtt = Array.isArray(m.attachments) && m.attachments.length;
@@ -345,6 +403,7 @@
     const RE_GAME     = /\[GAME\|\s*([^\],]+?)\s*,\s*([^\],]+?)\s*\]/i;
     const RE_MOVE     = /\[MOVE\|([^\]]*)\]/i;
     const RE_GAMEOVER = /\[GAMEOVER\|([^\]]*)\]/i;
+    const RE_RENAME   = /\[RENAME\|([^\]]*)\]/i;
 
     // 先手/後手欄位認：住戶名字、住戶 id、'rae'，外加舊的 provider 代號（claude/codex/deepseek）。
     // 回住戶 id（或 'rae'）；認不出來回 null。
@@ -376,16 +435,19 @@
             const p1 = _normPlayer(g[1]), p2 = _normPlayer(g[2]);
             if (p1 && p2) game = { p1: p1, p2: p2 };
         }
+        const rn = t.match(RE_RENAME);
         return {
             game: game,
             move: m ? m[1].trim() : null,
             gameover: o ? o[1].trim() : null,
+            rename: rn ? rn[1].trim() : null,
         };
     }
 
     // 給對手看：剝掉 <lobbyPanel> 大 HTML（畫布已渲染、不重送），保留遊戲標記
     function _stripForTranscript(text) {
-        return (text || '').replace(RE_PANEL, '').trim();
+        // RENAME 也剝掉：系統告示已經講過這件事，留著只會讓別人跟著學那個標記
+        return (text || '').replace(RE_PANEL, '').replace(RE_RENAME, '').trim();
     }
 
     // 給氣泡顯示：剝掉 panel + 所有遊戲標記
@@ -395,6 +457,7 @@
             .replace(RE_GAME, '')
             .replace(RE_MOVE, '')
             .replace(RE_GAMEOVER, '')
+            .replace(RE_RENAME, '')
             .replace(/[ \t]+\n/g, '\n')      // 標記剝掉後行尾留的空白
             .replace(/\n{3,}/g, '\n\n')      // 標記剝掉後留下的空行 → 收斂成單一段落間距
             .trim();
@@ -426,6 +489,13 @@
         return out;
     }
 
+    /** 回合收尾時把改名結果告示出去（成功與否都說，AI 才知道自己現在叫什麼） */
+    async function _flushRename(rid, markers, renamed) {
+        if (!renamed) return;
+        if (renamed.ok) await ChatGroup.announceRename(renamed.oldName, renamed.newName);
+        else await _announce(_labelOf(rid) + ' 想改名叫「' + markers.rename + '」，沒改成：' + renamed.reason);
+    }
+
     // ── 一個 AI 的回合 ──
     // opts.gameTurn=true：遊戲回合，即使沒有新增量也要催它落子
     // 回傳 { spoke:bool, failed:bool, markers:{game,move,gameover} }
@@ -433,9 +503,13 @@
         opts = opts || {};
         let delta = _buildDelta(rid);
         const deltaAttachments = _collectDeltaAttachments(rid);
+        // 他這一輪實際看到哪裡為止。回合結束一律用這個數字，別再取當下的
+        // _transcript.length-1 —— 這中間可能插進了他沒看過的東西（有人入席、
+        // 有人改名的系統告示），拿當下末端會把那些一起標成已讀、之後永遠不補送。
+        const seenAt = _transcript.length - 1;
         if (!delta.trim()) {
             if (!opts.gameTurn) {
-                _seen[rid] = _transcript.length - 1;
+                _seen[rid] = seenAt;
                 return { spoke: false, failed: false, markers: {} };
             }
             // 遊戲回合沒新增量（例：開局先手的第一手）→ 催落子
@@ -481,11 +555,21 @@
         const reply = (result.reply || '').trim();
         if (/^\[PASS\]$/i.test(reply)) {
             if (typingWrap && typingWrap.parentNode) typingWrap.parentNode.removeChild(typingWrap);
-            _seen[rid] = _transcript.length - 1;
+            _seen[rid] = seenAt;
             return { spoke: false, failed: false, markers: {} };
         }
 
         const markers = _parseGameMarkers(result.reply);
+
+        // 他自己要改名：先改掉，這則氣泡的表頭就用新名字（他講這句話時已經叫新的了）
+        let renamed = null;
+        if (markers.rename) {
+            renamed = _aiRename(rid, markers.rename);
+            if (renamed.ok && typingWrap) {
+                const hdrEl = typingWrap.querySelector('.cg-bubble-hdr');
+                if (hdrEl) hdrEl.textContent = _hdrTextOf(rid);
+            }
+        }
 
         // <lobbyPanel> 畫布：永遠渲染（開局棋盤經此上來）
         if (window.VoidCanvas && typeof window.VoidCanvas.parseLobbyPanel === 'function') {
@@ -512,7 +596,8 @@
         if (!transcriptText && !imgAtts) {
             // 整則只有 <lobbyPanel>、沒文字沒標記沒圖：移掉空氣泡，不進 transcript
             if (typingWrap && typingWrap.parentNode) typingWrap.parentNode.removeChild(typingWrap);
-            _seen[rid] = _transcript.length - 1;
+            _seen[rid] = seenAt;
+            await _flushRename(rid, markers, renamed);
             return { spoke: true, failed: false, markers: markers };
         }
         if (!displayText && !imgAtts) {
@@ -529,8 +614,9 @@
         const turnEntry = { speaker: rid, content: transcriptText, ts: Date.now(), usage: result.usage || null };
         if (imgAtts) turnEntry.attachments = imgAtts;
         _transcript.push(turnEntry);
-        _seen[rid] = _transcript.length - 1;
+        _seen[rid] = seenAt;
         _save();
+        await _flushRename(rid, markers, renamed);
         return { spoke: true, failed: false, markers: markers };
     }
 

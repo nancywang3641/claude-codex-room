@@ -197,7 +197,12 @@
                     e.stopPropagation();   // 別讓點擊冒到門上把房間開起來
                     const CT = _CT();
                     if (!CT || typeof CT.setGroupSeat !== 'function') return;
-                    CT.setGroupSeat(id, !CT.isGroupSeated(id));
+                    const next = !CT.isGroupSeated(id);
+                    if (!CT.setGroupSeat(id, next)) return;
+                    // 桌上留一行告示：不只是給她看，其他 AI 也靠這條知道多了誰 / 少了誰
+                    if (window.ChatGroup && typeof window.ChatGroup.announceSeat === 'function') {
+                        window.ChatGroup.announceSeat(id, next);
+                    }
                     _render();   // 群聊區那張卡的副標也要跟著換
                 });
             }
@@ -237,7 +242,14 @@
                 if (id === '__new__') {
                     CT.saveResident({ name: name, provider: 'claude', modelId: modelIn ? modelIn.value : '' });
                 } else {
+                    const before = CT.getResident(id);
+                    const oldName = before ? before.name : '';
                     CT.saveResident({ id: id, name: name, modelId: modelIn ? modelIn.value : undefined });
+                    // 在席的人改了名，桌上其他人要知道 —— 不然逐字稿的講者前綴會無聲換人
+                    if (oldName && oldName !== name && CT.isGroupSeated(id)
+                        && window.ChatGroup && typeof window.ChatGroup.announceRename === 'function') {
+                        window.ChatGroup.announceRename(oldName, name);
+                    }
                     _syncOpenRoom(id);
                 }
                 _editing = null;
