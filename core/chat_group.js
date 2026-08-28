@@ -578,14 +578,15 @@
         const typingWrap = _renderTyping(rid);
         const bubbleEl = typingWrap && typingWrap.querySelector('.cg-bubble');
         let acc = '';
-        let result;
-        try {
-            result = await window.ClaudeTerminal.sendGroup({
+
+        function _send(sid) {
+            acc = '';
+            return window.ClaudeTerminal.sendGroup({
                 residentId: rid,
                 selfName:   _labelOf(rid),
                 otherNames: _seats().filter(x => x.id !== rid).map(x => x.name),
                 model:      seat ? seat.seatModelId : '',
-                sessionId: _lsGet(_sidKey(rid)),
+                sessionId: sid,
                 userText: delta,
                 attachments: deltaAttachments,
                 onProgress: function (ev) {
@@ -599,14 +600,35 @@
                     }
                 },
             });
-        } catch (e) {
+        }
+
+        function _fail(err) {
             if (bubbleEl) {
                 bubbleEl.classList.remove('cg-typing');
                 bubbleEl.classList.add('cg-error');
-                bubbleEl.textContent = '⚠️ ' + ((e && e.message) || '送出失敗');
+                bubbleEl.textContent = '⚠️ ' + ((err && err.message) || '送出失敗');
             }
             // 送出失敗：不推進 _seen —— 下一輪再補送
             return { spoke: false, failed: true, markers: {} };
+        }
+
+        const sid0 = _lsGet(_sidKey(rid));
+        let result;
+        try {
+            result = await _send(sid0);
+        } catch (e) {
+            // EMPTY 而且當時帶著 session：多半是那條 session 已經不在了。
+            // CLI 的 session 按工作目錄分家，cc-bridge 的 cli_cwd 換過之後，
+            // 舊 sid 在新目錄下找不到——CLI 不報錯、回空、cost 算 0，橋照實回傳，
+            // 到這裡就成了 EMPTY。清掉 sid 從零開一條再試一次，只試這一次。
+            if (/^EMPTY:/.test((e && e.message) || '') && sid0) {
+                _clearSid(rid);
+                try {
+                    result = await _send(null);
+                } catch (e2) { return _fail(e2); }
+            } else {
+                return _fail(e);
+            }
         }
         if (result.sessionId) _lsSet(_sidKey(rid), result.sessionId);
 
