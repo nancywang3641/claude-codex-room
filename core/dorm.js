@@ -274,7 +274,13 @@
                         return;
                     }
                     _disarmDelete();
-                    CT.deleteResident(id);
+                    // 名字跟在席狀態要在刪之前抓 —— 刪完就查不到了
+                    const gone = CT.getResident(id);
+                    const wasSeated = typeof CT.isGroupSeated === 'function' && CT.isGroupSeated(id);
+                    if (CT.deleteResident(id) && window.ChatGroup
+                        && typeof window.ChatGroup.noteResidentRemoved === 'function') {
+                        window.ChatGroup.noteResidentRemoved(id, gone ? gone.name : '', wasSeated);
+                    }
                     _editing = null;
                     _render();
                 });

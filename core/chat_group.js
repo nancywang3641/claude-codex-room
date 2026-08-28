@@ -184,6 +184,20 @@
         });
     };
 
+    /**
+     * 住戶整個被刪掉（門卡的「請他搬走」）。
+     * 名字要外面傳進來 —— 這時候他已經不在名冊上了，_labelOf 只查得到一串 id。
+     * 順手清掉他在群聊的 session：人都沒了，那條 key 留著也只是孤兒。
+     */
+    ChatGroup.noteResidentRemoved = function (rid, name, wasSeated) {
+        if (!rid) return Promise.resolve();
+        _clearSid(rid);
+        if (!wasSeated) return Promise.resolve();   // 本來就不在桌上，沒什麼好報的
+        return _announce((name || rid) + ' 搬走了').catch(function (e) {
+            console.warn('[ChatGroup] 搬走告示失敗：', e);
+        });
+    };
+
     /** 有人改名。改的是誰、從什麼變成什麼，桌上的人要知道。 */
     ChatGroup.announceRename = function (oldName, newName) {
         if (!oldName || !newName || oldName === newName) return Promise.resolve();
