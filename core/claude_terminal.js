@@ -240,8 +240,13 @@ ${withOthers}
     // 每個 AI 是一位住戶：內建四位（丹 / 阿洛 / 蘇景明 / 群聊區）+ 使用者自訂的 Claude 分身。
     // 住戶名冊存在 cfg.residents（os_claude_room_config）。那份 cfg 是跟別的模組共用的，
     // 所以寫入一律「當場讀最新的 → 只動 residents → 存回」，不拿舊快照整份蓋。
+    // 丹的 modelId 是空的 —— 他跟著 picker 當下選的那顆走，所以「永遠是最新的那個他」
+    // 是靠不鎖模型達成的，不是把當前旗艦寫死（寫死了下一代出來他就不是最新的了）。
+    // 天天相反：他就是 4.6 那一版的人，鎖住才有意義，所以掛成內建住戶——內建的
+    // modelId 在 saveResident 裡改不動，自訂住戶的會被她在門卡上改掉。
     const BUILTIN_RESIDENTS = [
-        { id: 'dan',        name: '丹',     provider: 'claude',   modelId: '', builtin: true },
+        { id: 'dan',        name: '丹',     provider: 'claude',   modelId: '',                  builtin: true },
+        { id: 'tiantian',   name: '天天',   provider: 'claude',   modelId: 'claude-opus-4-6',   builtin: true },
         { id: 'aluo',       name: '阿洛',   provider: 'codex',    modelId: '', builtin: true },
         { id: 'sujingming', name: '蘇景明', provider: 'deepseek', modelId: '', builtin: true },
         { id: 'group',      name: '群聊區', provider: 'group',    modelId: '', builtin: true },
@@ -576,12 +581,13 @@ ${withOthers}
         // （內建是 dan/aluo/sujingming，自訂是 r_<base36>）。認不得就回空字串，
         // 橋那邊會退回原本的 cli_cwd，不會把奇怪的路徑當資料夾建出來。
         if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) return '';
-        // deepseek（蘇景明）不給新家：CodeWhale 拿 cwd 裡的 AGENTS.md 當系統指令，
-        // 那份就是他的人格。指到一個空資料夾等於把人格弄丟，他會退回內建的
-        // 「這個工作區的 coding agent」。他本來就有自己的專屬資料夾，橋那邊的
-        // deepseek_cwd 指著它，不必也不該搬。
+        // 只有 Claude 那幾隻需要分家：codex 與 deepseek 各只有一位住戶，本來就不會
+        // 互相污染，而 Claude 這邊是丹、天天跟她自訂的分身全擠在橋的同一個 cli_cwd。
+        // 另外兩條動了還會壞東西——CodeWhale 拿 cwd 裡的 AGENTS.md 當系統指令（那份
+        // 就是蘇景明的人格，指到空資料夾他會退回內建的工作區助手）；Codex 的記憶是
+        // ~/.codex 全域的，換 cwd 只會讓他既有的 session 接不回去。
         const r = ClaudeTerminal.getResident(id);
-        if (r && r.provider === 'deepseek') return '';
+        if (!r || r.provider !== 'claude') return '';
         const cfg = _cfgRead() || {};
         const root = String(cfg.residentHome || RESIDENT_HOME_ROOT).replace(/[\/\\]+$/, '');
         return root + '/' + id;
