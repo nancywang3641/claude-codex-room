@@ -519,6 +519,20 @@
         });
     }
 
+    /** 他正在做的事，寫成一句人話。認不出來就講「正在動手」——寧可模糊，不要編一個具體的謊。
+     *  生圖那種認得出來是因為 codex 的 image 工具會落在命令裡（生出來的檔名也是 exec-*.png）。 */
+    function _doingLabel(tool) {
+        const cmd = String((tool && tool.input && tool.input.command) || '').toLowerCase();
+        if (/image[-_ ]?gen|imagegen|\bimage\b.*\b(gen|create|draw)|generate[-_ ]?image/.test(cmd)) {
+            return '正在畫圖…';
+        }
+        if (/curl|wget|fetch|http/.test(cmd)) return '正在上網查…';
+        if (/\bgit\b/.test(cmd)) return '正在翻程式碼…';
+        if (/\b(cat|type|head|tail|less|read)\b/.test(cmd)) return '正在讀檔…';
+        if (/\b(ls|dir|find|grep|rg)\b/.test(cmd)) return '正在找東西…';
+        return '正在動手…';
+    }
+
     /** 把整條 transcript 渲染進 streamEl（進群聊時用） */
     ChatGroup.hydrate = function (streamEl) {
         _streamEl = streamEl;
@@ -823,7 +837,19 @@
                         acc = ev.accumulated || (acc + (ev.delta || ''));
                         if (bubbleEl) {
                             bubbleEl.classList.remove('cg-typing');
+                            bubbleEl.classList.remove('cg-doing');
                             bubbleEl.textContent = _stripForDisplay(acc);
+                            _scrollBottom();
+                        }
+                    } else if (ev && ev.type === 'tool_use') {
+                        // 他在動手（跑命令、生圖）。生圖那種要等三十秒以上，畫面上卻只有
+                        // 「正在輸入…」—— 看起來像卡住。這裡把他正在做什麼寫在氣泡上，
+                        // 等真的有文字回來再換掉。只在還沒有任何文字時顯示：他一開口就換成內容，
+                        // 不要讓狀態字蓋掉他講的話。
+                        if (bubbleEl && !acc) {
+                            bubbleEl.classList.remove('cg-typing');
+                            bubbleEl.classList.add('cg-doing');
+                            bubbleEl.textContent = _doingLabel(ev.tool);
                             _scrollBottom();
                         }
                     }

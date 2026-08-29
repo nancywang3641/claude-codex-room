@@ -1378,6 +1378,12 @@ ${withOthers}
                                 try { onProgress({ type: 'text', delta: delta.content, accumulated: replyAcc }); } catch (_) {}
                             }
                         }
+                        // 他動手做事的訊號（跑命令、生圖都走這條）。私聊那條路徑本來就在轉發，
+                        // 群聊這條漏了 —— 症狀是他生圖那三十秒畫面上只有「正在輸入…」，
+                        // 訊號一直有送，只是沒人接。
+                        if (chunk.tool_use && typeof onProgress === 'function') {
+                            try { onProgress({ type: 'tool_use', tool: chunk.tool_use }); } catch (_) {}
+                        }
                         if (chunk.session_id !== undefined) newSid = chunk.session_id;
                         if (chunk.usage_meta) usageMeta = chunk.usage_meta;
                         if (Array.isArray(chunk.images) && chunk.images.length) imagesAcc = chunk.images;

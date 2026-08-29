@@ -928,6 +928,27 @@
     color: #9a93a8;
     font-style: italic;
 }
+/* 他正在動手（跑命令、生圖）。跟「正在輸入…」同一種灰，但前面加一顆會呼吸的點 ——
+   生圖要等三十秒以上，靜止的字看起來像卡住，會動的點才看得出來還活著。 */
+#aurelia-chat-window .cg-bubble.cg-doing {
+    color: #9a93a8;
+    font-style: italic;
+}
+#aurelia-chat-window .cg-bubble.cg-doing::before {
+    content: "";
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-right: 7px;
+    border-radius: 50%;
+    background: var(--cl-grenadine, #D95122);
+    vertical-align: middle;
+    animation: cg-doing-pulse 1.1s ease-in-out infinite;
+}
+@keyframes cg-doing-pulse {
+    0%, 100% { opacity: 0.25; transform: scale(0.8); }
+    50%      { opacity: 1;    transform: scale(1.15); }
+}
 #aurelia-chat-window .cg-bubble.cg-error {
     color: #d9534f;
 }
