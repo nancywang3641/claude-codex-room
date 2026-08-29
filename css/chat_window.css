@@ -689,6 +689,81 @@
     color: var(--cl-grenadine, #D95122);
 }
 
+/* ---- 群成員網格：這張桌子上有誰 ----
+   照 IM 的規矩擺在群聊自己的資訊頁裡，不在通訊錄（宿舍門卡）上。
+   亮的在桌上、暗的不在，點一下切換 —— 四五個人不需要再多一層「＋ 挑人」。 */
+#aurelia-chat-window .cw-mem-title {
+    padding: 14px 12px 6px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--cl-cafe-latte, #896645);
+    letter-spacing: 0.04em;
+}
+#aurelia-chat-window .cw-mem-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+    gap: 10px;
+    padding: 0 12px 6px;
+}
+#aurelia-chat-window .cw-mem {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    padding: 8px 4px;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    background: none;
+    cursor: pointer;
+    opacity: 0.42;
+    filter: grayscale(1);
+    transition: opacity 0.15s ease, filter 0.15s ease, background 0.15s ease;
+}
+#aurelia-chat-window .cw-mem:hover {
+    background: rgba(234, 176, 92, 0.14);
+    opacity: 0.75;
+}
+#aurelia-chat-window .cw-mem.seated {
+    opacity: 1;
+    filter: none;
+    border-color: rgba(217, 81, 34, 0.45);
+    background: rgba(234, 176, 92, 0.16);
+}
+#aurelia-chat-window .cw-mem-face {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(234, 176, 92, 0.22);
+    flex-shrink: 0;
+}
+#aurelia-chat-window .cw-mem-face img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+#aurelia-chat-window .cw-mem-icon {
+    color: var(--cl-cafe-latte, #896645);
+    font-size: 17px;
+}
+#aurelia-chat-window .cw-mem-face-codex {
+    background: #10a37f;
+}
+#aurelia-chat-window .cw-mem-name {
+    font-size: 11px;
+    line-height: 1.2;
+    color: var(--cl-text-deep, #3d2010);
+    text-align: center;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 #aurelia-chat-window .cw-rec-empty {
     padding: 24px 12px;
     text-align: center;

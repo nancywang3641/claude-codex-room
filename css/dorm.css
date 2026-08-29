@@ -146,9 +146,10 @@
 .dorm-card.dorm-editing .dorm-pen { opacity: 1; }
 .dorm-pen:hover { background: rgba(234, 176, 92, 0.38); color: var(--cl-text-deep, #3d2010); }
 
-/* ---- 入席鈕：誰在群聊桌上 ----
-   上桌的常駐顯示（那是狀態，不該要 hover 才看得到）；沒上桌的跟筆一樣藏著。 */
-.dorm-seat {
+/* ---- 自己醒來：他會不會在沒人叫的時候自己醒過來 ----
+   跟入席鈕同一套：開著的常駐顯示（那是狀態，不該要 hover 才看得到），關著的跟筆一樣藏著。
+   刻意做成門卡上的鈕、不是編輯列裡的一行 —— 編輯列要按鉛筆才展得開，那等於把狀態摺起來。 */
+.dorm-wake {
     position: absolute;
     right: 34px;
     top: 6px;
@@ -165,15 +166,15 @@
     opacity: 0;
     transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
 }
-.dorm-card:hover .dorm-seat,
-.dorm-card.dorm-editing .dorm-seat,
-.dorm-seat.seated { opacity: 1; }
-.dorm-seat.seated {
+.dorm-card:hover .dorm-wake,
+.dorm-card.dorm-editing .dorm-wake,
+.dorm-wake.waking { opacity: 1; }
+.dorm-wake.waking {
     background: var(--cl-grenadine, #D95122);
     color: #fff;
 }
-.dorm-seat:hover { background: rgba(234, 176, 92, 0.38); color: var(--cl-text-deep, #3d2010); }
-.dorm-seat.seated:hover { background: #b8421c; color: #fff; }
+.dorm-wake:hover { background: rgba(234, 176, 92, 0.38); color: var(--cl-text-deep, #3d2010); }
+.dorm-wake.waking:hover { background: #b8421c; color: #fff; }
 
 /* ---- 新住戶那張 ---- */
 .dorm-card.dorm-new {
@@ -320,5 +321,5 @@
 /* 手機：鉛筆常駐（沒有 hover 這回事） */
 @media (max-width: 600px) {
     .dorm-pen { opacity: 1; }
-    .dorm-seat { opacity: 1; }
+    .dorm-wake { opacity: 1; }
 }

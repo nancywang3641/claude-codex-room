@@ -177,17 +177,8 @@
                + '<button type="button" class="dorm-mode-btn' + (chatOn ? ' active' : '') + '" data-mode="chat">只聊天</button>'
                + '</div>';
         }
-        // 會不會自己醒來。群聊區沒有這一列 —— 那是桌子不是人。
-        // 新住戶（還沒存進名冊）也不給：橋那邊要有 id 才存得住，先住進來再開。
-        if (r && r.provider !== 'group') {
-            const info = _hb[r.id];
-            const wakeOn = !!(info && info.enabled);
-            h += '<div class="dorm-mode dorm-wake">'
-               + '<button type="button" class="dorm-mode-btn' + (wakeOn ? '' : ' active') + '" data-wake="off">等人叫他</button>'
-               + '<button type="button" class="dorm-mode-btn' + (wakeOn ? ' active' : '') + '" data-wake="on">自己醒來</button>'
-               + '</div>'
-               + '<div class="dorm-hint">' + (wakeOn ? _esc(_hbWhen(info)) + '，平均一天一次' : '只有妳開口他才在') + '</div>';
-        }
+        // 心跳的開關不放這裡 —— 這一列要按鉛筆才展得開，等於把狀態摺起來。
+        // 它跟入席一樣是「一眼要看得到」的狀態，所以做成門卡上的常駐鈕（見 _wakeBtnHtml）。
         h += '<div class="dorm-form-act">';
         h += '<button type="button" class="dorm-btn dorm-save">' + (isNew ? '住進來' : '改好了') + '</button>';
         if (r && !r.builtin) {
@@ -197,14 +188,16 @@
         return h;
     }
 
-    /** 門卡右上的入席鈕。群聊區自己不畫 —— 它就是那張桌子。 */
-    function _seatBtnHtml(r) {
+    /** 門卡上的「自己醒來」鈕。跟入席鈕一樣是狀態，開著的常駐顯示、不必 hover 也不必展開。
+     *  群聊區沒有 —— 那是桌子不是人。 */
+    function _wakeBtnHtml(r) {
         if (r.provider === 'group') return '';
-        const CT = _CT();
-        const on = !!(CT && typeof CT.isGroupSeated === 'function' && CT.isGroupSeated(r.id));
-        return '<button type="button" class="dorm-seat' + (on ? ' seated' : '') + '" title="'
-            + (on ? '在群聊桌上，點一下請他下桌' : '不在群聊桌上，點一下請他上桌')
-            + '"><i class="fa-solid fa-chair"></i></button>';
+        const info = _hb[r.id];
+        const on = !!(info && info.enabled);
+        const when = on ? ('，' + _hbWhen(info)) : '';
+        return '<button type="button" class="dorm-wake' + (on ? ' waking' : '') + '" title="'
+            + (on ? '他會自己醒來' + when + '，點一下改成等妳開口' : '只有妳開口他才在，點一下讓他自己醒來')
+            + '"><i class="fa-solid fa-heart-pulse"></i></button>';
     }
 
     function _cardHtml(r, all) {
@@ -218,7 +211,7 @@
             + '</span>'
             + '<i class="fa-solid fa-chevron-right dorm-go"></i>'
             + '</button>'
-            + _seatBtnHtml(r)
+            + _wakeBtnHtml(r)
             + '<button type="button" class="dorm-pen" title="改這位住戶"><i class="fa-solid fa-pen"></i></button>'
             + (_editing === r.id ? _formHtml(r) : '')
             + '</div>';
@@ -262,20 +255,28 @@
             const id = card.dataset.id;
             const door = card.querySelector('.dorm-door');
             const pen = card.querySelector('.dorm-pen');
-            const seat = card.querySelector('.dorm-seat');
+            const wake = card.querySelector('.dorm-wake');
 
-            if (seat) {
-                seat.addEventListener('click', (e) => {
+            if (wake) {
+                wake.addEventListener('click', async (e) => {
                     e.stopPropagation();   // 別讓點擊冒到門上把房間開起來
                     const CT = _CT();
-                    if (!CT || typeof CT.setGroupSeat !== 'function') return;
-                    const next = !CT.isGroupSeated(id);
-                    if (!CT.setGroupSeat(id, next)) return;
-                    // 桌上留一行告示：不只是給她看，其他 AI 也靠這條知道多了誰 / 少了誰
-                    if (window.ChatGroup && typeof window.ChatGroup.announceSeat === 'function') {
-                        window.ChatGroup.announceSeat(id, next);
+                    const r = CT && typeof CT.getResident === 'function' ? CT.getResident(id) : null;
+                    if (!r || wake.dataset.busy) return;
+                    const want = !wake.classList.contains('waking');
+                    // 先反應再送：她點下去要當場看到變化，不然會以為沒吃到。
+                    // 失敗再撥回來 —— 撥回去比一直轉圈更誠實。
+                    wake.dataset.busy = '1';
+                    wake.classList.toggle('waking', want);
+                    const res = await _hbSet(r, want);
+                    delete wake.dataset.busy;
+                    if (!res.ok) {
+                        wake.classList.toggle('waking', !want);
+                        wake.title = res.msg || '沒設定成';
+                        return;
                     }
-                    _render();   // 群聊區那張卡的副標也要跟著換
+                    await _hbLoad();
+                    _render();   // 重畫拿到「上次醒來多久前」
                 });
             }
 
@@ -290,52 +291,15 @@
             if (!form) return;
             const nameIn = form.querySelector('.dorm-in-name');
             const modelIn = form.querySelector('.dorm-in-model');
-            // 表單裡現在有兩個 .dorm-hint（心跳那列自己帶一個），錯誤提示要用最後那個 ——
-            // querySelector 會抓到心跳那個，訊息就會出現在錯的位置。
-            const _hints = form.querySelectorAll('.dorm-hint');
-            const hint = _hints[_hints.length - 1];
-            const wakeHint = _hints.length > 1 ? _hints[0] : null;
+            const hint = form.querySelector('.dorm-hint');
             const save = form.querySelector('.dorm-save');
             const del = form.querySelector('.dorm-del');
 
             form.addEventListener('click', (e) => e.stopPropagation());
-            // 兩組模式鈕（只聊天 / 自己醒來）共用這個 class，所以只能清「同一組」的 active，
-            // 全表單一起清的話按其中一組會把另一組的選擇也抹掉。
             form.querySelectorAll('.dorm-mode-btn').forEach(b => {
                 b.addEventListener('click', () => {
-                    const grp = b.closest('.dorm-mode') || form;
-                    grp.querySelectorAll('.dorm-mode-btn').forEach(x => x.classList.remove('active'));
+                    form.querySelectorAll('.dorm-mode-btn').forEach(x => x.classList.remove('active'));
                     b.classList.add('active');
-                });
-            });
-            // 心跳是另一個系統（狀態在橋，不在住戶資料裡），所以點了就送，
-            // 不跟著「改好了」——跟入席鈕一樣是立即生效的開關。
-            form.querySelectorAll('.dorm-wake .dorm-mode-btn').forEach(b => {
-                b.addEventListener('click', async () => {
-                    const CT = _CT();
-                    const r = CT && typeof CT.getResident === 'function' ? CT.getResident(id) : null;
-                    if (!r) return;
-                    const want = b.dataset.wake === 'on';
-                    if (wakeHint) wakeHint.textContent = '存進去中…';
-                    const res = await _hbSet(r, want);
-                    if (!res.ok) {
-                        // 失敗就把按鈕撥回去，不要讓畫面上寫著開了、其實沒開
-                        if (wakeHint) wakeHint.textContent = res.msg || '沒設定成';
-                        const grp = b.closest('.dorm-mode');
-                        if (grp) {
-                            grp.querySelectorAll('.dorm-mode-btn').forEach(x => x.classList.remove('active'));
-                            const back = grp.querySelector('[data-wake="' + (want ? 'off' : 'on') + '"]');
-                            if (back) back.classList.add('active');
-                        }
-                        return;
-                    }
-                    await _hbLoad();
-                    const info = _hb[r.id];
-                    if (wakeHint) {
-                        wakeHint.textContent = want
-                            ? (_hbWhen(info) + '，平均一天一次')
-                            : '只有妳開口他才在';
-                    }
                 });
             });
             nameIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') save.click(); });

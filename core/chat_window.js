@@ -751,19 +751,67 @@
         } catch (_) { return '大家'; }
     }
 
+    /** 群成員那格的頭像。跟門卡同一套判斷，只是這裡不掛模型角標。 */
+    function _memFaceHtml(r) {
+        const CT = window.ClaudeTerminal;
+        if (r.provider === 'codex')    return '<span class="cw-mem-face cw-mem-face-codex"></span>';
+        if (r.provider === 'deepseek') return '<span class="cw-mem-face cw-mem-icon"><i class="fa-solid fa-user-tie"></i></span>';
+        const src = (CT && CT.ASSETS && (CT.ASSETS.idle || CT.ASSETS.mini)) || '';
+        const onerr = (CT && CT.imgOnError) || '';
+        return src
+            ? '<span class="cw-mem-face"><img src="' + src + '" alt="" onerror="' + onerr + '"></span>'
+            : '<span class="cw-mem-face cw-mem-icon"><i class="fa-solid fa-user"></i></span>';
+    }
+
+    /** 群成員網格：誰在這張桌子上，點一下加減。
+     *  這是這個群自己的名單，不該跑去通訊錄（宿舍門卡）上管 —— 那等於把「這個群有誰」
+     *  做進聯絡人清單，沒有一個 IM 是那樣的。
+     *  跟微信的差別只在人數級距：那邊聯絡人上百個所以要按 + 才展開挑，這裡就四五位，
+     *  全部攤開、亮的在桌上暗的不在，一眼看得完也一下就切得動。 */
+    function _renderSeatGrid(wrap) {
+        const CT = window.ClaudeTerminal;
+        if (!CT || typeof CT.listResidents !== 'function') return;
+        const all = CT.listResidents().filter(r => r && r.provider !== 'group');
+        if (!all.length) return;
+        const grid = document.createElement('div');
+        grid.className = 'cw-mem-grid';
+        all.forEach(r => {
+            const on = typeof CT.isGroupSeated === 'function' && CT.isGroupSeated(r.id);
+            const cell = document.createElement('button');
+            cell.type = 'button';
+            cell.className = 'cw-mem' + (on ? ' seated' : '');
+            cell.title = on ? '在桌上，點一下請他下桌' : '不在桌上，點一下請他上桌';
+            cell.innerHTML = _memFaceHtml(r)
+                + '<span class="cw-mem-name">' + _esc(r.name) + '</span>';
+            cell.addEventListener('click', () => {
+                if (typeof CT.setGroupSeat !== 'function') return;
+                const next = !CT.isGroupSeated(r.id);
+                if (!CT.setGroupSeat(r.id, next)) return;
+                // 桌上留一行告示：不只給她看，桌上其他人也靠這條知道多了誰／少了誰
+                if (window.ChatGroup && typeof window.ChatGroup.announceSeat === 'function') {
+                    window.ChatGroup.announceSeat(r.id, next);
+                }
+                ChatWindow.openSubPanel('recents');   // 重畫這一頁
+            });
+            grid.appendChild(cell);
+        });
+        wrap.appendChild(grid);
+    }
+
     function _renderGroupPanel(body) {
         body.innerHTML = '';
         const wrap = document.createElement('div');
         wrap.className = 'cw-rec';
+        const memTitle = document.createElement('div');
+        memTitle.className = 'cw-mem-title';
+        memTitle.textContent = '桌上的人';
+        wrap.appendChild(memTitle);
+        _renderSeatGrid(wrap);
         const note = document.createElement('div');
         note.className = 'cw-rec-empty';
         note.textContent = '群聊區目前是單一條對話。清空會把你跟' + _seatNames('、') +
                            '的對話全部清掉，並重置每個人的 session。';
         wrap.appendChild(note);
-        const seatNote = document.createElement('div');
-        seatNote.className = 'cw-rec-empty';
-        seatNote.textContent = '要換誰上桌，去宿舍面板的門卡上勾「入席」。';
-        wrap.appendChild(seatNote);
         const clearBtn = document.createElement('button');
         clearBtn.type = 'button';
         clearBtn.className = 'cw-rec-clear';
