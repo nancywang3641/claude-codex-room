@@ -16,7 +16,71 @@
     let _delTimer = null;
     let _opening = false;     // 擋連點兩張門卡
 
+    // 心跳（會不會自己醒來）不存在住戶資料裡，狀態在橋的 board_kv。
+    // 為什麼做在橋而不是 Windows 排程器：瀏覽器叫不動 schtasks，那樣她就得去雙擊 .bat；
+    // 橋本來就常駐、本來就在收 HTTP，開關做在這裡才點得動。
+    let _hb = {};             // rid → { enabled, hours_since, ... }
+
     function _CT() { return window.ClaudeTerminal || null; }
+
+    /** 橋的位址與金鑰（跟房間聊天共用同一組設定） */
+    function _bridge() {
+        const OS = window.OS_SETTINGS;
+        const p = (OS && typeof OS.getActiveClaudePreset === 'function') ? OS.getActiveClaudePreset() : null;
+        if (!p || !p.url || !p.key) return null;
+        // 設定裡存的是 /v1/chat/completions，剝到根再接心跳那條
+        const base = String(p.url).replace(/\/v1\/chat\/completions\/?$/, '').replace(/\/+$/, '');
+        return { base: base, key: p.key };
+    }
+
+    async function _hbLoad() {
+        const b = _bridge();
+        if (!b) { _hb = {}; return; }
+        try {
+            const r = await fetch(b.base + '/v1/heartbeat', { headers: { 'Authorization': 'Bearer ' + b.key } });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const j = await r.json();
+            _hb = (j && j.residents) || {};
+        } catch (e) {
+            // 舊版橋沒有這條端點 → 當作沒人開著。不在這裡猜也不報錯：
+            // 宿舍的主要功能跟心跳無關，不能因為它掛掉就打不開。
+            _hb = {};
+        }
+    }
+
+    /** 開關某位住戶的心跳。住戶身分一起送，橋不必知道名冊（那在瀏覽器裡）。 */
+    async function _hbSet(r, enabled) {
+        const b = _bridge();
+        if (!b) return { ok: false, msg: '還沒設好連線（⚙️ 裡的網址與密鑰）' };
+        const CT = _CT();
+        const home = (CT && typeof CT.residentHome === 'function') ? CT.residentHome(r.id) : '';
+        try {
+            const res = await fetch(b.base + '/v1/heartbeat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + b.key },
+                body: JSON.stringify({
+                    resident_id: r.id,
+                    enabled: !!enabled,
+                    name: r.name,
+                    backend: r.provider,
+                    cwd: home || null,
+                }),
+            });
+            if (!res.ok) return { ok: false, msg: '橋回了 HTTP ' + res.status + '（可能還沒重啟）' };
+            return { ok: true };
+        } catch (e) {
+            return { ok: false, msg: '連不到橋：' + ((e && e.message) || e) };
+        }
+    }
+
+    /** 「上次醒來」說成人話 */
+    function _hbWhen(info) {
+        if (!info || info.hours_since == null) return '還沒醒過';
+        const h = info.hours_since;
+        if (h < 1) return Math.max(1, Math.round(h * 60)) + ' 分鐘前醒過';
+        if (h < 24) return Math.round(h) + ' 小時前醒過';
+        return Math.round(h / 24) + ' 天前醒過';
+    }
 
     function _cfg() {
         const OS = window.OS_SETTINGS;
@@ -112,6 +176,17 @@
                + '<button type="button" class="dorm-mode-btn' + (chatOn ? '' : ' active') + '" data-mode="work">也能動手</button>'
                + '<button type="button" class="dorm-mode-btn' + (chatOn ? ' active' : '') + '" data-mode="chat">只聊天</button>'
                + '</div>';
+        }
+        // 會不會自己醒來。群聊區沒有這一列 —— 那是桌子不是人。
+        // 新住戶（還沒存進名冊）也不給：橋那邊要有 id 才存得住，先住進來再開。
+        if (r && r.provider !== 'group') {
+            const info = _hb[r.id];
+            const wakeOn = !!(info && info.enabled);
+            h += '<div class="dorm-mode dorm-wake">'
+               + '<button type="button" class="dorm-mode-btn' + (wakeOn ? '' : ' active') + '" data-wake="off">等人叫他</button>'
+               + '<button type="button" class="dorm-mode-btn' + (wakeOn ? ' active' : '') + '" data-wake="on">自己醒來</button>'
+               + '</div>'
+               + '<div class="dorm-hint">' + (wakeOn ? _esc(_hbWhen(info)) + '，平均一天一次' : '只有妳開口他才在') + '</div>';
         }
         h += '<div class="dorm-form-act">';
         h += '<button type="button" class="dorm-btn dorm-save">' + (isNew ? '住進來' : '改好了') + '</button>';
@@ -215,15 +290,52 @@
             if (!form) return;
             const nameIn = form.querySelector('.dorm-in-name');
             const modelIn = form.querySelector('.dorm-in-model');
-            const hint = form.querySelector('.dorm-hint');
+            // 表單裡現在有兩個 .dorm-hint（心跳那列自己帶一個），錯誤提示要用最後那個 ——
+            // querySelector 會抓到心跳那個，訊息就會出現在錯的位置。
+            const _hints = form.querySelectorAll('.dorm-hint');
+            const hint = _hints[_hints.length - 1];
+            const wakeHint = _hints.length > 1 ? _hints[0] : null;
             const save = form.querySelector('.dorm-save');
             const del = form.querySelector('.dorm-del');
 
             form.addEventListener('click', (e) => e.stopPropagation());
+            // 兩組模式鈕（只聊天 / 自己醒來）共用這個 class，所以只能清「同一組」的 active，
+            // 全表單一起清的話按其中一組會把另一組的選擇也抹掉。
             form.querySelectorAll('.dorm-mode-btn').forEach(b => {
                 b.addEventListener('click', () => {
-                    form.querySelectorAll('.dorm-mode-btn').forEach(x => x.classList.remove('active'));
+                    const grp = b.closest('.dorm-mode') || form;
+                    grp.querySelectorAll('.dorm-mode-btn').forEach(x => x.classList.remove('active'));
                     b.classList.add('active');
+                });
+            });
+            // 心跳是另一個系統（狀態在橋，不在住戶資料裡），所以點了就送，
+            // 不跟著「改好了」——跟入席鈕一樣是立即生效的開關。
+            form.querySelectorAll('.dorm-wake .dorm-mode-btn').forEach(b => {
+                b.addEventListener('click', async () => {
+                    const CT = _CT();
+                    const r = CT && typeof CT.getResident === 'function' ? CT.getResident(id) : null;
+                    if (!r) return;
+                    const want = b.dataset.wake === 'on';
+                    if (wakeHint) wakeHint.textContent = '存進去中…';
+                    const res = await _hbSet(r, want);
+                    if (!res.ok) {
+                        // 失敗就把按鈕撥回去，不要讓畫面上寫著開了、其實沒開
+                        if (wakeHint) wakeHint.textContent = res.msg || '沒設定成';
+                        const grp = b.closest('.dorm-mode');
+                        if (grp) {
+                            grp.querySelectorAll('.dorm-mode-btn').forEach(x => x.classList.remove('active'));
+                            const back = grp.querySelector('[data-wake="' + (want ? 'off' : 'on') + '"]');
+                            if (back) back.classList.add('active');
+                        }
+                        return;
+                    }
+                    await _hbLoad();
+                    const info = _hb[r.id];
+                    if (wakeHint) {
+                        wakeHint.textContent = want
+                            ? (_hbWhen(info) + '，平均一天一次')
+                            : '只有妳開口他才在';
+                    }
                 });
             });
             nameIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') save.click(); });
@@ -359,6 +471,9 @@
         _editing = null;
         _disarmDelete();
         _render();
+        // 心跳狀態在橋那邊，拉回來之後再畫一次。先畫是刻意的：宿舍不能等網路，
+        // 拉不到就維持「全部關著」的樣子，而不是卡在空白。
+        _hbLoad().then(function () { if (_el === container) _render(); });
     };
 
     // 以下三支保留原本的名字（輸入列那顆鈕、手機浮球、斜線命令都在叫它們），
