@@ -234,7 +234,6 @@
             + '</div>';
         h += '</div>';
         h += '<div class="dorm-hall">'
-            + '<button type="button" class="dorm-hall-btn" data-panel="workbench"><i class="fa-solid fa-screwdriver-wrench"></i><span>工作檯</span></button>'
             + '<button type="button" class="dorm-hall-btn" data-panel="board"><i class="fa-solid fa-note-sticky"></i><span>留言板</span></button>'
             + '<button type="button" class="dorm-hall-btn" data-panel="spend"><i class="fa-solid fa-coins"></i><span>額度</span></button>'
             + '</div>';
@@ -419,7 +418,7 @@
         const CW = window.ChatWindow;
         if (!CW || _opening) return;
         _armOpening();
-        // 走廊那三個（工作檯／留言板／額度）是主窗的子面板，窗已經開著，直接疊上去就好。
+        // 走廊那兩個（留言板／額度）是主窗的子面板，窗已經開著，直接疊上去就好。
         // 不必先把房間讀起來 —— 那會多等好幾秒（進過群聊之後特別慢），而且看完子面板
         // 按「‹ 返回」本來就該回到宿舍，不是掉進某個房間。
         if (typeof CW.openSubPanel === 'function') CW.openSubPanel(panel);

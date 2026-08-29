@@ -226,7 +226,7 @@
     // 手機瀏覽器把這批靜態檔快取得很兇,沒版本參數的話核心檔更新永遠到不了手機
     // (症狀:桌機是新版、手機停在幾個月前,甚至 chat_window 跟 chat_room 各停在不同版本)。
     // 檔案有改就把 VER +1,跟奧瑞亞 sw.js 的 CACHE_VERSION 同一套習慣。
-    const VER = 43;
+    const VER = 44;
 
     function loadCSS(href) {
         if (document.querySelector('link[data-ccr="' + href + '"]')) return;
@@ -254,21 +254,19 @@
     loadCSS(HERE + 'css/chat_window.css');
     loadCSS(HERE + 'css/void_claude_recents.css'); // 對話切換 chip + 多會話列表
     loadCSS(HERE + 'css/void_claude_ask.css');      // AI 互動選項按鈕(ASK markers)
-    loadCSS(HERE + 'css/os_workbench.css');         // 🛠️ 工作檯
     loadCSS(HERE + 'css/os_spend.css');             // 💰 額度
     loadCSS(HERE + 'css/os_board.css');             // 📝 留言板
     loadCSS(HERE + 'css/dorm.css');                 // 🏠 宿舍面板
     loadCSS(HERE + 'css/launcher.css');
 
     const FILES = [
-        'core/claude_terminal.js', // window.ClaudeTerminal（os_workbench/os_board 依賴它）
+        'core/claude_terminal.js', // window.ClaudeTerminal（os_board 依賴它）
         'core/chat_canvas.js',     // window.ChatCanvas / VoidCanvas
         'core/chat_window.js',     // window.ChatWindow（外殼）
         'core/chat_room.js',       // window.VoidClaudeRoom
         'core/chat_group.js',      // window.ChatGroup
         'core/os_spend_panel.js',  // 💰 額度（OS_SPEND_PANEL，房間送訊息時 record 花費）
         'core/os_board.js',        // 📝 留言板（OS_BOARD，讀 cc-bridge /v1/board）
-        'core/os_workbench.js',    // 🛠️ 工作檯（OS_WORKBENCH，用 ClaudeTerminal.sendWorkbench）
         'core/dorm.js',         // 🏠 宿舍面板（DormPanel，💬 點開的門卡）
     ];
     for (const f of FILES) {

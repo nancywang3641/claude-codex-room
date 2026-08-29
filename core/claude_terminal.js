@@ -270,7 +270,7 @@ ${withOthers}
             // 沒有內建工具、不讀 CLAUDE.md 與 MCP。純陪聊的分身用這個，省下的
             // 不是錢（訂閱吃掉了）而是三萬多 token 的 context。
             // 只有自訂的 Claude 分身能設 —— 內建那幾位要留著工具幹活
-            //（丹要寫留言板、跑工作檯），拔掉他們的工具等於把功能砍了。
+            //（丹要寫留言板、要動手做事），拔掉他們的工具等於把功能砍了。
             chatOnly: !builtin && provider === 'claude' && !!r.chatOnly,
             builtin,
         };
@@ -1009,90 +1009,6 @@ ${withOthers}
         }
     };
 
-    // ============== 工作檯：無狀態一次性呼叫 ==============
-    /**
-     * 給「奧瑞亞工作檯」用的無狀態送出：不碰任何 conv / sid / 歷史，
-     * 純粹把一份 messages 丟給 cc-bridge、串流收回覆。
-     *   messages：完整的 [{role,content}...]（system + user 由工作檯自己組）
-     *   backend ：'claude' | 'codex'（codex 帶 cc_backend 分流）
-     *   opts    ：{ cwd, sandbox } — 執行者回合用：cwd 鎖工作資料夾、sandbox 開寫權限
-     *   onProgress(ev)：ev = { type:'text', delta, accumulated }
-     *   signal  ：AbortController.signal，⏹停用
-     * 回傳 { reply, usage }
-     */
-    ClaudeTerminal.sendWorkbench = async function(messages, backend, opts, onProgress, signal) {
-        const cfg = ClaudeTerminal.getConfig();
-        if (!cfg) throw new Error('SETTINGS_MISSING:OS_SETTINGS 未載入');
-        if (!cfg.url || !cfg.key) throw new Error('NOT_CONFIGURED:還沒設定 cc-bridge URL / 密鑰');
-
-        const body = {
-            model: cfg.model,
-            messages: messages,
-            stream: true,
-            max_tokens: cfg.maxTokens,
-        };
-        if (backend === 'codex')    body.cc_backend = 'codex';
-        if (backend === 'deepseek') body.cc_backend = 'deepseek';  // 蘇景明走 cc-bridge 的 deepseek backend(CodeWhale TUI)
-        if (opts && opts.cwd)     body.cc_cwd = opts.cwd;
-        if (opts && opts.sandbox) body.cc_sandbox = opts.sandbox;
-
-        let resp;
-        try {
-            resp = await fetch(cfg.url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': 'Bearer ' + cfg.key,
-                    'Accept': 'text/event-stream',
-                },
-                body: JSON.stringify(body),
-                signal: signal,
-            });
-        } catch (e) {
-            if (e && e.name === 'AbortError') throw e;
-            throw new Error('NETWORK:cc-bridge 沒在跑？或網路斷線。原始：' + (e.message || e));
-        }
-        if (!resp.ok) {
-            let errMsg = `HTTP ${resp.status}`;
-            try { const j = await resp.json(); if (j && j.error && j.error.message) errMsg = j.error.message; } catch (_) {}
-            if (resp.status === 401 || resp.status === 403) throw new Error('AUTH:密鑰不對。');
-            if (resp.status >= 500) throw new Error('SERVER:server 跑出錯：' + errMsg);
-            throw new Error('API:' + errMsg);
-        }
-        if (!resp.body || !resp.body.getReader) throw new Error('STREAM:browser 不支援 ReadableStream');
-
-        const reader = resp.body.getReader();
-        const decoder = new TextDecoder();
-        let buf = '', replyAcc = '', usageMeta = null;
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buf += decoder.decode(value, { stream: true });
-            let sepIdx;
-            while ((sepIdx = buf.indexOf('\n\n')) !== -1) {
-                const rawEvent = buf.slice(0, sepIdx);
-                buf = buf.slice(sepIdx + 2);
-                for (const line of rawEvent.split('\n')) {
-                    if (!line.startsWith('data:')) continue;
-                    const dataStr = line.slice(5).trim();
-                    if (!dataStr || dataStr === '[DONE]') continue;
-                    let chunk;
-                    try { chunk = JSON.parse(dataStr); } catch (_) { continue; }
-                    const delta = (chunk.choices && chunk.choices[0] && chunk.choices[0].delta) || {};
-                    if (typeof delta.content === 'string' && delta.content.length) {
-                        replyAcc += delta.content;
-                        if (typeof onProgress === 'function') {
-                            try { onProgress({ type: 'text', delta: delta.content, accumulated: replyAcc }); } catch (_) {}
-                        }
-                    }
-                    if (chunk.usage_meta) usageMeta = chunk.usage_meta;
-                }
-            }
-        }
-        const reply = replyAcc.trim();
-        if (!reply) throw new Error('EMPTY:對方沒回半個字。');
-        return { reply, usage: usageMeta };
-    };
 
     // （_sendAnthropicDirect 與相關 Anthropic 直連邏輯已於 2026-05-24 移除:奧瑞亞 = agent 前端,Claude 房間一律走 cc-bridge）
 

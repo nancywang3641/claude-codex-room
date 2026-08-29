@@ -61,8 +61,7 @@
 #aurelia-chat-window:not(.cw-view-dorm) .cw-back { display: flex; }
 #aurelia-chat-window .cw-back:hover { background: rgba(255, 245, 225, 0.18); color: #FFF5E1; }
 
-/* 宿舍頁的工具列只留「設置」：工作檯／留言板／額度走廊上就有，會話與摘要是房間的事 */
-#aurelia-chat-window.cw-view-dorm .cw-tool-btn[data-panel="workbench"],
+/* 宿舍頁的工具列只留「設置」：留言板／額度走廊上就有，會話與摘要是房間的事 */
 #aurelia-chat-window.cw-view-dorm .cw-tool-btn[data-panel="spend"],
 #aurelia-chat-window.cw-view-dorm .cw-tool-btn[data-panel="board"],
 #aurelia-chat-window.cw-view-dorm .cw-tool-btn[data-panel="recents"],
@@ -249,7 +248,7 @@
     min-height: 0;
 }
 
-/* ── 子面板浮層（設置 / 工作檯 / 額度 / 留言板 / 會話）──
+/* ── 子面板浮層（設置 / 額度 / 留言板 / 會話）──
  * 統一皮：頭條沿用窗框深色,身體是跟聊天區同一張暖色紙。
  * 左上固定「‹ 返回」,五個面板同一個位置回房間。 */
 #aurelia-chat-window .cw-subpanel {
@@ -463,7 +462,7 @@
 }
 
 /* ============================================================
- * 子面板內容：設置 / 會話（工作檯 / 額度 / 留言板在各自 css 檔）
+ * 子面板內容：設置 / 會話（額度 / 留言板在各自 css 檔）
  * 統一暖色紙皮,顏色吃 --cl-* 變數（Codex 房自動轉冷色）。
  * ============================================================ */
 

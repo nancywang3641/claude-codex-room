@@ -72,7 +72,6 @@
                 <span class="cw-identity" id="cw-identity">${_identityText('claude')}</span>
                 <div class="cw-toolbar">
                     <button class="cw-tool-btn" data-panel="settings"  type="button" title="設置"><i class="fa-solid fa-gear"></i></button>
-                    <button class="cw-tool-btn" data-panel="workbench" type="button" title="工作檯"><i class="fa-solid fa-screwdriver-wrench"></i></button>
                     <button class="cw-tool-btn" data-panel="spend"     type="button" title="額度"><i class="fa-solid fa-coins"></i></button>
                     <button class="cw-tool-btn" data-panel="board"     type="button" title="留言板"><i class="fa-solid fa-note-sticky"></i></button>
                     <button class="cw-tool-btn" data-panel="recents"   type="button" title="會話"><i class="fa-solid fa-clock-rotate-left"></i></button>
@@ -978,7 +977,7 @@
     };
 
     const _SUBPANEL_TITLES = {
-        settings: '設置', workbench: '工作檯',
+        settings: '設置',
         spend: '額度', board: '留言板', recents: '會話',
     };
 
@@ -991,13 +990,7 @@
         if (!sp || !body) return;
         if (title) title.textContent = _SUBPANEL_TITLES[name] || name;
         body.innerHTML = '';
-        if (name === 'workbench') {
-            if (window.OS_WORKBENCH && typeof window.OS_WORKBENCH.launch === 'function') {
-                window.OS_WORKBENCH.launch(body);
-            } else {
-                body.innerHTML = '<div class="cw-sub-missing">工作檯模組未載入</div>';
-            }
-        } else if (name === 'spend') {
+        if (name === 'spend') {
             if (window.OS_SPEND_PANEL && typeof window.OS_SPEND_PANEL.launch === 'function') {
                 window.OS_SPEND_PANEL.launch(body);
             } else {
