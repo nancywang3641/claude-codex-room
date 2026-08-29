@@ -1137,14 +1137,21 @@ ${withOthers}
         });
     }
 
-    // cc-bridge 回的 images（[{filename,mime,data}]）→ 縮圖後的附件物件（[{filename,mime,thumb}]）
+    // cc-bridge 回的 images（[{filename,mime,data,path}]）→ 附件物件（[{filename,mime,thumb,path}]）
+    //
+    // path 一定要留著。thumb 是縮過的 dataURL，只夠畫面顯示；桌上其他人要看到這張圖，
+    // 靠的是傳話增量把附件轉過去，而那條只收「有 path 的附件」。路徑在這裡掉了，
+    // 生的圖就只有生它的人看得到 —— 實測過：阿洛生了一張，丹跟天天連個線索都沒收到。
     async function _processIncomingImages(images) {
         if (!Array.isArray(images) || !images.length) return [];
         const out = [];
         for (const im of images) {
             if (!im || !im.data) continue;
             const thumb = await _imageDataUrlToThumb(im.data, 1280);
-            out.push({ filename: im.filename || 'codex-image.png', mime: 'image/jpeg', thumb: thumb });
+            const att = { filename: im.filename || 'codex-image.png', mime: 'image/jpeg', thumb: thumb };
+            // 舊版橋不回 path（那時圖只活在 base64 裡），沒有就不掛，行為跟以前一樣
+            if (im.path) att.path = String(im.path);
+            out.push(att);
         }
         return out;
     }
