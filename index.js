@@ -226,7 +226,7 @@
     // 手機瀏覽器把這批靜態檔快取得很兇,沒版本參數的話核心檔更新永遠到不了手機
     // (症狀:桌機是新版、手機停在幾個月前,甚至 chat_window 跟 chat_room 各停在不同版本)。
     // 檔案有改就把 VER +1,跟奧瑞亞 sw.js 的 CACHE_VERSION 同一套習慣。
-    const VER = 45;
+    const VER = 46;
 
     function loadCSS(href) {
         if (document.querySelector('link[data-ccr="' + href + '"]')) return;
@@ -274,6 +274,10 @@
         catch (e) { console.error(TAG, e); }
     }
 
+    // 宿主的入口鈕是「有裝房間才出現」，而房間是非同步載進來的 ——
+    // 大廳多半在這之前就畫好了，所以載完要回頭叫它重新決定那顆要不要露臉。
+    try { if (window.VoidTerminal && window.VoidTerminal.refreshAiEntry) window.VoidTerminal.refreshAiEntry(); } catch (e) {}
+
     // 載入期間別人可能整份蓋掉 OS_SETTINGS，這裡補一次
     if (_ensureOsSettingsShim()) console.warn(TAG, 'OS_SETTINGS 被蓋掉過，已補回 getClaudeRoomConfig');
 
@@ -308,6 +312,14 @@
 
     // 依當前視窗寬度 / DOM 決定按鈕落點（冪等，重複呼叫安全）
     function _place() {
+        // 🚨 旗標每次都要重讀，不能只在載入時看一眼：酒館的擴展清單順序不固定，
+        //    房間可能比宿主早載 —— 那一刻旗標還沒被設，浮球就已經掛上去了。
+        //    宿主載好會設旗標再叫 CCR_LAUNCHER.refresh()，這裡重讀就把它收回來。
+        if (window.__CCR_NO_LAUNCHER__) {
+            const old = document.getElementById('ccr-launcher');
+            if (old && old.parentElement) old.parentElement.removeChild(old);
+            return;
+        }
         const btn = _getBtn();
         const leftSendForm = document.getElementById('leftSendForm');
         const inline = window.innerWidth >= 768 && !!leftSendForm;
@@ -342,15 +354,11 @@
         } catch (e) { console.warn(TAG, '酒館事件/斜線命令掛載失敗（不影響按鈕）', e); }
     }
 
-    // 宿主自己有入口時（奧瑞亞 PWA 的手機殼裡有「AI 助手」app）就別再掛浮球 ——
-    // 那邊畫面右下已經有自己的按鈕，多一顆會疊上去。宿主在載本檔前設 window.__CCR_NO_LAUNCHER__。
-    if (window.__CCR_NO_LAUNCHER__) {
-        console.log(TAG, '宿主已提供入口，略過浮球');
-    } else if (document.body) {
-        mountLauncher();
-    } else {
-        document.addEventListener('DOMContentLoaded', mountLauncher);
-    }
+    // 浮球是「沒有宿主幫忙開門」時的退路。奧瑞亞在場時它把宿舍收進大廳 dock，
+    // 會設 __CCR_NO_LAUNCHER__ 並叫這支重畫；單獨裝房間的人照樣有右下角那顆。
+    window.CCR_LAUNCHER = { refresh: _place };
+    if (document.body) mountLauncher();
+    else document.addEventListener('DOMContentLoaded', mountLauncher);
 
     // ====================================================================
     // 5. 板子動靜 —— 丹留了新東西時,入口鈕亮一顆小點(最軟的提醒:不彈窗、不出聲)。
@@ -374,6 +382,15 @@
             if (!newest || newest <= seen) return;
             const hasProposal = posts.some(p => (p.created_at || '') > seen
                 && Array.isArray(p.tags) && p.tags.some(t => String(t).toLowerCase() === 'proposal'));
+            // 入口在宿主那邊時，點要畫在宿主的鈕上 —— 各自標自己的 DOM，不互相伸手改樣式。
+            if (window.__CCR_NO_LAUNCHER__) {
+                try {
+                    if (window.VoidTerminal && window.VoidTerminal.markAiNews) {
+                        window.VoidTerminal.markAiNews(hasProposal ? 'prop' : 'news');
+                    }
+                } catch (e) {}
+                return;
+            }
             const btn = _getBtn();
             btn.classList.add(hasProposal ? 'ccr-news-prop' : 'ccr-news');
             btn.title = hasProposal ? '丹有想跟妳說的' : '板子上有新紙條';
