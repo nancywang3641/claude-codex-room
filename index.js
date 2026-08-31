@@ -226,7 +226,7 @@
     // 手機瀏覽器把這批靜態檔快取得很兇,沒版本參數的話核心檔更新永遠到不了手機
     // (症狀:桌機是新版、手機停在幾個月前,甚至 chat_window 跟 chat_room 各停在不同版本)。
     // 檔案有改就把 VER +1,跟奧瑞亞 sw.js 的 CACHE_VERSION 同一套習慣。
-    const VER = 44;
+    const VER = 45;
 
     function loadCSS(href) {
         if (document.querySelector('link[data-ccr="' + href + '"]')) return;
@@ -342,8 +342,15 @@
         } catch (e) { console.warn(TAG, '酒館事件/斜線命令掛載失敗（不影響按鈕）', e); }
     }
 
-    if (document.body) mountLauncher();
-    else document.addEventListener('DOMContentLoaded', mountLauncher);
+    // 宿主自己有入口時（奧瑞亞 PWA 的手機殼裡有「AI 助手」app）就別再掛浮球 ——
+    // 那邊畫面右下已經有自己的按鈕，多一顆會疊上去。宿主在載本檔前設 window.__CCR_NO_LAUNCHER__。
+    if (window.__CCR_NO_LAUNCHER__) {
+        console.log(TAG, '宿主已提供入口，略過浮球');
+    } else if (document.body) {
+        mountLauncher();
+    } else {
+        document.addEventListener('DOMContentLoaded', mountLauncher);
+    }
 
     // ====================================================================
     // 5. 板子動靜 —— 丹留了新東西時,入口鈕亮一顆小點(最軟的提醒:不彈窗、不出聲)。

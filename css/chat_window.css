@@ -70,6 +70,9 @@
 #aurelia-chat-window.cw-window.cw-embedded .cw-tab-bar {
     display: flex; gap: 6px; padding: 8px 10px 0; flex-shrink: 0;
 }
+/* 宿舍頁不出 Claude/Codex 兩格 tab —— 門卡本身就是選人的地方，兩排選人會互相打架。
+   選擇器要把上面那條的 .cw-window.cw-embedded 全帶上，不然特異度輸給它、寫了等於沒寫。 */
+#aurelia-chat-window.cw-window.cw-embedded.cw-view-dorm .cw-tab-bar { display: none; }
 .cw-tab-btn {
     flex: 1; padding: 8px 6px; border: 1px solid rgba(255,255,255,0.14); border-bottom: none;
     border-radius: 8px 8px 0 0; background: rgba(255,255,255,0.04); color: rgba(255,245,225,0.55);
