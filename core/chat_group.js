@@ -541,6 +541,9 @@
         _pendingAttachments = [];
         _renderPendingAttachments();
         if (!_streamEl) return;
+        // 上次那局可能還在橋上跑（她把 app 關掉去睡覺）。要等 _streamEl 有了才問，
+        // 不然撈回來的那幾手沒有地方可畫。自己有守衛，重複 hydrate 不會重複接。
+        ChatGroup.resumeHostedGame().catch(function () {});
         _streamEl.innerHTML = '';
         if (!_transcript.length) {
             const seats = _seats();
@@ -1013,6 +1016,202 @@
         });
     }
 
+    // ── 對局託管給橋 ──
+    // 迴圈住在瀏覽器裡的時候，「發下一手」這件事需要 JS 跑，而熄屏會把 JS 凍住——
+    // 所以在手機上，一盤棋只能下到她放下手機為止。一發已經飛出去的請求不需要 JS
+    // 也能完成，但「收到之後再發下一發」一定要，這是瀏覽器沒有背景執行的真正原因。
+    // 交給橋之後發請求的是她那台一直開著的電腦，手機退化成一扇窗：熄屏、關掉 app
+    // 都不影響，回來用 since 撈走這段時間跑出來的那幾手。
+    // 兩個前提：①兩位都是 AI（有她在局裡就得等她點，橋等不到）②橋有這條端點
+    // （她還沒重啟的話舊版沒有）——不成立就退回本機迴圈，行為跟以前一模一樣。
+    const HOSTED_POLL_MS = 4000;
+    const HOSTED_SEEN_KEY = 'group_hosted_seen_';
+    let _hosted = null;   // { id, since, timer }
+
+    function _bridgeUrl(path) {
+        const CTx = _CT();
+        const cfg = CTx && CTx.getConfig ? CTx.getConfig() : null;
+        if (!cfg || !cfg.url) return null;
+        const i = cfg.url.lastIndexOf('/v1/chat/completions');
+        return i < 0 ? null : cfg.url.slice(0, i) + path;
+    }
+
+    async function _bridgeCall(path, method, body) {
+        const CTx = _CT();
+        const cfg = CTx && CTx.getConfig ? CTx.getConfig() : null;
+        const url = _bridgeUrl(path);
+        if (!url || !cfg || !cfg.key) throw new Error('NOT_CONFIGURED');
+        const headers = { 'Authorization': 'Bearer ' + cfg.key };
+        if (method === 'POST') headers['Content-Type'] = 'application/json';
+        const r = await fetch(url, {
+            method: method,
+            headers: headers,
+            body: method === 'POST' ? JSON.stringify(body || {}) : undefined,
+        });
+        // 舊版橋沒有 /v1/game/*，那條路徑會被 MCP 的 Mount 接走
+        if (r.status === 404 || r.status === 405) throw new Error('NO_ENDPOINT');
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return await r.json();
+    }
+
+    // 把橋跑出來的一手放進桌上。跟 _runTurn 的收尾同一套，只是沒有串流那段。
+    function _renderFinishedTurn(rid, reply) {
+        const markers = _parseGameMarkers(reply);
+        const transcriptText = _stripForTranscript(reply);
+        const displayText = _stripForDisplay(reply);
+        const wrap = _renderTyping(rid);
+        const bubbleEl = wrap && wrap.querySelector('.cg-bubble');
+        if (!displayText) {
+            if (wrap && wrap.parentNode) wrap.parentNode.removeChild(wrap);
+        } else if (bubbleEl) {
+            bubbleEl.classList.remove('cg-typing');
+            _setBubbleContent(bubbleEl, rid, reply);
+        }
+        if (transcriptText) {
+            _transcript.push({ speaker: rid, content: transcriptText, ts: Date.now() });
+            const CTc = _CT();
+            if (CTc && typeof CTc.pushGroupCarry === 'function') {
+                CTc.pushGroupCarry(rid, transcriptText, _seats().filter(x => x.id !== rid).map(x => x.name));
+            }
+        }
+        if (window.VoidCanvas && typeof window.VoidCanvas.parseLobbyPanel === 'function') {
+            const panel = window.VoidCanvas.parseLobbyPanel(reply);
+            if (panel && window.ChatCanvas && typeof window.ChatCanvas.render === 'function') {
+                window.ChatCanvas.render(panel);
+            }
+        }
+        if (markers.move != null && window.ChatCanvas && typeof window.ChatCanvas.applyMove === 'function') {
+            window.ChatCanvas.applyMove(markers.move, _labelOf(rid));
+        }
+        return markers;
+    }
+
+    function _hostedStopTimer() {
+        if (_hosted && _hosted.timer) { clearTimeout(_hosted.timer); _hosted.timer = null; }
+    }
+
+    // 收下橋那邊的進度。她不在的時候這支不會跑（頁面凍著），回來時一次補完。
+    async function _hostedApply(st) {
+        if (!st || !st.active || !_hosted) return;
+        (st.turns || []).forEach(function (t) { _renderFinishedTurn(t.rid, t.reply || ''); });
+        // sid 收回本機：橋那幾手是拿它 resume 的，不收的話前端下次自己發請求
+        // 會 resume 到一條舊的，他就從棋局中間斷片
+        (st.players || []).forEach(function (p) {
+            if (p && p.rid && p.sid) _lsSet(_sidKey(p.rid), p.sid);
+        });
+        if ((st.turns || []).length) {
+            // 橋是把對方那句直接餵給下一位的，所以兩邊都真的看過了
+            (st.players || []).forEach(function (p) {
+                if (p && p.rid) _markSeen(p.rid, _transcript.length - 1);
+            });
+            _save();
+            _scrollBottom();
+        }
+        _hosted.since = st.totalTurns || _hosted.since;
+        // 撈到哪裡為止要落地：她關掉 app 再打開時，_transcript 裡已經有前面那幾手了，
+        // 沒有這個游標就會從第一手重畫一次，桌上變成兩份棋譜
+        if (_hosted.id) _lsSet(HOSTED_SEEN_KEY + _hosted.id, String(_hosted.since));
+        if (st.status !== 'running') {
+            _hostedStopTimer();
+            _hostedWatchVisible(false);
+            _hosted = null;
+            if (_game) _game.endSignal = { text: st.result || '對局結束。' };
+            await _endGameInternal(st.result || null);
+        }
+    }
+
+    function _hostedTick() {
+        if (!_hosted) return;
+        _hostedStopTimer();
+        _bridgeCall('/v1/game/state?since=' + _hosted.since, 'GET')
+            .then(_hostedApply)
+            .catch(function (e) {
+                // 撈不到不代表對局出事——橋那邊照跑，下次再問
+                console.warn('[ChatGroup] 撈對局進度失敗：', e && e.message);
+            })
+            .then(function () {
+                if (_hosted && document.visibilityState === 'visible') {
+                    _hosted.timer = setTimeout(_hostedTick, HOSTED_POLL_MS);
+                }
+            });
+    }
+
+    function _hostedOnVisible() {
+        if (_hosted && document.visibilityState === 'visible' && !_hosted.timer) _hostedTick();
+    }
+    // 有託管才掛這顆監聽器。掛在模組載入時會有兩個問題：沒有託管的時候它是死重量，
+    // 而且載入當下不見得有 document（測試沙盒就沒有），模組會整支載不起來。
+    function _hostedWatchVisible(on) {
+        if (typeof document === 'undefined' || !document.addEventListener) return;
+        if (on) document.addEventListener('visibilitychange', _hostedOnVisible);
+        else document.removeEventListener('visibilitychange', _hostedOnVisible);
+    }
+
+    // 開局之後把桌子交給橋。交成回 true；橋沒這條端點回 false，上層退回本機迴圈。
+    async function _handOffGame(firstMoverRid) {
+        const CTx = _CT();
+        const players = _game.players.map(function (rid) {
+            const seat = CTx && CTx.getResident ? CTx.getResident(rid) : null;
+            return {
+                rid: rid,
+                name: _labelOf(rid),
+                backend: seat ? seat.provider : 'claude',
+                cwd: (CTx && CTx.residentHome) ? CTx.residentHome(rid) : '',
+                model: seat ? seat.seatModelId : '',
+                sid: _lsGet(_sidKey(rid)) || null,
+            };
+        });
+        let st;
+        try {
+            st = await _bridgeCall('/v1/game/start', 'POST', {
+                players: players,
+                turnIdx: _game.turnIdx,
+                moveCount: _game.moveCount,
+                turnLimit: GAME_TURN_LIMIT,
+                // 第一手要餵什麼只有前端知道——他看到哪裡為止是這邊的游標在記
+                firstDelta: _buildDelta(firstMoverRid),
+            });
+        } catch (e) {
+            if ((e && e.message) === 'NO_ENDPOINT') {
+                _renderSystemLine('這局在手機上下——橋還沒更新，熄屏會暫停。');
+                return false;
+            }
+            throw e;
+        }
+        _game.hosted = true;
+        _hosted = { id: st && st.id, since: 0, timer: null };
+        if (_hosted.id) _lsSet(HOSTED_SEEN_KEY + _hosted.id, '0');
+        _hostedWatchVisible(true);
+        _renderSystemLine('這局交給橋了，熄屏或關掉都不影響。');
+        _hostedTick();
+        return true;
+    }
+
+    // 頁面重開時把還在跑的那局接回來。她把 app 關掉去睡覺、隔天打開，
+    // 棋是在橋上下完的——沒有這支就永遠撈不回來。
+    ChatGroup.resumeHostedGame = async function () {
+        if (_game || _hosted) return false;
+        let st;
+        try { st = await _bridgeCall('/v1/game/state?since=0', 'GET'); }
+        catch (_) { return false; }
+        if (!st || !st.active || !Array.isArray(st.players) || st.players.length !== 2) return false;
+        if (st.status === 'running') {
+            _game = {
+                players: st.players.map(function (p) { return p.rid; }),
+                turnIdx: st.turnIdx || 0, moveCount: st.moveCount || 0,
+                raeResolver: null, wakeResolver: null, retries: 0, endSignal: null, hosted: true,
+            };
+            _busy = true;
+        }
+        // 這局之前撈到哪，接著撈；_transcript 裡已經有的那幾手不要再畫一次
+        const seen = parseInt(_lsGet(HOSTED_SEEN_KEY + st.id) || '0', 10) || 0;
+        _hosted = { id: st.id, since: seen, timer: null };
+        _hostedWatchVisible(true);
+        await _hostedApply(Object.assign({}, st, { turns: (st.turns || []).slice(seen) }));
+        if (_hosted) _hostedTick();
+        return true;
+    };
+
     // ── 自動多輪遊戲迴圈 ──
     // _game 為 truthy 時運轉；用 _game.endSignal 統一收場。整個生命週期由本迴圈獨佔。
     async function _runGameLoop() {
@@ -1115,11 +1314,26 @@
             }
         }
         _busy = true;   // 遊戲模式期間維持 busy，由 _endGameInternal 釋放
-        _runGameLoop().catch(function (e) {
-            console.error('[ChatGroup] 遊戲迴圈錯誤：', e);
-            _game = null;
-            _busy = false;
-        });
+        const runLocal = function () {
+            _runGameLoop().catch(function (e) {
+                console.error('[ChatGroup] 遊戲迴圈錯誤：', e);
+                _game = null;
+                _busy = false;
+            });
+        };
+        // 兩位都是 AI → 交給橋跑，她的手機就不必醒著。她自己在局裡的話橋等不到
+        // 她點畫布，只能留在本機；橋沒有那條端點（還沒重啟）也退回本機。
+        if (_game.players.every(function (p) { return p && p !== 'rae'; })) {
+            const nextMover = _game.players[_game.turnIdx % 2];
+            _handOffGame(nextMover)
+                .then(function (ok) { if (!ok) runLocal(); })
+                .catch(function (e) {
+                    console.error('[ChatGroup] 交接對局失敗：', e);
+                    runLocal();
+                });
+        } else {
+            runLocal();
+        }
         return true;
     }
 
@@ -1462,6 +1676,10 @@
             _game = null;
             if (typeof g.raeResolver === 'function') g.raeResolver(null);
             if (typeof g.wakeResolver === 'function') g.wakeResolver();
+            if (_hosted) {
+                _hostedStopTimer(); _hostedWatchVisible(false); _hosted = null;
+                _bridgeCall('/v1/game/stop', 'POST', { reason: '群聊被清空。' }).catch(function () {});
+            }
         }
         _busy = false;
         _transcript = [];
@@ -1486,6 +1704,14 @@
     ChatGroup.endGame = function (text) {
         if (!_game) return;
         _game.endSignal = { text: String(text == null ? '' : text) || '對局結束。' };
+        // 託管中：真正在發請求的是橋，本機設 endSignal 沒有人會看到。
+        // 叫橋停，然後馬上問一次——收場那一步由 _hostedApply 統一做。
+        if (_hosted) {
+            _bridgeCall('/v1/game/stop', 'POST', { reason: _game.endSignal.text })
+                .catch(function () {})
+                .then(function () { _hostedTick(); });
+            return;
+        }
         // 若迴圈正等 Rae 落子 → 喚醒它，好讓它看到 endSignal 後退出
         if (typeof _game.raeResolver === 'function') {
             const r = _game.raeResolver;
