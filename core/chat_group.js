@@ -34,7 +34,7 @@
     let _loaded = false;    // load() 跑過沒 —— 沒跑過就往 _transcript 推東西會蓋掉 OS_DB 那份
     let _busy = false;
     let _streamEl = null;   // 渲染目標（窗內 chat-stream）
-    let _game = null;             // 遊戲模式：{ players:[p1,p2], turnIdx, moveCount, raeResolver, endSignal }
+    let _game = null;             // 遊戲模式：{ players:[p1,p2], turnIdx, moveCount, raeResolver, wakeResolver, retries, endSignal }
     let _pendingAttachments = []; // 待送附件：{path,filename,mime,size,thumb} 或 {_uploading:true,filename,mime,size}
     let _leftAt = {};             // residentId → 他離開時 transcript 的位置
     let _needBrief = {};          // residentId → 回桌摘要要涵蓋的區間 { from, to }
@@ -42,6 +42,7 @@
     let _followAbort = false;     // 她在續輪期間插話了 → 停下來讓她先講
     let _queued = null;           // 續輪期間她送出的東西，停下來之後接著跑
     const GAME_TURN_LIMIT = 60;   // 安全閥：總手數上限，防無限迴圈 + 訂閱額度爆
+    const GAME_RETRY_LIMIT = 3;   // 同一手連續送不出去幾次才真的收場（熄屏回來要能續）
 
     // ── AI 之間自己接話（她發一次言之後）──
     // 有人在回覆裡 @ 了別人，就自動把被 @ 的人叫進來回，不必她再推一把。
@@ -858,6 +859,12 @@
         }
 
         function _fail(err) {
+            // 遊戲回合失敗會被重試，別留一顆 ⚠️ 氣泡在那裡——重試幾次就排成一列，
+            // 而那一手其實根本沒發生過。收場的話迴圈會另外寫一行系統訊息。
+            if (opts.gameTurn) {
+                if (typingWrap && typingWrap.parentNode) typingWrap.parentNode.removeChild(typingWrap);
+                return { spoke: false, failed: true, markers: {} };
+            }
             if (bubbleEl) {
                 bubbleEl.classList.remove('cg-typing');
                 bubbleEl.classList.add('cg-error');
@@ -986,6 +993,23 @@
         return { spoke: true, failed: false, markers: markers, calls: calls };
     }
 
+    // 等頁面回到前景。熄屏／切走的時候這個迴圈本來就是停的，這支只是把「她回來了」
+    // 變成一件等得到的事；對局被中止時由 _game.wakeResolver 提前叫醒，免得卡在這裡。
+    function _waitResume() {
+        if (!_game || document.visibilityState === 'visible') return Promise.resolve();
+        return new Promise(function (resolve) {
+            const g = _game;
+            function done() {
+                document.removeEventListener('visibilitychange', onVis);
+                if (g.wakeResolver === done) g.wakeResolver = null;
+                resolve();
+            }
+            function onVis() { if (document.visibilityState === 'visible') done(); }
+            g.wakeResolver = done;
+            document.addEventListener('visibilitychange', onVis);
+        });
+    }
+
     // ── 自動多輪遊戲迴圈 ──
     // _game 為 truthy 時運轉；用 _game.endSignal 統一收場。整個生命週期由本迴圈獨佔。
     async function _runGameLoop() {
@@ -1018,9 +1042,21 @@
             if (!_game) return;
             if (_game.endSignal) break;
             if (res.failed) {
-                _game.endSignal = { text: _labelOf(mover) + ' 連線失敗，對局中止。' };
-                break;
+                // 熄屏、切走、網路抖一下，都會讓這一手的 fetch 直接拋。這裡以前是判死刑，
+                // 而她只是把手機放下——回來時棋局已經被收掉了。改成把這一手擱著等她回來重下。
+                // 頁面被凍結時整個迴圈也是停的，所以能跑到這一行就代表頁面已經醒了；
+                // _waitResume 擋的是「醒著但切到別的 app」那種。
+                _game.retries = (_game.retries || 0) + 1;
+                if (_game.retries > GAME_RETRY_LIMIT) {
+                    _game.endSignal = { text: _labelOf(mover) + ' 連續 ' + GAME_RETRY_LIMIT + ' 次送不出去，對局中止。' };
+                    break;
+                }
+                _renderSystemLine('⏸ ' + _labelOf(mover) + ' 這手沒送出去（連線中斷），回來後重下。');
+                await _waitResume();
+                if (!_game || _game.endSignal) break;
+                continue;   // 同一個 mover，turnIdx 不動
             }
+            _game.retries = 0;
             if (res.markers && res.markers.gameover != null) {
                 _game.endSignal = { text: res.markers.gameover };
                 break;
@@ -1418,6 +1454,7 @@
             const g = _game;
             _game = null;
             if (typeof g.raeResolver === 'function') g.raeResolver(null);
+            if (typeof g.wakeResolver === 'function') g.wakeResolver();
         }
         _busy = false;
         _transcript = [];
@@ -1448,6 +1485,8 @@
             _game.raeResolver = null;
             r(null);
         }
+        // 或正等頁面回前景（斷線重試）→ 同理
+        if (typeof _game.wakeResolver === 'function') _game.wakeResolver();
     };
 
     // 選檔 → 上傳 cc-bridge + 圖檔做縮圖 → 進 _pendingAttachments
