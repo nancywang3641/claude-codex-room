@@ -1125,93 +1125,122 @@ ${withOthers}
         if (attachments && attachments.length) body.attachments = attachments;
         if (cfg.inlineEffort && _provider !== 'codex') body.cc_api_effort = cfg.inlineEffort;
 
-        let resp;
-        const headers = {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + cfg.key,
-            'Accept': 'text/event-stream',
-        };
-        // sendOpts.taskId：給 server 註冊到 _running_procs，可被 /v1/cancel/{taskId} kill
-        if (sendOpts?.taskId) headers['X-Task-Id'] = sendOpts.taskId;
-        try {
-            resp = await fetch(cfg.url, {
-                method: 'POST',
-                headers,
-                body: JSON.stringify(body),
-                signal: sendOpts?.signal,
-            });
-        } catch (e) {
-            await ClaudeTerminal.saveHistory(history);
-            if (e?.name === 'AbortError') throw e;  // 讓上層判斷主動停止
-            throw new Error('NETWORK:cc-bridge 沒在跑？或網路斷線。原始：' + (e.message || e));
-        }
-
-        if (!resp.ok) {
-            await ClaudeTerminal.saveHistory(history);
-            let errMsg = `HTTP ${resp.status}`;
-            try { const j = await resp.json(); if (j && j.error && j.error.message) errMsg = j.error.message; } catch (_) {}
-            if (resp.status === 401 || resp.status === 403) throw new Error('AUTH:密鑰不對。');
-            if (resp.status >= 500) throw new Error('SERVER:server 跑出錯：' + errMsg);
-            throw new Error('API:' + errMsg);
-        }
-
-        if (!resp.body || !resp.body.getReader) {
-            await ClaudeTerminal.saveHistory(history);
-            throw new Error('STREAM:browser 不支援 ReadableStream');
-        }
-
-        // 解析 SSE：data: <json>\n\n
-        const reader = resp.body.getReader();
-        const decoder = new TextDecoder();
-        let buf = '';
+        // 先試脫鉤那條：橋自己開一條背景 thread 去跑，這邊只輪詢。熄屏凍住的是
+        // 這扇窗，不是工作本身，所以回來還撿得回來——不然 CLI 跑完了、錢花了，
+        // 答案卻因為沒有人在讀那條串流而消失。舊版橋沒有 /v1/turn/* 就退回原本的串流。
         let replyAcc = '';
-        const toolsUsed = [];
+        let toolsUsed = [];
         let newSid = null;
         let usageMeta = null;
         let thinking = null;
         let imagesAcc = null;
-
+        let usedTurn = false;
         try {
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                buf += decoder.decode(value, { stream: true });
+            const t = await _ccBridgeTurn(cfg, body, onProgress, sendOpts && sendOpts.signal,
+                { taskId: sendOpts && sendOpts.taskId });
+            replyAcc = t.reply;
+            newSid = t.newSid;
+            usageMeta = t.usage;
+            thinking = t.thinking || null;
+            toolsUsed = t.toolsUsed || [];
+            imagesAcc = t.imagesRaw;
+            usedTurn = true;
+        } catch (e) {
+            if ((e && e.message) !== 'NO_ENDPOINT') {
+                await ClaudeTerminal.saveHistory(history);
+                throw e;
+            }
+        }
 
-                let sepIdx;
-                while ((sepIdx = buf.indexOf('\n\n')) !== -1) {
-                    const rawEvent = buf.slice(0, sepIdx);
-                    buf = buf.slice(sepIdx + 2);
+        if (!usedTurn) {
+            let resp;
+            const headers = {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + cfg.key,
+                'Accept': 'text/event-stream',
+            };
+            // sendOpts.taskId：給 server 註冊到 _running_procs，可被 /v1/cancel/{taskId} kill
+            if (sendOpts?.taskId) headers['X-Task-Id'] = sendOpts.taskId;
+            try {
+                resp = await fetch(cfg.url, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(body),
+                    signal: sendOpts?.signal,
+                });
+            } catch (e) {
+                await ClaudeTerminal.saveHistory(history);
+                if (e?.name === 'AbortError') throw e;  // 讓上層判斷主動停止
+                throw new Error('NETWORK:cc-bridge 沒在跑？或網路斷線。原始：' + (e.message || e));
+            }
 
-                    for (const line of rawEvent.split('\n')) {
-                        if (!line.startsWith('data:')) continue;
-                        const dataStr = line.slice(5).trim();
-                        if (!dataStr || dataStr === '[DONE]') continue;
-                        let chunk;
-                        try { chunk = JSON.parse(dataStr); } catch (_) { continue; }
+            if (!resp.ok) {
+                await ClaudeTerminal.saveHistory(history);
+                let errMsg = `HTTP ${resp.status}`;
+                try { const j = await resp.json(); if (j && j.error && j.error.message) errMsg = j.error.message; } catch (_) {}
+                if (resp.status === 401 || resp.status === 403) throw new Error('AUTH:密鑰不對。');
+                if (resp.status >= 500) throw new Error('SERVER:server 跑出錯：' + errMsg);
+                throw new Error('API:' + errMsg);
+            }
 
-                        const delta = (chunk.choices && chunk.choices[0] && chunk.choices[0].delta) || {};
-                        if (typeof delta.content === 'string' && delta.content.length) {
-                            replyAcc += delta.content;
-                            if (typeof onProgress === 'function') {
-                                try { onProgress({ type: 'text', delta: delta.content, accumulated: replyAcc }); } catch (_) {}
+            if (!resp.body || !resp.body.getReader) {
+                await ClaudeTerminal.saveHistory(history);
+                throw new Error('STREAM:browser 不支援 ReadableStream');
+            }
+
+            // 解析 SSE：data: <json>\n\n
+            const reader = resp.body.getReader();
+            const decoder = new TextDecoder();
+            let buf = '';
+            replyAcc = '';
+            toolsUsed = [];
+            newSid = null;
+            usageMeta = null;
+            thinking = null;
+            imagesAcc = null;
+
+            try {
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buf += decoder.decode(value, { stream: true });
+
+                    let sepIdx;
+                    while ((sepIdx = buf.indexOf('\n\n')) !== -1) {
+                        const rawEvent = buf.slice(0, sepIdx);
+                        buf = buf.slice(sepIdx + 2);
+
+                        for (const line of rawEvent.split('\n')) {
+                            if (!line.startsWith('data:')) continue;
+                            const dataStr = line.slice(5).trim();
+                            if (!dataStr || dataStr === '[DONE]') continue;
+                            let chunk;
+                            try { chunk = JSON.parse(dataStr); } catch (_) { continue; }
+
+                            const delta = (chunk.choices && chunk.choices[0] && chunk.choices[0].delta) || {};
+                            if (typeof delta.content === 'string' && delta.content.length) {
+                                replyAcc += delta.content;
+                                if (typeof onProgress === 'function') {
+                                    try { onProgress({ type: 'text', delta: delta.content, accumulated: replyAcc }); } catch (_) {}
+                                }
                             }
-                        }
-                        if (chunk.tool_use) {
-                            toolsUsed.push(chunk.tool_use);
-                            if (typeof onProgress === 'function') {
-                                try { onProgress({ type: 'tool_use', tool: chunk.tool_use }); } catch (_) {}
+                            if (chunk.tool_use) {
+                                toolsUsed.push(chunk.tool_use);
+                                if (typeof onProgress === 'function') {
+                                    try { onProgress({ type: 'tool_use', tool: chunk.tool_use }); } catch (_) {}
+                                }
                             }
+                            if (chunk.session_id !== undefined) newSid = chunk.session_id;
+                            if (chunk.usage_meta) usageMeta = chunk.usage_meta;
+                            if (typeof chunk.thinking === 'string' && chunk.thinking.trim()) thinking = chunk.thinking;
+                            if (Array.isArray(chunk.images) && chunk.images.length) imagesAcc = chunk.images;
                         }
-                        if (chunk.session_id !== undefined) newSid = chunk.session_id;
-                        if (chunk.usage_meta) usageMeta = chunk.usage_meta;
-                        if (typeof chunk.thinking === 'string' && chunk.thinking.trim()) thinking = chunk.thinking;
-                        if (Array.isArray(chunk.images) && chunk.images.length) imagesAcc = chunk.images;
                     }
                 }
+            } catch (e) {
+                await ClaudeTerminal.saveHistory(history);
+                throw new Error('STREAM:讀取流失敗：' + (e.message || e));
             }
-        } catch (e) {
-            await ClaudeTerminal.saveHistory(history);
-            throw new Error('STREAM:讀取流失敗：' + (e.message || e));
         }
 
         const reply = replyAcc.trim();
@@ -1242,7 +1271,140 @@ ${withOthers}
      * 回傳 { reply, sessionId, usage }
      */
     // cc-bridge POST + SSE 解析共用核心。回 { reply, newSid, usage }
+    // ── 一輪發話跟連線脫鉤 ──
+    // 串流是 JS 一口一口讀的，系統凍結頁面時沒有人讀，連線就被收掉，於是
+    // 「STREAM:讀取流失敗:Load failed」——而 CLI 那邊其實已經在跑甚至跑完了，
+    // 錢照花，答案沒有人接得到。改成叫橋開一條背景 thread 去做，前端只輪詢：
+    // 它斷掉的連線不再是工作本身，只是一扇窗，凍多久都撿得回來。
+    // turn_id 由這邊給，重連時帶同一個回去撈，橋不會重跑（不然一次熄屏付兩次錢）。
+    const TURN_POLL_MS = 700;
+    const TURN_POLL_FAIL_LIMIT = 20;   // 連續撈不到這麼多次才放棄（每次之間會等回前景）
+
+    function _turnBase(cfg) {
+        if (!cfg || !cfg.url) return null;
+        const i = cfg.url.lastIndexOf('/v1/chat/completions');
+        return i < 0 ? null : cfg.url.slice(0, i);
+    }
+
+    async function _turnFetch(url, method, key, body) {
+        const headers = { 'Authorization': 'Bearer ' + key };
+        if (method === 'POST') headers['Content-Type'] = 'application/json';
+        const r = await fetch(url, {
+            method: method,
+            headers: headers,
+            body: method === 'POST' ? JSON.stringify(body || {}) : undefined,
+        });
+        if (r.status === 404 || r.status === 405) throw new Error('NO_ENDPOINT');
+        if (r.status === 401 || r.status === 403) throw new Error('AUTH:密鑰不對。');
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return await r.json();
+    }
+
+    // 頁面被凍結時輪詢本來就不會跑；這支擋的是「醒著但切到別的 app」那種空轉。
+    function _turnWaitVisible() {
+        if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+            return Promise.resolve();
+        }
+        return new Promise(function (resolve) {
+            function on() {
+                if (document.visibilityState !== 'visible') return;
+                document.removeEventListener('visibilitychange', on);
+                resolve();
+            }
+            document.addEventListener('visibilitychange', on);
+        });
+    }
+
+    function _turnSleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+    async function _ccBridgeTurn(cfg, body, onProgress, signal, opts) {
+        const base = _turnBase(cfg);
+        if (!base) throw new Error('NO_ENDPOINT');
+        const turnId = 'ccr-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+        const started = Object.assign({}, body, { turn_id: turnId });
+        // 停止鈕靠這個讓橋 kill 掉 CLI 子進程。多了一次「橋打自己」之後，
+        // header 帶不過去，改用欄位讓橋在自己那一跳補回去。
+        if (opts && opts.taskId) started.cc_task_id = String(opts.taskId);
+        await _turnFetch(base + '/v1/turn/start', 'POST', cfg.key, started);
+
+        let since = 0, tsince = 0, acc = '';
+        let newSid = null, usageMeta = null, imagesAcc = null, fails = 0;
+        let thinking = ''; const toolsUsed = [];
+        while (true) {
+            if (signal && signal.aborted) {
+                _turnFetch(base + '/v1/turn/cancel', 'POST', cfg.key, { id: turnId }).catch(function () {});
+                const ab = new Error('Aborted'); ab.name = 'AbortError'; throw ab;
+            }
+            await _turnWaitVisible();
+            let st;
+            try {
+                st = await _turnFetch(
+                    base + '/v1/turn/state?id=' + encodeURIComponent(turnId)
+                        + '&since=' + since + '&tsince=' + tsince,
+                    'GET', cfg.key);
+                fails = 0;
+            } catch (e) {
+                if ((e && e.message) === 'NO_ENDPOINT') throw e;
+                // 撈不到不代表這輪出事——橋那邊照跑，等一下再問
+                if (++fails > TURN_POLL_FAIL_LIMIT) throw new Error('NETWORK:一直撈不到這輪的進度。');
+                await _turnSleep(TURN_POLL_MS * 2);
+                continue;
+            }
+            if (!st || st.found === false) {
+                // 橋重啟過，那筆記錄沒了。說清楚是哪一種，不要含糊成「沒回半個字」
+                throw new Error('SERVER:橋重新啟動了，這一輪的結果沒留下來。');
+            }
+            if (st.delta) {
+                acc += st.delta;
+                since = st.total;
+                if (typeof onProgress === 'function') {
+                    try { onProgress({ type: 'text', delta: st.delta, accumulated: acc }); } catch (_) {}
+                }
+            }
+            if (Array.isArray(st.tools) && st.tools.length) {
+                tsince = st.toolsTotal;
+                st.tools.forEach(function (t) {
+                    toolsUsed.push(t);
+                    if (typeof onProgress === 'function') {
+                        try { onProgress({ type: 'tool_use', tool: t }); } catch (_) {}
+                    }
+                });
+            }
+            if (st.sessionId !== undefined && st.sessionId !== null) newSid = st.sessionId;
+            if (st.usage) usageMeta = st.usage;
+            if (typeof st.thinking === 'string' && st.thinking.trim()) thinking = st.thinking;
+            if (Array.isArray(st.images) && st.images.length) imagesAcc = st.images;
+
+            if (st.status === 'running') { await _turnSleep(TURN_POLL_MS); continue; }
+            if (st.status === 'error') throw new Error('SERVER:' + (st.error || '這輪跑失敗了。'));
+            if (st.status === 'cancelled') {
+                const ab = new Error('Aborted'); ab.name = 'AbortError'; throw ab;
+            }
+            break;
+        }
+        // 圖不在這裡處理：私聊那條路徑要的是原始清單（它自己還要存進歷史）。
+        // EMPTY 的判斷也一樣交給呼叫端，兩條路徑的訊息文字不同。
+        return {
+            reply: acc.trim(), newSid: newSid, usage: usageMeta,
+            thinking: thinking, toolsUsed: toolsUsed, imagesRaw: imagesAcc,
+        };
+    }
+
     async function _ccBridgePost(cfg, body, onProgress, signal) {
+        // 先試脫鉤那條。舊版橋沒有 /v1/turn/*（她還沒重啟）就退回原本的串流，
+        // 行為完全照舊——熄屏還是會斷，但至少不是整個功能不能用。
+        try {
+            const t = await _ccBridgeTurn(cfg, body, onProgress, signal);
+            const imgs = await _processIncomingImages(t.imagesRaw);
+            if (!t.reply && !imgs.length) throw new Error('EMPTY:沒回半個字。');
+            return { reply: t.reply, newSid: t.newSid, usage: t.usage, images: imgs };
+        } catch (e) {
+            if ((e && e.message) !== 'NO_ENDPOINT') throw e;
+        }
+        return await _ccBridgeStream(cfg, body, onProgress, signal);
+    }
+
+    async function _ccBridgeStream(cfg, body, onProgress, signal) {
         let resp;
         try {
             resp = await fetch(cfg.url, {
