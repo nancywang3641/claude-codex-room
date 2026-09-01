@@ -43,6 +43,7 @@
     let _queued = null;           // 續輪期間她送出的東西，停下來之後接著跑
     const GAME_TURN_LIMIT = 60;   // 安全閥：總手數上限，防無限迴圈 + 訂閱額度爆
     const GAME_RETRY_LIMIT = 3;   // 同一手連續送不出去幾次才真的收場（熄屏回來要能續）
+    const GAME_RETRY_BACKOFF_MS = 1500;   // 重下前遞增等這麼久：1.5s → 3s → 4.5s
 
     // ── AI 之間自己接話（她發一次言之後）──
     // 有人在回覆裡 @ 了別人，就自動把被 @ 的人叫進來回，不必她再推一把。
@@ -993,6 +994,8 @@
         return { spoke: true, failed: false, markers: markers, calls: calls };
     }
 
+    function _sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
     // 等頁面回到前景。熄屏／切走的時候這個迴圈本來就是停的，這支只是把「她回來了」
     // 變成一件等得到的事；對局被中止時由 _game.wakeResolver 提前叫醒，免得卡在這裡。
     function _waitResume() {
@@ -1053,6 +1056,10 @@
                 }
                 _renderSystemLine('⏸ ' + _labelOf(mover) + ' 這手沒送出去（連線中斷），回來後重下。');
                 await _waitResume();
+                if (!_game || _game.endSignal) break;
+                // 頁面一直醒著的失敗（網路抖一下、橋剛好在重啟）沒有東西擋著，
+                // 不退避的話三次會在同一秒燒完，等於一次抖動就判死。遞增等一下再重下。
+                await _sleep(GAME_RETRY_BACKOFF_MS * _game.retries);
                 if (!_game || _game.endSignal) break;
                 continue;   // 同一個 mover，turnIdx 不動
             }
