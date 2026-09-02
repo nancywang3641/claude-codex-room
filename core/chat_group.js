@@ -24,9 +24,14 @@
     // 看的是 cache_read_input_tokens 而不是 input_tokens：開了 prompt caching 之後
     // input_tokens 幾乎永遠是個位數，真正累積在 session 裡的量全在 cache_read。
     // （實測他們四個當時的水位是 44k / 64k / 67k / 76k，而 input_tokens 都是 1~3。）
-    // 門檻取 Opus 上限的一半：壓縮本身要把整份逐字稿送給 Sonnet，也吃 token，
-    // 留一半才不會發生「想整理卻已經塞不下」。
-    const CTX_COMPACT_AT = 100000;
+    // 🚨 2026-09-02 從 100k 提到 300k。原本寫「取 Opus 上限的一半」，那是以 200k 為前提算的，
+    // 而現在 Opus 5 / Sonnet 5 / Opus 4.6 的 context 都是 1M —— 100k 只剩上限的一成。
+    // 實測開場基線就要 44k（Claude Code 自己的系統提示 + 住戶的 CLAUDE.md），
+    // 等於原本只剩 56k 能講話，四五個人交叉發言一輪就滿，每輪都在整理。
+    // 300k 給的是 256k 說話空間（約四倍半），離 1M 還很遠，壓縮時把整份逐字稿送給 Sonnet
+    // 也塞得下。不拉更高是因為 context 越大每輪送的東西越多、回應越慢，
+    // 300k 已經幾乎不會遇到，再往上只是換來變慢。成本不是考量：住戶走的是訂閱不是 API 計費。
+    const CTX_COMPACT_AT = 300000;
     let _ctxWater = {};     // rid → 那個人 session 當下的實際 context 大小
     let _autoCompacting = false;   // 自動整理進行中，別重入
     const SEEN_KEY = 'group_seen';   // 閱讀進度：residentId → 已被送到第幾則 transcript index
