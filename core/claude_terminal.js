@@ -552,6 +552,8 @@ ${withOthers}
         return { base: String(cfg.url).replace(/\/v1\/chat\/completions\/?$/, ''), key: cfg.key };
     }
 
+    // 寫入一律 POST：橋的 CORS 是 allow_methods=[GET, POST, OPTIONS]，PUT 的預檢會被擋成 400，
+    // 而瀏覽器那頭只看得到一個 fetch 失敗、看不出是預檢掛了。實際踩過。
     async function _api(path, opts) {
         const c = _syncCfg();
         if (!c) return null;
@@ -578,7 +580,7 @@ ${withOthers}
                 const list = ClaudeTerminal.listConversations(tab);
                 if (!list.length) continue;
                 await _api('/v1/room/convs', {
-                    method: 'PUT',
+                    method: 'POST',
                     body: {
                         rid: ClaudeTerminal.getActiveResidentId(),
                         tab: tab,
@@ -592,7 +594,7 @@ ${withOthers}
                     try { msgs = await window.OS_DB.getStudioChat(_idbPrefix() + conv.id); } catch (_) {}
                     if (Array.isArray(msgs) && msgs.length) {
                         await _api('/v1/room/history', {
-                            method: 'PUT', body: { conv: conv.id, messages: msgs },
+                            method: 'POST', body: { conv: conv.id, messages: msgs },
                         });
                     }
                 }
@@ -640,7 +642,7 @@ ${withOthers}
         _convTimers[tab] = setTimeout(async () => {
             try {
                 await _api('/v1/room/convs', {
-                    method: 'PUT',
+                    method: 'POST',
                     body: {
                         rid: ClaudeTerminal.getActiveResidentId(),
                         tab: tab,
@@ -667,7 +669,7 @@ ${withOthers}
             if (!job) return;
             try {
                 await _api('/v1/room/history', {
-                    method: 'PUT', body: { conv: job.convId, messages: job.messages },
+                    method: 'POST', body: { conv: job.convId, messages: job.messages },
                 });
                 ClaudeTerminal.bridgeDown = false;
             } catch (e) {
@@ -685,7 +687,7 @@ ${withOthers}
         if (!job) return;
         try {
             await _api('/v1/room/history', {
-                method: 'PUT', body: { conv: job.convId, messages: job.messages },
+                method: 'POST', body: { conv: job.convId, messages: job.messages },
             });
         } catch (_) {}
     };
