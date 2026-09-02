@@ -418,6 +418,64 @@
     }
 
     /** 把 tools_used list 摘成「改了 X 個檔、跑了 Y 個命令...」一行字 */
+    /** 「🔧 跑了 N 個命令」那顆可折疊的塊。沒工具回 null。
+     *  原本寫死在 _renderClaudeBubble 裡，抽出來是為了讓群聊也用得到同一顆
+     *  —— 群聊的 sendGroup 一直有回 toolsUsed，只是從來沒畫出來，
+     *  她的話是「群聊看不太到他們做了啥工具」。 */
+    function _buildToolSummary(toolsUsed) {
+        if (!Array.isArray(toolsUsed) || !toolsUsed.length) return null;
+        const ts = document.createElement('div');
+        ts.className = 'claude-tool-summary';
+
+        const tsHeader = document.createElement('div');
+        tsHeader.className = 'claude-tool-summary-header';
+        const summary = _summarizeToolsUsed(toolsUsed);
+        tsHeader.innerHTML = `<span class="claude-tool-summary-toggle">▶</span><span>🔧 ${summary}</span>`;
+
+        const tsBody = document.createElement('div');
+        tsBody.className = 'claude-tool-summary-body';
+        toolsUsed.forEach(tool => {
+            const item = document.createElement('div');
+            item.className = 'claude-tool-summary-item';
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'claude-tool-summary-name';
+            nameSpan.textContent = (tool && tool.name) || 'unknown';
+            item.appendChild(nameSpan);
+            const detail = _toolDetailLine(tool);
+            if (detail) {
+                const detailSpan = document.createElement('span');
+                detailSpan.className = 'claude-tool-summary-detail';
+                detailSpan.textContent = detail;
+                item.appendChild(document.createTextNode(' '));
+                item.appendChild(detailSpan);
+            }
+            tsBody.appendChild(item);
+        });
+
+        ts.appendChild(tsHeader);
+        ts.appendChild(tsBody);
+        ts.addEventListener('click', () => ts.classList.toggle('open'));
+        return ts;
+    }
+
+    /** 串流當下要顯示的那句人話。「使用工具中...(3)」是機器在講話，
+     *  而她要的是知道「他現在在幹嘛」。先看工具名，Bash 再往指令內容猜。 */
+    function _toolDoingLabel(tool) {
+        const name = String((tool && tool.name) || '');
+        const cmd  = String((tool && tool.input && tool.input.command) || '').toLowerCase();
+        if (/^(Edit|Write|MultiEdit|NotebookEdit)$/.test(name)) return '正在改檔案…';
+        if (/^(Read|NotebookRead)$/.test(name))                 return '正在讀檔…';
+        if (/^(Grep|Glob)$/.test(name))                         return '正在找東西…';
+        if (/^(WebFetch|WebSearch)$/.test(name))                return '正在上網查…';
+        if (/image[-_ ]?gen|imagegen|generate[-_ ]?image/.test(cmd)) return '正在畫圖…';
+        if (/curl|wget|fetch|http/.test(cmd))                   return '正在上網查…';
+        if (/git/.test(cmd))                               return '正在翻程式碼…';
+        if (/(cat|type|head|tail|less)/.test(cmd))          return '正在讀檔…';
+        if (/(ls|dir|find|grep|rg)/.test(cmd))              return '正在找東西…';
+        if (name === 'Bash')                                     return '正在跑指令…';
+        return '正在動手…';
+    }
+
     function _summarizeToolsUsed(toolsUsed) {
         if (!Array.isArray(toolsUsed) || !toolsUsed.length) return '';
         const counts = {};
@@ -625,39 +683,9 @@
         }
 
         // tool summary 摺疊塊（仿 Claude.ai 桌面端「Edited 2 files, ran a command」）
-        if (!isUser && Array.isArray(opts.toolsUsed) && opts.toolsUsed.length) {
-            const ts = document.createElement('div');
-            ts.className = 'claude-tool-summary';
-
-            const tsHeader = document.createElement('div');
-            tsHeader.className = 'claude-tool-summary-header';
-            const summary = _summarizeToolsUsed(opts.toolsUsed);
-            tsHeader.innerHTML = `<span class="claude-tool-summary-toggle">▶</span><span>🔧 ${summary}</span>`;
-
-            const tsBody = document.createElement('div');
-            tsBody.className = 'claude-tool-summary-body';
-            opts.toolsUsed.forEach(tool => {
-                const item = document.createElement('div');
-                item.className = 'claude-tool-summary-item';
-                const nameSpan = document.createElement('span');
-                nameSpan.className = 'claude-tool-summary-name';
-                nameSpan.textContent = (tool && tool.name) || 'unknown';
-                item.appendChild(nameSpan);
-                const detail = _toolDetailLine(tool);
-                if (detail) {
-                    const detailSpan = document.createElement('span');
-                    detailSpan.className = 'claude-tool-summary-detail';
-                    detailSpan.textContent = detail;
-                    item.appendChild(document.createTextNode(' '));
-                    item.appendChild(detailSpan);
-                }
-                tsBody.appendChild(item);
-            });
-
-            ts.appendChild(tsHeader);
-            ts.appendChild(tsBody);
-            ts.addEventListener('click', () => ts.classList.toggle('open'));
-            wrap.appendChild(ts);
+        if (!isUser) {
+            const ts = _buildToolSummary(opts.toolsUsed);
+            if (ts) wrap.appendChild(ts);
         }
 
         const bubble = document.createElement('div');
@@ -905,10 +933,16 @@
                 if (acc.tools.length) {
                     if (!_streamToolEl) {
                         _streamToolEl = document.createElement('div');
-                        _streamToolEl.className = 'claude-tool-summary streaming-placeholder';
-                        streamWrap.insertBefore(_streamToolEl, _streamBubbleEl);
+                        _streamToolEl.className = 'claude-stream-doing';
+                        // 🚨 掛在氣泡「下面」，不是上面。原本是 insertBefore：他已經講了一段、
+                        // 接著去跑工具時，提示會出現在她剛讀完那段的上方，而她的視線在下面等下一句，
+                        // 加上串流會自動捲到底 —— 等於那行提示永遠在視野外。她的話是
+                        // 「看起來像第一段輸出了、以為說完了」。掛下面才在她眼睛正在看的位置。
+                        streamWrap.appendChild(_streamToolEl);
                     }
-                    _streamToolEl.textContent = `🔧 使用工具中...(${acc.tools.length})`;
+                    const last = acc.tools[acc.tools.length - 1];
+                    const more = acc.tools.length > 1 ? `（第 ${acc.tools.length} 個）` : '';
+                    _streamToolEl.textContent = `🔧 ${_toolDoingLabel(last)}${more}`;
                 }
                 // 自動黏底:streaming 中持續滾到最新
                 if (stream) stream.scrollTop = stream.scrollHeight;
@@ -1059,6 +1093,9 @@
     VoidClaudeRoom.handleFilePick    = _handleClaudeFilePick;
     VoidClaudeRoom.sendMessage       = _sendClaudeMessage;
     VoidClaudeRoom.markdownToSafeHtml = _claudeMarkdownToSafeHtml;
+    // 群聊借這兩支：折疊塊與串流中的人話標籤，兩邊長一樣、只維護一份
+    VoidClaudeRoom.buildToolSummary   = _buildToolSummary;
+    VoidClaudeRoom.toolDoingLabel     = _toolDoingLabel;
 
     console.log('✅ VoidClaudeRoom（Claude 房間 UI）模組就緒');
 })(window.VoidClaudeRoom = window.VoidClaudeRoom || {});

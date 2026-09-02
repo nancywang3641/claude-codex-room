@@ -190,6 +190,27 @@
 .claude-thinking.open .claude-thinking-content { display: block; }
 
 /* tool summary 摺疊塊（仿 Claude.ai 桌面端「Edited 2 files, ran a command」） */
+/* 串流當下的「他正在做什麼」。跟折疊塊同一套配色，但它不是可以點開的東西，
+   所以拿掉 cursor:pointer、改成呼吸的透明度，讓它讀起來像「還在進行中」。
+   位置由 JS 掛在氣泡下方（不是上方）——她的視線在最新一行，提示要出現在那裡。 */
+.claude-stream-doing {
+    align-self: flex-start; max-width: 100%;
+    margin-top: 4px;
+    background: rgba(234,176,92,0.10);
+    color: var(--cl-cafe-latte, #896645);
+    border: 1px dashed rgba(234,176,92,0.5);
+    border-radius: 8px; padding: 5px 10px;
+    font-size: 12px; user-select: none;
+    animation: claude-doing-breathe 1.6s ease-in-out infinite;
+}
+@keyframes claude-doing-breathe {
+    0%, 100% { opacity: 0.55; }
+    50%      { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .claude-stream-doing { animation: none; opacity: 0.85; }
+}
+
 .claude-tool-summary {
     align-self: flex-start; max-width: 100%;
     background: rgba(234,176,92,0.10);

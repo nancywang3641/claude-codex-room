@@ -353,6 +353,18 @@
         bubbleEl.textContent = clean;
     }
 
+    /** 把「🔧 跑了 N 個命令」那顆折疊塊掛在氣泡下面。
+     *  借一對一房間那顆（VoidClaudeRoom.buildToolSummary）—— 兩邊長一樣、只維護一份。
+     *  群聊的 sendGroup 一直有回 toolsUsed，只是從來沒畫出來。 */
+    function _attachTools(bubbleEl, toolsUsed) {
+        if (!bubbleEl || !Array.isArray(toolsUsed) || !toolsUsed.length) return;
+        if (!window.VoidClaudeRoom || typeof window.VoidClaudeRoom.buildToolSummary !== 'function') return;
+        const ts = window.VoidClaudeRoom.buildToolSummary(toolsUsed);
+        if (!ts) return;
+        const host = bubbleEl.parentNode || bubbleEl;
+        host.appendChild(ts);
+    }
+
     // 把附件陣列建成氣泡內的附件區塊（圖片 → 縮圖點放大；非圖 → 📎 chip）。空 → null。
     function _buildAttachmentsBox(attachments) {
         if (!Array.isArray(attachments) || !attachments.length) return null;
@@ -375,7 +387,7 @@
         return box;
     }
 
-    function _renderBubble(speaker, content, attachments) {
+    function _renderBubble(speaker, content, attachments, toolsUsed) {
         if (!_streamEl) return null;
         // 'recap' = 「🧹 摘要重啟」按鈕生成的前情提要,render 成置中分隔卡(非氣泡)
         if (speaker === 'recap') {
@@ -409,6 +421,7 @@
         // 附件：圖片 → 內嵌縮圖（點放大）；非圖 → 📎 chip
         const attBox = _buildAttachmentsBox(attachments);
         if (attBox) b.appendChild(attBox);
+        _attachTools(b, toolsUsed);
 
         wrap.appendChild(b);
         _streamEl.appendChild(wrap);
@@ -523,7 +536,12 @@
 
     /** 他正在做的事，寫成一句人話。認不出來就講「正在動手」——寧可模糊，不要編一個具體的謊。
      *  生圖那種認得出來是因為 codex 的 image 工具會落在命令裡（生出來的檔名也是 exec-*.png）。 */
+    // 借一對一那支：它多認工具名（Read/Edit/Grep…），不像下面這份只看 Bash 的指令內容。
+    // 舊版房間程式沒導出 toolDoingLabel 時，退回下面原本這份。
     function _doingLabel(tool) {
+        if (window.VoidClaudeRoom && typeof window.VoidClaudeRoom.toolDoingLabel === 'function') {
+            return window.VoidClaudeRoom.toolDoingLabel(tool);
+        }
         const cmd = String((tool && tool.input && tool.input.command) || '').toLowerCase();
         if (/image[-_ ]?gen|imagegen|\bimage\b.*\b(gen|create|draw)|generate[-_ ]?image/.test(cmd)) {
             return '正在畫圖…';
@@ -561,7 +579,7 @@
             if (m.speaker === 'rae' && m.content && m.content.indexOf('（系統）') === 0) return;
             const hasAtt = Array.isArray(m.attachments) && m.attachments.length;
             if (!_stripForDisplay(m.content) && !hasAtt) return;
-            _renderBubble(m.speaker, m.content, m.attachments);
+            _renderBubble(m.speaker, m.content, m.attachments, m.toolsUsed);
         });
     };
 
@@ -975,9 +993,12 @@
                 const box = _buildAttachmentsBox(imgAtts);
                 if (box) bubbleEl.appendChild(box);
             }
+            _attachTools(bubbleEl, result.toolsUsed);
         }
         const turnEntry = { speaker: rid, content: transcriptText, ts: Date.now(), usage: result.usage || null };
         if (imgAtts) turnEntry.attachments = imgAtts;
+        // 存起來，不然重新進群聊就只剩文字、看不出他做過什麼
+        if (Array.isArray(result.toolsUsed) && result.toolsUsed.length) turnEntry.toolsUsed = result.toolsUsed;
         _transcript.push(turnEntry);
         // 同一份話也留一份給他自己的房間：群聊跟私聊各自 resume，不回流的話同一位住戶
         // 在兩邊就是兩個人。收的是剝過標記的原話（[MOVE] 那些是對桌上講的，回房間沒有
