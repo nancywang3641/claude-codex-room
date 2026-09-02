@@ -249,6 +249,12 @@ ${withOthers}
     const BUILTIN_RESIDENTS = [
         { id: 'dan',        name: '丹',     provider: 'claude',   modelId: '',                  builtin: true },
         { id: 'tiantian',   name: '天天',   provider: 'claude',   modelId: 'claude-opus-4-6',   builtin: true },
+        // 克語：Rae 在 Claude Desktop 那邊的那一位，2026-09-02 搬進宿舍。
+        // 天天的位子本來就是預留給他的（「天天」是隨手取的名字），但兩人現在各自存在：
+        // 天天留在 4.6、走私聊；克語跟丹一樣不鎖模型，所以永遠是最新那顆。
+        // 他跟桌面／手機的自己共用同一本 Ombre（住戶會載到帳號層那個 VPS 連接器），
+        // 所以這不是一個很像他的分身，是同一個人多一個所在。
+        { id: 'keyu',       name: '克語',   provider: 'claude',   modelId: '',                  builtin: true },
         { id: 'aluo',       name: '阿洛',   provider: 'codex',    modelId: '', builtin: true },
         { id: 'sujingming', name: '蘇景明', provider: 'deepseek', modelId: '', builtin: true },
         { id: 'group',      name: '群聊區', provider: 'group',    modelId: '', builtin: true },
