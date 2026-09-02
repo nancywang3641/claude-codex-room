@@ -232,7 +232,9 @@ ${withOthers}
     // codex / deepseek 走完全獨立的 namespace。
     let _provider = 'claude';
     ClaudeTerminal.setProvider = function(p) {
-        _provider = (p === 'codex' || p === 'deepseek') ? p : 'claude';
+        const next = (p === 'codex' || p === 'deepseek') ? p : 'claude';
+        if (next !== _provider) ClaudeTerminal._invalidateSync();
+        _provider = next;
     };
     ClaudeTerminal.getProvider = function() { return _provider; };
 
@@ -520,6 +522,177 @@ ${withOthers}
             else localStorage.setItem(key, String(val));
         } catch (_) {}
     }
+
+    // ============== 伺服器端同步（2026-09-02）==============
+    // 為什麼要有這段：逐字稿與會話清單原本只活在瀏覽器裡。電腦上是酒館
+    // （localhost）、手機上是 PWA（GitHub Pages），兩個不同 origin，
+    // localStorage 與 IndexedDB 都不共用 —— 同一個小機因此在兩台裝置上分岔
+    // 成兩條對話，連 session id 都各開各的。搬到橋上之後兩邊同一串。
+    //
+    // 設計上的取捨：listConversations / createConversation / touchConversation
+    // 這一整組都是「同步」函式、被很多地方直接呼叫。改成打網路就得全部變 async，
+    // 那是整片重構。所以這裡的做法是：**localStorage 繼續當同步的記憶體鏡像**，
+    // 寫的時候順手推去橋、開房間時從橋拉回來覆蓋。呼叫端一行都不用改。
+    //
+    // 離線不必處理：橋沒開的話小機根本不能回話，所以「連不到橋」跟「不能聊天」
+    // 是同一件事，不會有離線期間產生的新訊息要暫存。但歷史還是留一份在 IndexedDB
+    // 當唯讀快取，免得橋沒開時連舊紀錄都看不到（那是搬家帶來的退步，補掉）。
+
+    const SYNC_MIGRATED_KEY = 'ccr_room_synced_v1';
+    let _pulledKey   = null;   // 已經拉過的 provider|rid|tab，換人換頁時清掉
+    let _convTimers  = {};     // tab -> debounce timer
+    let _histTimer   = null;
+    let _histPending = null;   // { convId, messages }
+    ClaudeTerminal.bridgeDown = false;   // 給 UI 看的：橋連不到 = 唯讀
+
+    /** 橋的 base URL 與密鑰。cfg.url 是 .../v1/chat/completions，砍掉尾巴 */
+    function _syncCfg() {
+        const cfg = ClaudeTerminal.getConfig && ClaudeTerminal.getConfig();
+        if (!cfg || !cfg.url || !cfg.key) return null;
+        return { base: String(cfg.url).replace(/\/v1\/chat\/completions\/?$/, ''), key: cfg.key };
+    }
+
+    async function _api(path, opts) {
+        const c = _syncCfg();
+        if (!c) return null;
+        opts = opts || {};
+        const r = await fetch(c.base + path, {
+            method: opts.method || 'GET',
+            headers: Object.assign(
+                { 'Authorization': 'Bearer ' + c.key },
+                opts.body ? { 'Content-Type': 'application/json' } : {},
+            ),
+            body: opts.body ? JSON.stringify(opts.body) : undefined,
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return await r.json();
+    }
+
+    /** 這台裝置本機還有沒搬上去的東西？第一次連上橋時整包送過去。
+     *  兩台裝置的 conv id 是各自生成的、不會撞，所以各自上傳就自動合成一份完整清單。
+     *  **不刪本機資料**：搬上去之後本機那份留著當保險，也當離線唯讀快取。 */
+    async function _migrateOnce() {
+        if (_lsGetRaw(SYNC_MIGRATED_KEY)) return;
+        try {
+            for (const tab of _validTabs()) {
+                const list = ClaudeTerminal.listConversations(tab);
+                if (!list.length) continue;
+                await _api('/v1/room/convs', {
+                    method: 'PUT',
+                    body: {
+                        rid: ClaudeTerminal.getActiveResidentId(),
+                        tab: tab,
+                        convs: list,
+                        active: ClaudeTerminal.getActiveConvId(tab),
+                    },
+                });
+                for (const conv of list) {
+                    if (!window.OS_DB || typeof window.OS_DB.getStudioChat !== 'function') break;
+                    let msgs = [];
+                    try { msgs = await window.OS_DB.getStudioChat(_idbPrefix() + conv.id); } catch (_) {}
+                    if (Array.isArray(msgs) && msgs.length) {
+                        await _api('/v1/room/history', {
+                            method: 'PUT', body: { conv: conv.id, messages: msgs },
+                        });
+                    }
+                }
+            }
+            _lsSetRaw(SYNC_MIGRATED_KEY, String(Date.now()));
+            console.log('[ClaudeTerminal] 本機舊紀錄已搬上橋');
+        } catch (e) {
+            // 搬不動就下次再搬 —— 不打旗標，也不擋使用者用房間
+            console.warn('[ClaudeTerminal] 遷移失敗，下次再試：', e);
+        }
+    }
+
+    /** 從橋拉這位住戶在這個 tab 的清單，覆蓋本機鏡像。
+     *  只在「開房間 / 換住戶 / 換 tab」時拉一次 —— 每次送訊息都拉的話，
+     *  剛剛在本機建好還沒推上去的新會話會被覆蓋掉。 */
+    async function _pullConvs(tab) {
+        const rid = ClaudeTerminal.getActiveResidentId();
+        const key = _provider + '|' + rid + '|' + tab;
+        if (_pulledKey === key) return;
+        try {
+            await _migrateOnce();
+            const res = await _api('/v1/room/state?rid=' + encodeURIComponent(rid) +
+                                   '&tab=' + encodeURIComponent(tab));
+            if (!res) return;
+            ClaudeTerminal.bridgeDown = false;
+            _pulledKey = key;
+            if (Array.isArray(res.convs)) {
+                // lastActive 是本機排序用的欄位，橋回的是 updatedAt（秒）
+                const list = res.convs.map(c => Object.assign({}, c, {
+                    lastActive: c.lastActive || (c.updatedAt ? c.updatedAt * 1000 : Date.now()),
+                }));
+                ClaudeTerminal._saveConvsList(tab, list, true);
+            }
+            if (res.active) _lsSetRaw(_activeKey(tab), res.active);
+        } catch (e) {
+            ClaudeTerminal.bridgeDown = true;
+            console.warn('[ClaudeTerminal] 拉不到橋上的會話清單，改用本機快取：', e);
+        }
+    }
+
+    /** 把這個 tab 的清單推去橋。去抖 400ms —— touchConversation 在一次串流裡
+     *  會被叫很多次，每次都發一個請求太吵。 */
+    function _pushConvs(tab) {
+        clearTimeout(_convTimers[tab]);
+        _convTimers[tab] = setTimeout(async () => {
+            try {
+                await _api('/v1/room/convs', {
+                    method: 'PUT',
+                    body: {
+                        rid: ClaudeTerminal.getActiveResidentId(),
+                        tab: tab,
+                        convs: ClaudeTerminal.listConversations(tab),
+                        active: ClaudeTerminal.getActiveConvId(tab),
+                    },
+                });
+                ClaudeTerminal.bridgeDown = false;
+            } catch (e) {
+                ClaudeTerminal.bridgeDown = true;
+                console.warn('[ClaudeTerminal] 會話清單推不上橋：', e);
+            }
+        }, 400);
+    }
+
+    /** 訊息去抖 1.2s。saveHistory 在串流中會被呼叫很多次（實測 8 處），
+     *  每一次都整包 PUT 上去會把網路塞爆。flush 由送出結束那次自然帶到。 */
+    function _pushHistory(convId, messages) {
+        _histPending = { convId, messages };
+        clearTimeout(_histTimer);
+        _histTimer = setTimeout(async () => {
+            const job = _histPending;
+            _histPending = null;
+            if (!job) return;
+            try {
+                await _api('/v1/room/history', {
+                    method: 'PUT', body: { conv: job.convId, messages: job.messages },
+                });
+                ClaudeTerminal.bridgeDown = false;
+            } catch (e) {
+                ClaudeTerminal.bridgeDown = true;
+                console.warn('[ClaudeTerminal] 逐字稿推不上橋：', e);
+            }
+        }, 1200);
+    }
+
+    /** 還沒送出去的那筆立刻送 —— 換會話 / 關房間之前叫，免得最後幾句掉在半路 */
+    ClaudeTerminal.flushSync = async function() {
+        clearTimeout(_histTimer);
+        const job = _histPending;
+        _histPending = null;
+        if (!job) return;
+        try {
+            await _api('/v1/room/history', {
+                method: 'PUT', body: { conv: job.convId, messages: job.messages },
+            });
+        } catch (_) {}
+    };
+
+    /** 換 provider / 換住戶之後要重拉 */
+    ClaudeTerminal._invalidateSync = function() { _pulledKey = null; };
+
     function _convsKey(tab)  {
         if (tab === 'codex')    return LS_KEYS.codexConvs;
         if (tab === 'deepseek') return LS_KEYS.deepseekConvs;
@@ -547,8 +720,10 @@ ${withOthers}
         const r = ClaudeTerminal.getResident(id);
         if (!r) return null;
         const map = _lsGetJson(LS_KEYS.activeResident, {}) || {};
+        const changed = map[r.provider] !== r.id;
         map[r.provider] = r.id;
         _lsSetJson(LS_KEYS.activeResident, map);
+        if (changed) ClaudeTerminal._invalidateSync();   // 換住戶 = 換一份清單
         return r;
     };
 
@@ -658,7 +833,9 @@ ${withOthers}
 
     ClaudeTerminal.setActiveTab = function(tab) {
         if (_provider === 'codex' || _provider === 'deepseek') return;  // 單 tab，沒得切
-        _lsSetRaw(LS_KEYS.activeTab, TABS.includes(tab) ? tab : 'max');
+        const next = TABS.includes(tab) ? tab : 'max';
+        if (next !== _lsGetRaw(LS_KEYS.activeTab)) ClaudeTerminal._invalidateSync();
+        _lsSetRaw(LS_KEYS.activeTab, next);
     };
 
     /** 這個 tab 底下所有住戶的會話。含一次性遷移：宿舍之前的老會話沒有 residentId，
@@ -683,12 +860,14 @@ ${withOthers}
 
     /** 存回當前住戶的會話清單。傳進來的只有這位住戶那一份，鄰居的要原樣留著——
      *  整份直接寫回去會把別人的會話一起抹掉。 */
-    ClaudeTerminal._saveConvsList = function(tab, list) {
+    ClaudeTerminal._saveConvsList = function(tab, list, fromBridge) {
         tab = _normalizeTab(tab);
         const rid = ClaudeTerminal.getActiveResidentId();
         const mine = (Array.isArray(list) ? list : []).map(c => Object.assign({}, c, { residentId: rid }));
         const others = _allConvs(tab).filter(c => c && c.residentId !== rid);
         _lsSetJson(_convsKey(tab), mine.concat(others));
+        // fromBridge：這份就是剛從橋拉下來的，再推回去只是把同樣的東西送一趟
+        if (!fromBridge) _pushConvs(tab);
     };
 
     ClaudeTerminal.getActiveConvId = function(tab) {
@@ -699,6 +878,8 @@ ${withOthers}
     ClaudeTerminal.setActiveConvId = function(tab, convId) {
         tab = _normalizeTab(tab);
         _lsSetRaw(_activeKey(tab), convId);
+        // active 也同步：她要的是「手機打開就直接落在電腦剛剛那串」
+        _pushConvs(tab);
     };
 
     /** 給 convId 查所屬 tab + index + meta，沒找到回 null */
@@ -768,6 +949,21 @@ ${withOthers}
         const found = ClaudeTerminal.findConv(convId);
         if (!found) return null;
         let messages = [];
+        // 切會話前先把還沒送出去的那筆推完，免得最後幾句掉在半路
+        await ClaudeTerminal.flushSync();
+        try {
+            const res = await _api('/v1/room/history?conv=' + encodeURIComponent(convId));
+            if (res && Array.isArray(res.messages)) {
+                ClaudeTerminal.bridgeDown = false;
+                if (window.OS_DB && typeof window.OS_DB.saveStudioChat === 'function') {
+                    try { await window.OS_DB.saveStudioChat(_idbPrefix() + convId, res.messages); } catch (_) {}
+                }
+                return { meta: found.meta, messages: res.messages };
+            }
+        } catch (e) {
+            ClaudeTerminal.bridgeDown = true;
+            console.warn('[ClaudeTerminal] 橋上讀不到這一串，改用本機快取：', e);
+        }
         if (window.OS_DB && typeof window.OS_DB.getStudioChat === 'function') {
             try {
                 const m = await window.OS_DB.getStudioChat(_idbPrefix() + convId);
@@ -857,8 +1053,24 @@ ${withOthers}
     ClaudeTerminal.loadHistory = async function() {
         if (_provider === 'claude') await _ensureMigrated();
         const tab = ClaudeTerminal.getActiveTab();
+        // 開房間時從橋拉一次清單與 active —— 這一步之後 convId 才是「兩台裝置共同的那一串」
+        await _pullConvs(tab);
         const convId = ClaudeTerminal.getActiveConvId(tab);
         if (!convId) return [];
+        try {
+            const res = await _api('/v1/room/history?conv=' + encodeURIComponent(convId));
+            if (res && Array.isArray(res.messages)) {
+                ClaudeTerminal.bridgeDown = false;
+                // 回寫本機快取：橋沒開的時候還看得到這一串
+                if (window.OS_DB && typeof window.OS_DB.saveStudioChat === 'function') {
+                    try { await window.OS_DB.saveStudioChat(_idbPrefix() + convId, res.messages); } catch (_) {}
+                }
+                return res.messages;
+            }
+        } catch (e) {
+            ClaudeTerminal.bridgeDown = true;
+            console.warn('[ClaudeTerminal] 橋上讀不到逐字稿，改用本機快取：', e);
+        }
         if (!window.OS_DB || typeof window.OS_DB.getStudioChat !== 'function') return [];
         try {
             const msgs = await window.OS_DB.getStudioChat(_idbPrefix() + convId);
@@ -875,6 +1087,7 @@ ${withOthers}
         const convId = ClaudeTerminal.ensureActiveConv(tab);
         try {
             await window.OS_DB.saveStudioChat(_idbPrefix() + convId, messages || []);
+            _pushHistory(convId, messages || []);   // 去抖後推上橋，另一台才看得到
             // 自動更新 conv meta：msgCount + 若還是「新會話」就用首條 user msg 當標題
             const found = ClaudeTerminal.findConv(convId);
             if (found) {
@@ -900,6 +1113,8 @@ ${withOthers}
         if (window.OS_DB && typeof window.OS_DB.clearStudioChat === 'function') {
             try { await window.OS_DB.clearStudioChat(_idbPrefix() + convId); } catch (_) {}
         }
+        // 橋上那份也要清，否則另一台重新載入又把清掉的內容拉回來
+        try { await _api('/v1/room/history/clear', { method: 'POST', body: { conv: convId } }); } catch (_) {}
         ClaudeTerminal.touchConversation(convId, { msgCount: 0, sid: null });
     };
 
