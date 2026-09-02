@@ -400,6 +400,16 @@
         if (window.ClaudeTerminal && typeof window.ClaudeTerminal.setProvider === 'function') {
             window.ClaudeTerminal.setProvider(provider);
         }
+        // 每次開房間都重新跟橋要一次最新狀態。拉取本身在 loadHistory 裡，但它有個
+        // 「這組 provider|住戶|tab 拉過就不再拉」的旗標 —— 不在這裡清掉的話，關掉房間
+        // 再打開會直接用記憶體裡的舊資料，得整頁重新整理才看得到另一台剛講的話。
+        //
+        // 🚨 只在開房間清，不要改成「每次 loadHistory 都拉」：loadHistory 在每次送出前
+        // 也會被呼叫，而拉取會連 active 是哪一串一起覆蓋掉 —— 那會讓她在電腦打到一半的
+        // 訊息，被手機那邊最後開著的會話搶走。
+        if (window.ClaudeTerminal && typeof window.ClaudeTerminal._invalidateSync === 'function') {
+            window.ClaudeTerminal._invalidateSync();
+        }
         let hist = [];
         if (window.ClaudeTerminal && typeof window.ClaudeTerminal.loadHistory === 'function') {
             try { hist = await window.ClaudeTerminal.loadHistory(); } catch (_) { hist = []; }
