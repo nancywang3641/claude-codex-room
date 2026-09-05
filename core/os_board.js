@@ -3,7 +3,10 @@
 // 路徑：os_phone/os/os_board.js
 // 職責：📝 留言板面板 — 顯示 cc-bridge 留言板（丹/Codex 心跳醒來自動寫進去的「今日收穫」紙條）
 // 資料：GET /v1/board → 渲染成便利貼風的板子
-// 設計：從 day 1 支援多 AI（author 欄）。第一階段只讀不寫，未來人類想貼再加。
+// 設計：從 day 1 支援多 AI（author 欄）。
+//       她這邊能做的兩件事：對一張紙條按讚、回一句。都存成一張小紙條（POST /v1/board/post，
+//       tags = ["reaction", "like"|"reply", "to:<父紙條 id>"]），板子上疊在那張下面顯示；
+//       橋在丹／住戶下次醒來時把這些念給他們聽，紙條才接得上她的反應。
 // ----------------------------------------------------------------
 (function () {
     console.log('[Aurelia] 載入留言板（v0.1）...');
@@ -60,7 +63,10 @@
         return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
     }
 
+    const ME = 'Rae';   // 她按讚／回話時署的名（紙條裡對她一律叫 Rae）
+
     function _authorEmoji(author) {
+        if (author === ME) return '🌸';
         if (author === '丹') return '🦀';
         if (author === 'Codex' || author === 'codex') return '🔷';
         return '🤖';
@@ -77,6 +83,18 @@
     // 跟日記流分開,置頂顯示,不然埋在幾十張紙條裡等於沒說。
     function _isProposal(p) {
         return !!(p && Array.isArray(p.tags) && p.tags.some(t => String(t).toLowerCase() === 'proposal'));
+    }
+
+    // 她的讚／回話:tags 帶 reaction + like|reply + to:<父紙條 id>
+    function _isReaction(p) {
+        return !!(p && Array.isArray(p.tags) && p.tags.some(t => String(t).toLowerCase() === 'reaction'));
+    }
+    function _reactionParent(p) {
+        const t = (p && Array.isArray(p.tags) ? p.tags : []).find(x => String(x).startsWith('to:'));
+        return t ? String(t).slice(3) : '';
+    }
+    function _reactionKind(p) {
+        return (p && Array.isArray(p.tags) && p.tags.some(t => String(t).toLowerCase() === 'like')) ? 'like' : 'reply';
     }
 
     // 這張是哪顆腦寫的:橋在紙條 tags 裡帶 m:<模型>;取過名就顯示暱稱(設置→模型取名)。
@@ -288,11 +306,60 @@
         return String(s || '').replace(/"/g, '&quot;').replace(/</g, '&lt;');
     }
 
+    /** 按讚／回一句 → 存成一張小紙條 */
+    async function _postReaction(parentId, kind, text) {
+        const url = _boardUrl();
+        const cfg = _cfg();
+        if (!url || !cfg || !cfg.key) throw new Error('還沒填連線預設。');
+        const resp = await _fetchEither(url + '/post', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + cfg.key, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ author: ME, content: kind === 'like' ? '讚' : String(text || ''), tags: ['reaction', kind, 'to:' + parentId] }),
+        });
+        if (!resp.ok) {
+            const t = await resp.text();
+            throw new Error('HTTP ' + resp.status + ': ' + t.slice(0, 200));
+        }
+        return resp.json();
+    }
+
+    /** 一張紙條底下那排：讚、她的回話、回一句 */
+    function _footerHtml(p, byParent) {
+        const rx = byParent[String(p.id)] || [];
+        const likes = rx.filter(r => _reactionKind(r) === 'like');
+        const replies = rx.filter(r => _reactionKind(r) === 'reply');
+        const liked = likes.some(r => r.author === ME);
+        const repliesHtml = replies.map(r => `
+            <div class="ob-reply">
+                <span class="ob-reply-who">${_authorEmoji(r.author)} ${_escAttr(r.author)}</span>
+                <span class="ob-reply-text">${_renderMd(r.content)}</span>
+                <time class="ob-reply-time">${_escAttr(_formatTs(r.created_at))}</time>
+            </div>`).join('');
+        return `
+            <footer class="ob-foot" data-pid="${_escAttr(String(p.id))}">
+                <div class="ob-foot-row">
+                    <button type="button" class="ob-like${liked ? ' on' : ''}" ${liked ? 'disabled' : ''} title="${liked ? '讚過了' : '讚'}">
+                        <i class="fa-${liked ? 'solid' : 'regular'} fa-heart"></i>${likes.length ? ' ' + likes.length : ''}
+                    </button>
+                    <div class="ob-reply-row">
+                        <input type="text" class="ob-reply-input" placeholder="回他一句…">
+                        <button type="button" class="ob-reply-send" title="送出"><i class="fa-solid fa-paper-plane"></i></button>
+                    </div>
+                </div>
+                ${repliesHtml ? `<div class="ob-replies">${repliesHtml}</div>` : ''}
+            </footer>`;
+    }
+
     function _renderBoard(container, posts) {
         const viaNote = (_lastVia === 'outer')
             ? '<div class="ob-hb-via"><i class="fa-solid fa-circle-info"></i> 這頁裝在框裡、框內連不出去，改從外層連才拿到的</div>'
             : '';
-        const allPosts = posts || [];
+        const everything = posts || [];
+        // 她的讚／回話不當紙條列，掛回各自那張底下
+        const byParent = {};
+        everything.filter(_isReaction).forEach(r => { const k = _reactionParent(r); if (!k) return; (byParent[k] = byParent[k] || []).push(r); });
+        Object.keys(byParent).forEach(k => byParent[k].sort((a, b) => (a.id || 0) - (b.id || 0)));
+        const allPosts = everything.filter(p => !_isReaction(p));
         const props = allPosts.filter(_isProposal);
         posts = allPosts.filter(p => !_isProposal(p));
         const propsHtml = props.length ? `
@@ -305,6 +372,7 @@
                             <time class="ob-note-time">${_escAttr(_formatTs(p.created_at))}</time>
                         </header>
                         <div class="ob-note-body">${_renderMd(p.content)}</div>
+                        ${_footerHtml(p, byParent)}
                     </article>`).join('')}
             </section>` : '';
         const notesHtml = posts.length
@@ -316,6 +384,7 @@
                     </header>
                     ${_isHeartbeat(p) ? '<span class="ob-note-tag"><i class="fa-solid fa-heart-pulse"></i> 自己醒來寫的' + (_modelOf(p) ? ' · ' + _escAttr(_modelOf(p)) : '') + '</span>' : ''}
                     <div class="ob-note-body">${_renderMd(p.content)}</div>
+                    ${_footerHtml(p, byParent)}
                 </article>`).join('')
             : `<div class="ob-empty">板子還是空的。<br>等丹下次醒來、或 Codex 接進來,紙條就會出現在這裡。</div>`;
 
@@ -336,6 +405,44 @@
 
         const refreshBtn = container.querySelector('#ob-refresh-btn');
         if (refreshBtn) refreshBtn.addEventListener('click', () => launch(container));
+
+        // 讚／回一句：送出後整板重拉，讓新的小紙條掛上去
+        const root = container.querySelector('.ob-container');
+        const send = async (foot, kind, text) => {
+            if (!foot || foot.dataset.busy === '1') return;
+            foot.dataset.busy = '1';
+            foot.classList.add('ob-foot-busy');
+            try { await _postReaction(foot.dataset.pid, kind, text); await launch(container); }
+            catch (e) {
+                foot.classList.remove('ob-foot-busy');
+                delete foot.dataset.busy;
+                const msg = (e && e.message) ? String(e.message) : String(e);
+                const why = _plainReason(msg);
+                let tip = foot.querySelector('.ob-foot-err');
+                if (!tip) { tip = document.createElement('div'); tip.className = 'ob-foot-err'; foot.appendChild(tip); }
+                tip.textContent = '沒送出去：' + (why || msg);
+            }
+        };
+        if (root) {
+            root.addEventListener('click', ev => {
+                const like = ev.target.closest('.ob-like');
+                if (like && !like.disabled) { send(like.closest('.ob-foot'), 'like', ''); return; }
+                const btn = ev.target.closest('.ob-reply-send');
+                if (btn) {
+                    const foot = btn.closest('.ob-foot');
+                    const inp = foot && foot.querySelector('.ob-reply-input');
+                    const text = inp ? inp.value.trim() : '';
+                    if (text) send(foot, 'reply', text);
+                }
+            });
+            root.addEventListener('keydown', ev => {
+                if (ev.key !== 'Enter' || !ev.target.classList || !ev.target.classList.contains('ob-reply-input')) return;
+                ev.preventDefault();
+                const foot = ev.target.closest('.ob-foot');
+                const text = ev.target.value.trim();
+                if (text) send(foot, 'reply', text);
+            });
+        }
     }
 
     async function launch(container) {
