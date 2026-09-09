@@ -722,11 +722,16 @@
         // 從「他上次看到的那則」起算，第一段間隔才算得出來
         let prevTs = (seenIdx >= 0 && _transcript[seenIdx]) ? _transcript[seenIdx].ts : null;
         const lastSeenTs = prevTs;   // 迴圈會一路改 prevTs，開頭那行要用的是原始值
+        let sawGameEnd = false;      // 修之前每開一次群聊就塞一句「請講評」，舊逐字稿裡可能疊了好幾句；一批增量最多帶一句
         for (let i = seenIdx + 1; i < _transcript.length; i++) {
             const m = _transcript[i];
             if (m.speaker === rid) {          // 他自己的話已在他 session 裡，但時間要當基準
                 if (m.ts) prevTs = m.ts;
                 continue;
+            }
+            if (m.speaker === 'rae' && String(m.content || '').indexOf('（系統）這盤對局結束了') === 0) {
+                if (sawGameEnd) continue;
+                sawGameEnd = true;
             }
             if (m.speaker !== 'sys' && m.content) {
                 longest = Math.max(longest, String(m.content).length);
@@ -1052,6 +1057,9 @@
     // （她還沒重啟的話舊版沒有）——不成立就退回本機迴圈，行為跟以前一模一樣。
     const HOSTED_POLL_MS = 4000;
     const HOSTED_SEEN_KEY = 'group_hosted_seen_';
+    // 這局的收場（🏁 那行＋講評那句）已經在這台裝置演過。橋的狀態檔會一直留著最後一局，
+    // 連下完的也回「有對局」，沒有這個記號的話每開一次群聊就收場一次。
+    const HOSTED_DONE_KEY = 'group_hosted_done_';
     let _hosted = null;   // { id, since, timer }
 
     function _bridgeUrl(path) {
@@ -1140,6 +1148,7 @@
         if (st.status !== 'running') {
             _hostedStopTimer();
             _hostedWatchVisible(false);
+            if (_hosted.id) _lsSet(HOSTED_DONE_KEY + _hosted.id, '1');   // 收場只演這一次
             _hosted = null;
             if (_game) _game.endSignal = { text: st.result || '對局結束。' };
             await _endGameInternal(st.result || null);
@@ -1221,6 +1230,16 @@
         try { st = await _bridgeCall('/v1/game/state?since=0', 'GET'); }
         catch (_) { return false; }
         if (!st || !st.active || !Array.isArray(st.players) || st.players.length !== 2) return false;
+        // 橋只記最後一局，下完的也照回。已經收過場的（記號在）、或每一手都撈過了的，
+        // 就是舊局：不再接、不再畫 🏁、不再往逐字稿塞「請講評」——那句每塞一次，
+        // 住戶下一輪讀到就會把這盤再講評一遍，桌上看起來像對局老是自己冒回來。
+        if (st.status !== 'running') {
+            const seenDone = parseInt(_lsGet(HOSTED_SEEN_KEY + st.id) || '0', 10) || 0;
+            if (_lsGet(HOSTED_DONE_KEY + st.id) || seenDone >= (st.totalTurns || 0)) {
+                _lsSet(HOSTED_DONE_KEY + st.id, '1');
+                return false;
+            }
+        }
         if (st.status === 'running') {
             _game = {
                 players: st.players.map(function (p) { return p.rid; }),
@@ -1312,6 +1331,10 @@
         const players = ((_game && _game.players) || []).filter(p => p && p !== 'rae');
         _game = null;
         if (resultText) _renderSystemLine('🏁 ' + resultText);
+
+        // 沒有對局中的雙方（接回一局早就下完的）就沒有人要講評：那句「請講評」不能塞，
+        // 塞了會跟著逐字稿送給每個人，人人讀到都回頭評一次這盤。
+        if (!players.length) { _busy = false; return; }
 
         // 收場講評一輪：注入系統提示進 transcript（不渲染這條），兩個 AI 各講評一句
         _transcript.push({
