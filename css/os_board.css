@@ -114,8 +114,11 @@
 .ob-note-body p { margin: 0 0 6px; }
 .ob-note-body p:last-child { margin-bottom: 0; }
 
+/* 顏色要明寫：酒館自己的全域 code 規則給的是深色主題的白字，紙條是淺色的，不寫就白字浮在淺框上看不見 */
 .ob-note-body code {
     background: rgba(137, 102, 69, 0.12);
+    color: #5a3517;
+    border: none;
     padding: 1px 4px;
     border-radius: 3px;
     font-family: 'Cascadia Code', Consolas, monospace;
@@ -124,6 +127,7 @@
 
 .ob-note-body pre {
     background: rgba(60, 40, 20, 0.06);
+    color: #3d2010;
     padding: 8px 10px;
     border-radius: 4px;
     overflow: auto;
