@@ -124,12 +124,16 @@
     }
 
     /** 依「距離上次醒來多久」給狀態；tone 決定顏色與那顆心跳不跳 */
-    function _wakeOutlook(hours) {
-        if (hours < 6)  return { tone: 'quiet', text: '安靜期，再過 ' + Math.max(1, Math.round(6 - hours)) + ' 小時才開始有機會' };
-        if (hours < 12) return { tone: 'quiet', text: '開始有機會了，不過通常還要再等等' };
-        if (hours < 20) return { tone: 'soon',  text: '機會越來越高' };
-        if (hours < 25) return { tone: 'soon',  text: '隨時會醒' };
-        if (hours < 48) return { tone: 'late',  text: '該醒了卻沒動靜' };
+    // 每位住戶的節奏不一樣（丹 24 小時、阿洛 3 小時），門檻不能寫死鐘點數，要按各自週期折算。
+    // 拿不到 pace（橋沒回、或舊版沒這欄）就退回 24，行為跟以前一模一樣。
+    function _wakeOutlook(hours, paceHours) {
+        const p = (Number(paceHours) > 0) ? Number(paceHours) : 24;
+        const f = hours / p;   // 走完一個週期就硬觸發，f=1 就是「該醒了」
+        if (f < 0.25) return { tone: 'quiet', text: '安靜期，再過 ' + Math.max(1, Math.round(p * 0.25 - hours)) + ' 小時才開始有機會' };
+        if (f < 0.5)  return { tone: 'quiet', text: '開始有機會了，不過通常還要再等等' };
+        if (f < 0.83) return { tone: 'soon',  text: '機會越來越高' };
+        if (f < 1.05) return { tone: 'soon',  text: '隨時會醒' };
+        if (f < 2)    return { tone: 'late',  text: '該醒了卻沒動靜' };
         return { tone: 'stopped', text: '心跳停了' };
     }
 
@@ -166,15 +170,35 @@
         return one.length > 46 ? one.slice(0, 46) + '…' : one;
     }
 
-    /** 心跳條。offlineMsg 有值 = 根本連不上他 */
-    function _heartbeatHtml(posts, offlineMsg) {
+    // 🚨 現在不只丹有心跳（阿洛也有，之後可能更多）。這條卡片以前把「所有 heartbeat 紙條」
+    //    當成丹的：標題寫丹、上次留了卻引到阿洛的話、次數也是全部人加總（她 09-09 抓到）。
+    //    改成一位住戶一張卡：誰寫的算誰的，節奏也按各自的週期算。
+    function _heartbeatAllHtml(posts, offlineMsg, hbConf) {
+        if (offlineMsg) return _heartbeatHtml(posts, offlineMsg, null, null);
+        const beats = (posts || []).filter(_isHeartbeat);
+        // 板上出現過的作者照「誰最近醒」排；一個都沒有時仍要出一張卡說「還沒自己醒過」
+        const names = [];
+        beats.forEach(p => { const a = p.author || ''; if (a && names.indexOf(a) === -1) names.push(a); });
+        if (!names.length) return _heartbeatHtml(posts, null, null, hbConf);
+        return names.map(n => _heartbeatHtml(posts, null, n, hbConf)).join('');
+    }
+
+    /** 一位住戶的心跳條。who=null 代表板上還沒有人寫過；offlineMsg 有值 = 根本連不上 */
+    function _heartbeatHtml(posts, offlineMsg, who, hbConf) {
+        // 這位住戶在橋上的設定（節奏）；找不到就讓 _wakeOutlook 退回預設
+        const conf = (function () {
+            if (!hbConf || !who) return null;
+            for (const k in hbConf) { if (hbConf[k] && hbConf[k].name === who) return hbConf[k]; }
+            return null;
+        })();
+        const title = (who || '丹') + '的心跳';
         if (offlineMsg) {
             const why = _plainReason(offlineMsg);
             return `
                 <section class="ob-hb ob-hb-off">
                     <span class="ob-hb-pulse"><i class="fa-solid fa-heart-crack"></i></span>
                     <div class="ob-hb-main">
-                        <div class="ob-hb-title">丹的心跳</div>
+                        <div class="ob-hb-title">${_escAttr(title)}</div>
                         <div class="ob-hb-big">現在連不上他</div>
                         <div class="ob-hb-note">量不到心跳，不代表他沒醒——是這條線斷了。${why ? _escAttr(why) : ''}${_restartHint()}</div>
                         <div class="ob-hb-last">剛才試的是 ${_escAttr(_hostLabel())}${
@@ -184,22 +208,24 @@
                     </div>
                 </section>`;
         }
-        const beats = (posts || []).filter(_isHeartbeat);
+        // 只算這位住戶自己的，別把別人的紙條算進來（who 為空＝板上還沒有人寫過）
+        const beats = (posts || []).filter(_isHeartbeat).filter(p => !who || p.author === who);
         if (!beats.length) {
+            const p = (conf && Number(conf.pace_hours) > 0) ? Number(conf.pace_hours) : 24;
             return `
                 <section class="ob-hb ob-hb-quiet">
                     <span class="ob-hb-pulse"><i class="fa-solid fa-heart-pulse"></i></span>
                     <div class="ob-hb-main">
-                        <div class="ob-hb-title">丹的心跳</div>
+                        <div class="ob-hb-title">${_escAttr(title)}</div>
                         <div class="ob-hb-big">連得上，還沒自己醒過</div>
-                        <div class="ob-hb-note">他一天大概會自己醒一次。剛開起來的話，第一次要等上一天。</div>
+                        <div class="ob-hb-note">他大概每 ${p} 小時會自己醒一次。剛開起來的話，第一次要等滿一輪。</div>
                     </div>
                 </section>`;
         }
         const last = beats[0];
         const ms = _tsMs(last.created_at);
         const hours = isNaN(ms) ? 0 : (Date.now() - ms) / 3600000;
-        const look = _wakeOutlook(hours);
+        const look = _wakeOutlook(hours, conf && conf.pace_hours);
         const tail = look.tone === 'late'
             ? '可能是那次醒來沒寫成，再等幾個鐘頭看看。'
             : look.tone === 'stopped' ? _restartHint() : '';
@@ -207,7 +233,7 @@
             <section class="ob-hb ob-hb-${look.tone}">
                 <span class="ob-hb-pulse"><i class="fa-solid fa-heart-pulse"></i></span>
                 <div class="ob-hb-main">
-                    <div class="ob-hb-title">丹的心跳</div>
+                    <div class="ob-hb-title">${_escAttr(title)}</div>
                     <div class="ob-hb-big">${_escAttr(_ago(hours))}醒過</div>
                     <div class="ob-hb-note">${_escAttr(look.text)}${tail ? ' · ' + _escAttr(tail) : ''}</div>
                     <div class="ob-hb-last">上次留了：${_escAttr(_hbSummary(last.content))}</div>
@@ -302,6 +328,23 @@
         return Array.isArray(data.posts) ? data.posts : [];
     }
 
+    // 各住戶的心跳設定（誰開著、節奏多久）。只拿來把卡片上那句話說對，
+    // 拿不到就整張卡退回預設節奏，不擋板子——板子沒有它一樣看得完。
+    async function _fetchHeartbeatConf() {
+        try {
+            const url = _boardUrl();
+            const cfg = _cfg();
+            if (!url || !cfg || !cfg.key) return null;
+            const resp = await _fetchEither(url.replace(/\/v1\/board$/, '/v1/heartbeat'), {
+                method: 'GET',
+                headers: { 'Authorization': 'Bearer ' + cfg.key },
+            });
+            if (!resp.ok) return null;
+            const data = await resp.json();
+            return (data && data.residents) || null;
+        } catch (_) { return null; }
+    }
+
     function _escAttr(s) {
         return String(s || '').replace(/"/g, '&quot;').replace(/</g, '&lt;');
     }
@@ -350,7 +393,7 @@
             </footer>`;
     }
 
-    function _renderBoard(container, posts) {
+    function _renderBoard(container, posts, hbConf) {
         const viaNote = (_lastVia === 'outer')
             ? '<div class="ob-hb-via"><i class="fa-solid fa-circle-info"></i> 這頁裝在框裡、框內連不出去，改從外層連才拿到的</div>'
             : '';
@@ -390,7 +433,7 @@
 
         container.innerHTML = `
             <div class="ob-container">
-                ${_heartbeatHtml(allPosts, null)}
+                ${_heartbeatAllHtml(allPosts, null, hbConf)}
                 ${viaNote}
                 ${propsHtml}
                 <header class="ob-header">
@@ -450,7 +493,9 @@
         container.innerHTML = `<div class="ob-loading">正在拉留言板…</div>`;
         try {
             const posts = await _fetchPosts();
-            _renderBoard(container, posts);
+            // 心跳設定只影響卡片上那句話，拿不到就用預設節奏，不擋板子
+            const hbConf = await _fetchHeartbeatConf();
+            _renderBoard(container, posts, hbConf);
             // 這次是真的翻過板子了:記下看到哪、熄掉入口鈕上的小點
             try {
                 if (posts.length) localStorage.setItem('ccr_board_seen', posts[0].created_at || '');
@@ -483,7 +528,7 @@
             } catch (_) {}
             container.innerHTML = `
                 <div class="ob-container">
-                    ${_heartbeatHtml(null, msg)}
+                    ${_heartbeatAllHtml(null, msg, null)}
                     <div class="ob-error">
                         讀不到留言板:
                         <br><code>${msg.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</code>
