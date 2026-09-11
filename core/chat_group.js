@@ -871,7 +871,9 @@
                         if (bubbleEl) {
                             bubbleEl.classList.remove('cg-typing');
                             bubbleEl.classList.remove('cg-doing');
-                            bubbleEl.textContent = _stripForDisplay(acc);
+                            const shown = _stripForDisplay(acc);
+                            bubbleEl.textContent = (window.VoidClaudeRoom && window.VoidClaudeRoom.hideMdImages)
+                                ? window.VoidClaudeRoom.hideMdImages(shown) : shown;
                             _scrollBottom();
                         }
                     } else if (ev && ev.type === 'tool_use') {

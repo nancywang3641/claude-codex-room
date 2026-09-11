@@ -378,6 +378,12 @@
 
 /* ===== Claude 氣泡內 markdown 元素樣式（只 from-claude，user 不渲染 markdown） ===== */
 .claude-bubble-md { white-space: normal; }
+/* 回覆裡的圖片（住戶發的表情包）：縮成貼圖大小，不撐破泡泡 */
+img.claude-md-img {
+    display: block; width: auto; height: auto;
+    max-width: min(140px, 100%); max-height: 140px;
+    margin: 6px 0; border-radius: 8px;
+}
 .claude-bubble-md p { margin: 0.5em 0; }
 .claude-bubble-md strong { font-weight: 700; }
 .claude-bubble-md em { font-style: italic; }

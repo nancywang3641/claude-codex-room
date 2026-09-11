@@ -518,9 +518,44 @@
         return '';
     }
 
+    // 圖片語法 ![說明](https://…)：住戶發表情包用。手機 PWA 沒載 showdown，也要認得它
+    const _MD_IMG_ONE = /!\[([^\]\n]*)\]\((https:\/\/[^\s)]+)\)/;
+    const _MD_IMG_ALL = new RegExp(_MD_IMG_ONE.source, 'g');
+
+    // 串流中（還沒畫成圖）先藏起來，連同括號還沒收的尾巴，網址不露在泡泡裡
+    function _hideMdImages(text) {
+        return String(text == null ? '' : text)
+            .replace(new RegExp('\\n?' + _MD_IMG_ONE.source, 'g'), '')
+            .replace(/\n?!\[[^\]\n]*(\]\([^)\n]*)?$/, '');
+    }
+
+    // 沒有 showdown 時的退路：只把圖片語法畫成圖，其餘照純文字（換行轉 <br>）；沒有圖回 null
+    function _plainWithImagesHtml(text) {
+        const s = String(text == null ? '' : text);
+        if (!_MD_IMG_ONE.test(s)) return null;
+        const box = document.createElement('div');
+        const addText = (t) => t.split('\n').forEach((line, i) => {
+            if (i) box.appendChild(document.createElement('br'));
+            if (line) box.appendChild(document.createTextNode(line));
+        });
+        let last = 0, m;
+        _MD_IMG_ALL.lastIndex = 0;
+        while ((m = _MD_IMG_ALL.exec(s)) !== null) {
+            addText(s.slice(last, m.index));
+            const im = document.createElement('img');
+            im.className = 'claude-md-img';
+            im.alt = m[1];
+            im.src = m[2];
+            box.appendChild(im);
+            last = m.index + m[0].length;
+        }
+        addText(s.slice(last));
+        return box.innerHTML;
+    }
+
     let _claudeMdConverter = null;
     function _claudeMarkdownToSafeHtml(text) {
-        if (!window.showdown || !window.DOMPurify) return null;
+        if (!window.showdown || !window.DOMPurify) return _plainWithImagesHtml(text);
         if (!_claudeMdConverter) {
             _claudeMdConverter = new window.showdown.Converter({
                 tables: true,
@@ -551,6 +586,8 @@
                 el.setAttribute('disabled', '');  // 強制 disabled，使用者點不到
             }
         });
+
+        tmp.querySelectorAll('img').forEach(el => el.classList.add('claude-md-img'));
 
         if (window.hljs) {
             tmp.querySelectorAll('pre code').forEach(el => {
@@ -693,7 +730,7 @@
         if (isUser || opts.suppressMarkdown) {
             // User 訊息 / streaming 中：raw text 顯示（streaming 期間每 chunk re-render
             // 一次 markdown 太貴，stream 結束最後一次 render 才開 markdown）
-            bubble.textContent = content;
+            bubble.textContent = isUser ? content : _hideMdImages(content);
         } else {
             // Claude 回覆：解析 markdown 後 sanitize 再插入
             const safeHtml = _claudeMarkdownToSafeHtml(content);
@@ -1093,6 +1130,7 @@
     VoidClaudeRoom.handleFilePick    = _handleClaudeFilePick;
     VoidClaudeRoom.sendMessage       = _sendClaudeMessage;
     VoidClaudeRoom.markdownToSafeHtml = _claudeMarkdownToSafeHtml;
+    VoidClaudeRoom.hideMdImages       = _hideMdImages;
     // 群聊借這兩支：折疊塊與串流中的人話標籤，兩邊長一樣、只維護一份
     VoidClaudeRoom.buildToolSummary   = _buildToolSummary;
     VoidClaudeRoom.toolDoingLabel     = _toolDoingLabel;
