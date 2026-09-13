@@ -8,26 +8,26 @@
     width: 100%;
     height: 100%;
     padding: 16px;
-    background: var(--cl-cream, #fdf7ec);
-    color: var(--cl-text-deep, #3d2010);
+    background: var(--cl-cream, #f4f6fb);
+    color: var(--cl-text-deep, #1f3a68);
     font-family: inherit;
     overflow: auto;
     box-sizing: border-box;
 }
 
 .sp-card {
-    background: #fffdf6;
-    border: 1px solid rgba(234, 176, 92, 0.55);
+    background: #fdfdfc;
+    border: 1px solid rgba(42, 74, 128, 0.33);
     border-radius: 12px;
     padding: 14px 18px;
     margin-bottom: 12px;
-    box-shadow: 0 2px 8px var(--cl-warm-shadow, rgba(137, 102, 69, 0.1));
+    box-shadow: 0 2px 8px var(--cl-warm-shadow, rgba(70, 99, 155, 0.1));
 }
 
 .sp-big {
     font-size: 32px;
     font-weight: 700;
-    color: var(--cl-grenadine, #D95122);
+    color: var(--cl-grenadine, #2a4a80);
     text-align: center;
     margin: 4px 0;
     letter-spacing: 0.5px;
@@ -36,7 +36,7 @@
 
 .sp-sub {
     font-size: 12px;
-    color: var(--cl-cafe-latte, #896645);
+    color: var(--cl-cafe-latte, #46639b);
     text-align: center;
 }
 
@@ -48,8 +48,8 @@
 }
 
 .sp-grid-cell {
-    background: #fffdf6;
-    border: 1px solid rgba(234, 176, 92, 0.55);
+    background: #fdfdfc;
+    border: 1px solid rgba(42, 74, 128, 0.33);
     border-radius: 10px;
     padding: 10px 6px;
     text-align: center;
@@ -58,31 +58,31 @@
 .sp-grid-num {
     font-size: 18px;
     font-weight: 700;
-    color: var(--cl-grenadine, #D95122);
+    color: var(--cl-grenadine, #2a4a80);
     font-family: 'Cascadia Code', Consolas, monospace;
 }
 
 .sp-grid-label {
     font-size: 11px;
-    color: var(--cl-cafe-latte, #896645);
+    color: var(--cl-cafe-latte, #46639b);
     margin-top: 2px;
 }
 
 .sp-section-title {
     font-size: 12px;
     font-weight: 700;
-    color: var(--cl-cafe-latte, #896645);
+    color: var(--cl-cafe-latte, #46639b);
     letter-spacing: 0.5px;
     margin: 12px 0 6px 0;
     padding-left: 4px;
 }
 
 .sp-list {
-    background: #fffdf6;
-    border: 1px solid rgba(234, 176, 92, 0.55);
+    background: #fdfdfc;
+    border: 1px solid rgba(42, 74, 128, 0.33);
     border-radius: 12px;
     overflow: hidden;
-    box-shadow: 0 2px 8px var(--cl-warm-shadow, rgba(137, 102, 69, 0.1));
+    box-shadow: 0 2px 8px var(--cl-warm-shadow, rgba(70, 99, 155, 0.1));
 }
 
 .sp-row {
@@ -91,28 +91,28 @@
     padding: 7px 12px;
     font-size: 12px;
     align-items: center;
-    border-bottom: 1px solid rgba(234, 176, 92, 0.25);
+    border-bottom: 1px solid rgba(42, 74, 128, 0.15);
 }
 .sp-row:last-child { border-bottom: none; }
 
 .sp-row-ts {
-    color: var(--cl-cafe-latte, #896645);
+    color: var(--cl-cafe-latte, #46639b);
     font-family: 'Cascadia Code', Consolas, monospace;
 }
 .sp-row-cost {
-    color: var(--cl-grenadine, #D95122);
+    color: var(--cl-grenadine, #2a4a80);
     font-weight: 600;
     text-align: right;
     font-family: 'Cascadia Code', Consolas, monospace;
 }
 .sp-row-tokens {
-    color: var(--cl-cafe-latte, #896645);
+    color: var(--cl-cafe-latte, #46639b);
     font-family: 'Cascadia Code', Consolas, monospace;
     font-size: 11px;
     text-align: center;
 }
 .sp-row-model {
-    color: var(--cl-cafe-latte, #896645);
+    color: var(--cl-cafe-latte, #46639b);
     font-family: 'Cascadia Code', Consolas, monospace;
     font-size: 11px;
     text-align: right;
@@ -121,7 +121,7 @@
 .sp-row-empty {
     padding: 30px 20px;
     text-align: center;
-    color: var(--cl-cafe-latte, #896645);
+    color: var(--cl-cafe-latte, #46639b);
     opacity: 0.7;
     font-size: 13px;
     line-height: 1.6;
@@ -131,16 +131,16 @@
     margin-top: 12px;
     padding: 8px 14px;
     background: transparent;
-    border: 1px solid rgba(217, 81, 34, 0.4);
-    color: var(--cl-grenadine, #D95122);
+    border: 1px solid rgba(42, 74, 128, 0.4);
+    color: var(--cl-grenadine, #2a4a80);
     border-radius: 8px;
     cursor: pointer;
     font-size: 12px;
     font-family: inherit;
     transition: background 0.2s;
 }
-.sp-clear-btn:hover { background: rgba(217, 81, 34, 0.12); }
+.sp-clear-btn:hover { background: rgba(42, 74, 128, 0.12); }
 .sp-clear-btn.armed {
-    background: rgba(217, 81, 34, 0.18);
+    background: rgba(42, 74, 128, 0.18);
     font-weight: 700;
 }

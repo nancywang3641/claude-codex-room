@@ -13,8 +13,8 @@
     font-size: 24px;
     cursor: pointer;
     user-select: none;
-    background: linear-gradient(145deg, #f5e6c8, #e8c98f);
-    color: #5a3e1b;
+    background: linear-gradient(145deg, #2c4a7e, #1e3554);
+    color: #f4efe3;
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.5);
     border: 1px solid rgba(255, 255, 255, 0.4);
     transition: transform 0.18s ease, box-shadow 0.18s ease;
@@ -71,13 +71,13 @@
     width: 10px;
     height: 10px;
     border-radius: 50%;
-    background: #EAB05C;
-    border: 2px solid #fffdf6;
-    box-shadow: 0 0 6px rgba(234, 176, 92, 0.85);
+    background: #b9924f;
+    border: 2px solid #fdfdfc;
+    box-shadow: 0 0 6px rgba(42, 74, 128, 0.51);
 }
 #ccr-launcher.ccr-news-prop::after {
-    background: #D95122;
-    box-shadow: 0 0 6px rgba(217, 81, 34, 0.85);
+    background: #2a4a80;
+    box-shadow: 0 0 6px rgba(42, 74, 128, 0.85);
 }
 #ccr-launcher.ccr-inline.ccr-news::after,
 #ccr-launcher.ccr-inline.ccr-news-prop::after {

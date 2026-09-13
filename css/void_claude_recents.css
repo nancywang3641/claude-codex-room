@@ -22,10 +22,10 @@
     gap: 4px;
     max-width: calc(100% - 20px);
     padding: 5px 10px 5px 8px;
-    background: rgba(255, 250, 240, 0.88);
-    border: 1px solid rgba(217, 81, 34, 0.30);
+    background: rgba(251, 252, 254, 0.88);
+    border: 1px solid rgba(42, 74, 128, 0.3);
     border-radius: 14px;
-    color: #3d2010;
+    color: #1f3a68;
     font-size: 11px;
     line-height: 1.3;
     cursor: pointer;
@@ -37,9 +37,9 @@
 }
 
 .claude-conv-chip:hover {
-    background: rgba(255, 250, 240, 0.98);
-    border-color: #D95122;
-    box-shadow: 0 4px 10px rgba(217, 81, 34, 0.18);
+    background: rgba(251, 252, 254, 0.98);
+    border-color: #2a4a80;
+    box-shadow: 0 4px 10px rgba(42, 74, 128, 0.18);
 }
 
 .claude-conv-chip:active {
@@ -61,7 +61,7 @@
 
 .claude-conv-chip .ccc-arrow {
     font-size: 9px;
-    color: rgba(217, 81, 34, 0.65);
+    color: rgba(42, 74, 128, 0.65);
     flex-shrink: 0;
 }
 
@@ -103,15 +103,15 @@
 }
 
 .claude-recents-tabs .cr-tab:hover {
-    background: rgba(217, 81, 34, 0.08);
-    color: #D95122;
-    border-color: rgba(217, 81, 34, 0.30);
+    background: rgba(42, 74, 128, 0.08);
+    color: #2a4a80;
+    border-color: rgba(42, 74, 128, 0.3);
 }
 
 .claude-recents-tabs .cr-tab.active {
-    background: rgba(217, 81, 34, 0.18);
-    color: #D95122;
-    border-color: #D95122;
+    background: rgba(42, 74, 128, 0.18);
+    color: #2a4a80;
+    border-color: #2a4a80;
     font-weight: 500;
 }
 
@@ -130,15 +130,15 @@
 }
 
 .hist-item.claude-recent:hover {
-    background: rgba(217, 81, 34, 0.06);
-    border-color: rgba(217, 81, 34, 0.25);
+    background: rgba(42, 74, 128, 0.06);
+    border-color: rgba(42, 74, 128, 0.25);
     transform: translateX(2px);
 }
 
 .hist-item.claude-recent.active {
-    background: rgba(217, 81, 34, 0.12);
-    border-color: #D95122;
-    border-left: 3px solid #D95122;
+    background: rgba(42, 74, 128, 0.12);
+    border-color: #2a4a80;
+    border-left: 3px solid #2a4a80;
 }
 
 .hist-item.claude-recent .claude-recent-body {
@@ -185,9 +185,9 @@
 }
 
 .hist-item.claude-recent .cr-icon-btn:hover {
-    background: rgba(217, 81, 34, 0.15);
-    color: #D95122;
-    border-color: #D95122;
+    background: rgba(42, 74, 128, 0.15);
+    color: #2a4a80;
+    border-color: #2a4a80;
 }
 
 .hist-item.claude-recent .cr-icon-btn.danger:hover {
@@ -201,7 +201,7 @@
     width: 100%;
     background: #fff;
     color: #1A1C28;
-    border: 1px solid #D95122;
+    border: 1px solid #2a4a80;
     border-radius: 4px;
     padding: 3px 7px;
     font-size: 13px;
@@ -212,7 +212,7 @@
 }
 
 .claude-recent-rename-input:focus {
-    box-shadow: 0 0 0 2px rgba(217, 81, 34, 0.20);
+    box-shadow: 0 0 0 2px rgba(42, 74, 128, 0.2);
 }
 
 /* 右鍵 context menu（floating） */
@@ -244,8 +244,8 @@
 }
 
 .claude-recent-ctx-menu .cr-ctx-item:hover {
-    background: rgba(217, 81, 34, 0.10);
-    color: #D95122;
+    background: rgba(42, 74, 128, 0.1);
+    color: #2a4a80;
 }
 
 .claude-recent-ctx-menu .cr-ctx-item.danger:hover {

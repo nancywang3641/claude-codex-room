@@ -16,19 +16,19 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    background: var(--cl-cream, #fdf7ec);
+    background: var(--cl-cream, #f4f6fb);
 }
 
 .dorm-card {
     flex-shrink: 0;
     position: relative;
-    background: #fffdf6;
-    border: 1px solid rgba(234, 176, 92, 0.45);
+    background: #fdfdfc;
+    border: 1px solid rgba(42, 74, 128, 0.27);
     border-radius: 10px;
-    box-shadow: 0 1px 3px rgba(120, 80, 40, 0.10);
+    box-shadow: 0 1px 3px rgba(31, 58, 104, 0.1);
     overflow: hidden;
 }
-.dorm-card.dorm-editing { border-color: var(--cl-grenadine, #D95122); }
+.dorm-card.dorm-editing { border-color: var(--cl-grenadine, #2a4a80); }
 
 .dorm-door {
     width: 100%;
@@ -43,7 +43,7 @@
     font-family: inherit;
     box-sizing: border-box;
 }
-.dorm-door:hover { background: rgba(234, 176, 92, 0.12); }
+.dorm-door:hover { background: rgba(42, 74, 128, 0.07); }
 
 /* 頭像 */
 .dorm-face {
@@ -52,7 +52,7 @@
     width: 40px;
     height: 40px;
     border-radius: 50%;
-    background: linear-gradient(145deg, #f7ead1, #eed6a8);
+    background: linear-gradient(145deg, #eef2f9, #dfe6f2);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -66,7 +66,7 @@
     object-fit: contain;
 }
 .dorm-face-icon {
-    color: var(--cl-text-deep, #3d2010);
+    color: var(--cl-text-deep, #1f3a68);
     font-size: 16px;
 }
 /* 阿洛：Codex 寵物 spritesheet 的第一格（8 欄 × 9 列） */
@@ -86,8 +86,8 @@
     max-width: 30px;
     padding: 1px 3px;
     border-radius: 5px;
-    background: var(--cl-grenadine, #D95122);
-    color: #fff8ee;
+    background: var(--cl-grenadine, #2a4a80);
+    color: #f4efe3;
     font-size: 9px;
     line-height: 1.3;
     font-weight: bold;
@@ -106,14 +106,14 @@
 .dorm-name {
     font-size: 14px;
     font-weight: bold;
-    color: var(--cl-text-deep, #3d2010);
+    color: var(--cl-text-deep, #1f3a68);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 .dorm-sub {
     font-size: 11px;
-    color: var(--cl-cafe-latte, #896645);
+    color: var(--cl-cafe-latte, #46639b);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -121,7 +121,7 @@
 .dorm-go {
     flex-shrink: 0;
     font-size: 11px;
-    color: rgba(137, 102, 69, 0.55);
+    color: rgba(70, 99, 155, 0.55);
 }
 
 /* 鉛筆：桌機 hover 才出現，手機常駐 */
@@ -134,8 +134,8 @@
     padding: 0;
     border: none;
     border-radius: 6px;
-    background: rgba(234, 176, 92, 0.18);
-    color: var(--cl-cafe-latte, #896645);
+    background: rgba(42, 74, 128, 0.11);
+    color: var(--cl-cafe-latte, #46639b);
     font-size: 11px;
     line-height: 1;
     cursor: pointer;
@@ -144,7 +144,7 @@
 }
 .dorm-card:hover .dorm-pen,
 .dorm-card.dorm-editing .dorm-pen { opacity: 1; }
-.dorm-pen:hover { background: rgba(234, 176, 92, 0.38); color: var(--cl-text-deep, #3d2010); }
+.dorm-pen:hover { background: rgba(42, 74, 128, 0.23); color: var(--cl-text-deep, #1f3a68); }
 
 /* ---- 自己醒來：他會不會在沒人叫的時候自己醒過來 ----
    跟入席鈕同一套：開著的常駐顯示（那是狀態，不該要 hover 才看得到），關著的跟筆一樣藏著。
@@ -158,8 +158,8 @@
     padding: 0;
     border: none;
     border-radius: 6px;
-    background: rgba(234, 176, 92, 0.18);
-    color: var(--cl-cafe-latte, #896645);
+    background: rgba(42, 74, 128, 0.11);
+    color: var(--cl-cafe-latte, #46639b);
     font-size: 11px;
     line-height: 1;
     cursor: pointer;
@@ -170,11 +170,11 @@
 .dorm-card.dorm-editing .dorm-wake,
 .dorm-wake.waking { opacity: 1; }
 .dorm-wake.waking {
-    background: var(--cl-grenadine, #D95122);
+    background: var(--cl-grenadine, #2a4a80);
     color: #fff;
 }
-.dorm-wake:hover { background: rgba(234, 176, 92, 0.38); color: var(--cl-text-deep, #3d2010); }
-.dorm-wake.waking:hover { background: #b8421c; color: #fff; }
+.dorm-wake:hover { background: rgba(42, 74, 128, 0.23); color: var(--cl-text-deep, #1f3a68); }
+.dorm-wake.waking:hover { background: #1e3554; color: #fff; }
 
 /* ---- 新住戶那張 ---- */
 .dorm-card.dorm-new {
@@ -182,8 +182,8 @@
     border-style: dashed;
     box-shadow: none;
 }
-.dorm-card.dorm-new .dorm-face { background: rgba(234, 176, 92, 0.22); }
-.dorm-card.dorm-new .dorm-name { color: var(--cl-cafe-latte, #896645); }
+.dorm-card.dorm-new .dorm-face { background: rgba(42, 74, 128, 0.13); }
+.dorm-card.dorm-new .dorm-name { color: var(--cl-cafe-latte, #46639b); }
 
 /* ---- 就地編輯列 ---- */
 .dorm-form {
@@ -191,7 +191,7 @@
     flex-direction: column;
     gap: 6px;
     padding: 0 10px 10px;
-    border-top: 1px dashed rgba(234, 176, 92, 0.5);
+    border-top: 1px dashed rgba(42, 74, 128, 0.3);
     margin-top: 2px;
     padding-top: 8px;
 }
@@ -200,10 +200,10 @@
     width: 100%;
     box-sizing: border-box;
     padding: 7px 9px;
-    border: 1px solid rgba(234, 176, 92, 0.6) !important;
+    border: 1px solid rgba(42, 74, 128, 0.36) !important;
     border-radius: 6px;
     background: #ffffff !important;
-    color: var(--cl-text-deep, #3d2010) !important;
+    color: var(--cl-text-deep, #1f3a68) !important;
     font-size: 12px;
     font-family: inherit;
     height: auto;
@@ -211,11 +211,12 @@
 }
 .cw-dorm .dorm-input:focus {
     outline: none;
-    border-color: var(--cl-grenadine, #D95122) !important;
+    border-color: var(--cl-grenadine, #2a4a80) !important;
 }
+/* 警告類（欄位有錯、刪除、提示字）固定用紅，不跟主色走：主色換成深藍之後，刪除鈕跟一般鈕會分不出來 */
 .cw-dorm .dorm-input.dorm-warn {
-    border-color: var(--cl-grenadine, #D95122) !important;
-    background: #fff3ee !important;
+    border-color: #b5563f !important;
+    background: #fbeeea !important;
 }
 
 .dorm-form-act {
@@ -227,8 +228,8 @@
     padding: 6px 12px;
     border: none;
     border-radius: 6px;
-    background: linear-gradient(135deg, var(--cl-beeswax, #EAB05C), var(--cl-grenadine, #D95122));
-    color: #fff8ee;
+    background: linear-gradient(135deg, var(--cl-beeswax, #b9924f), var(--cl-grenadine, #2a4a80));
+    color: #f4efe3;
     font-size: 12px;
     font-weight: bold;
     font-family: inherit;
@@ -237,20 +238,20 @@
 .dorm-btn:hover { filter: brightness(1.06); }
 .dorm-btn.dorm-del {
     background: none;
-    border: 1px solid rgba(217, 81, 34, 0.45);
-    color: var(--cl-grenadine, #D95122);
+    border: 1px solid rgba(181, 86, 63, 0.45);
+    color: #b5563f;
     font-weight: normal;
 }
-.dorm-btn.dorm-del:hover { background: rgba(217, 81, 34, 0.10); }
+.dorm-btn.dorm-del:hover { background: rgba(181, 86, 63, 0.1); }
 .dorm-btn.dorm-del.dorm-armed {
-    background: var(--cl-grenadine, #D95122);
-    border-color: var(--cl-grenadine, #D95122);
-    color: #fff8ee;
+    background: #b5563f;
+    border-color: #b5563f;
+    color: #fdfdfc;
     font-weight: bold;
 }
 .dorm-hint {
     font-size: 11px;
-    color: var(--cl-grenadine, #D95122);
+    color: #b5563f;
     min-height: 0;
 }
 
@@ -259,8 +260,8 @@
     display: flex;
     gap: 6px;
     padding: 8px 12px 10px;
-    background: var(--cl-cream, #fdf7ec);
-    border-top: 1px solid rgba(234, 176, 92, 0.45);
+    background: var(--cl-cream, #f4f6fb);
+    border-top: 1px solid rgba(42, 74, 128, 0.27);
     flex-shrink: 0;
 }
 .dorm-hall-btn {
@@ -270,18 +271,18 @@
     align-items: center;
     gap: 4px;
     padding: 7px 4px;
-    border: 1px solid rgba(234, 176, 92, 0.4);
+    border: 1px solid rgba(42, 74, 128, 0.24);
     border-radius: 8px;
-    background: #fffdf6;
-    color: var(--cl-cafe-latte, #896645);
+    background: #fdfdfc;
+    color: var(--cl-cafe-latte, #46639b);
     font-size: 11px;
     font-family: inherit;
     cursor: pointer;
 }
 .dorm-hall-btn i { font-size: 14px; }
 .dorm-hall-btn:hover {
-    background: rgba(234, 176, 92, 0.18);
-    color: var(--cl-text-deep, #3d2010);
+    background: rgba(42, 74, 128, 0.11);
+    color: var(--cl-text-deep, #1f3a68);
 }
 
 /* 兩欄那條拿掉了：門卡以前住在會跟著視窗變寬的浮層裡，兩欄放得下；
@@ -294,7 +295,7 @@
 .dorm-mode {
     display: flex;
     gap: 0;
-    border: 1px solid rgba(137, 102, 69, 0.35);
+    border: 1px solid rgba(70, 99, 155, 0.35);
     border-radius: 7px;
     overflow: hidden;
     flex-shrink: 0;
@@ -304,16 +305,16 @@
     padding: 6px 8px;
     border: none;
     background: transparent;
-    color: var(--cl-cafe-latte, #896645);
+    color: var(--cl-cafe-latte, #46639b);
     font-size: 12px;
     line-height: 1.2;
     cursor: pointer;
     white-space: nowrap;
 }
-.dorm-mode-btn + .dorm-mode-btn { border-left: 1px solid rgba(137, 102, 69, 0.28); }
-.dorm-mode-btn:hover { background: rgba(234, 176, 92, 0.16); }
+.dorm-mode-btn + .dorm-mode-btn { border-left: 1px solid rgba(70, 99, 155, 0.28); }
+.dorm-mode-btn:hover { background: rgba(42, 74, 128, 0.1); }
 .dorm-mode-btn.active {
-    background: var(--cl-grenadine, #D95122);
+    background: var(--cl-grenadine, #2a4a80);
     color: #fff;
     font-weight: 700;
 }

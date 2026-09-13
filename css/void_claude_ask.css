@@ -6,9 +6,9 @@
 .claude-ask {
     margin-top: 8px;
     padding: 12px;
-    background: rgba(255, 250, 240, 0.92);
-    border: 1px solid rgba(217, 81, 34, 0.25);
-    border-left: 3px solid #D95122;
+    background: rgba(251, 252, 254, 0.92);
+    border: 1px solid rgba(42, 74, 128, 0.25);
+    border-left: 3px solid #2a4a80;
     border-radius: 6px;
     display: flex;
     flex-direction: column;
@@ -24,7 +24,7 @@
 .claude-ask-q {
     font-size: 13px;
     font-weight: 500;
-    color: #3d2010;
+    color: #1f3a68;
     line-height: 1.5;
 }
 
@@ -36,9 +36,9 @@
 
 .claude-ask-opt {
     padding: 7px 14px;
-    background: rgba(217, 81, 34, 0.10);
-    color: #D95122;
-    border: 1px solid rgba(217, 81, 34, 0.35);
+    background: rgba(42, 74, 128, 0.1);
+    color: #2a4a80;
+    border: 1px solid rgba(42, 74, 128, 0.35);
     border-radius: 16px;
     font-size: 12px;
     cursor: pointer;
@@ -47,10 +47,10 @@
 }
 
 .claude-ask-opt:hover:not(:disabled) {
-    background: rgba(217, 81, 34, 0.22);
-    border-color: #D95122;
+    background: rgba(42, 74, 128, 0.22);
+    border-color: #2a4a80;
     transform: translateY(-1px);
-    box-shadow: 0 2px 6px rgba(217, 81, 34, 0.18);
+    box-shadow: 0 2px 6px rgba(42, 74, 128, 0.18);
 }
 
 .claude-ask-opt:active:not(:disabled) {
@@ -72,34 +72,34 @@
     flex: 1;
     padding: 6px 10px;
     background: #fff;
-    border: 1px solid rgba(217, 81, 34, 0.30);
+    border: 1px solid rgba(42, 74, 128, 0.3);
     border-radius: 4px;
     font-size: 12px;
-    color: #3d2010;
+    color: #1f3a68;
     font-family: inherit;
     outline: none;
     transition: border-color 0.15s ease;
 }
 
 .claude-ask-other-input:focus {
-    border-color: #D95122;
-    box-shadow: 0 0 0 2px rgba(217, 81, 34, 0.12);
+    border-color: #2a4a80;
+    box-shadow: 0 0 0 2px rgba(42, 74, 128, 0.12);
 }
 
 .claude-ask-other-input::placeholder {
-    color: rgba(137, 102, 69, 0.55);
+    color: rgba(70, 99, 155, 0.55);
 }
 
 .claude-ask-other-input:disabled {
     opacity: 0.5;
-    background: rgba(255, 250, 240, 0.5);
+    background: rgba(251, 252, 254, 0.5);
 }
 
 .claude-ask-other-submit {
     padding: 6px 12px;
-    background: #D95122;
+    background: #2a4a80;
     color: #fff;
-    border: 1px solid #D95122;
+    border: 1px solid #2a4a80;
     border-radius: 4px;
     font-size: 11px;
     cursor: pointer;
@@ -108,8 +108,8 @@
 }
 
 .claude-ask-other-submit:hover:not(:disabled) {
-    background: #c4471c;
-    border-color: #c4471c;
+    background: #1e3554;
+    border-color: #1e3554;
 }
 
 .claude-ask-other-submit:disabled {
@@ -120,14 +120,14 @@
 .claude-ask-picked {
     margin-top: 4px;
     padding: 6px 10px;
-    background: rgba(217, 81, 34, 0.12);
+    background: rgba(42, 74, 128, 0.12);
     border-radius: 4px;
     font-size: 11px;
-    color: #D95122;
+    color: #2a4a80;
     font-weight: 500;
 }
 
 .claude-ask.picked {
-    border-color: rgba(217, 81, 34, 0.15);
-    border-left-color: rgba(217, 81, 34, 0.45);
+    border-color: rgba(42, 74, 128, 0.15);
+    border-left-color: rgba(42, 74, 128, 0.45);
 }
