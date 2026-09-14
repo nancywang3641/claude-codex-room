@@ -68,6 +68,7 @@
 .ob-tool:hover { background: rgba(255, 255, 255, 0.26); }
 .ob-me {
     position: absolute;
+    z-index: 1;   /* 封面底那條金線是 ::after，排在後面會畫在頭像上面 */
     right: 16px;
     bottom: -28px;
     display: flex;
