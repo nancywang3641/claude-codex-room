@@ -697,6 +697,13 @@
         const wrap = document.createElement('div');
         wrap.className = 'claude-bubble-wrap ' + (isUser ? 'from-user' : 'from-claude');
 
+        // 留言板標籤橋已經替他做完，畫面上拿掉（歷史重畫也走這裡）。整則只有標籤就留一句說他去板上動了手。
+        if (!isUser && window.ClaudeTerminal && typeof window.ClaudeTerminal.stripBoardTags === 'function') {
+            const shown = window.ClaudeTerminal.stripBoardTags(content, { streaming: !!opts.suppressMarkdown });
+            if (!shown && String(content || '').trim()) content = '（去留言板上動了一下）';
+            else content = shown;
+        }
+
         // ASK marker：只在 Clawd 最終回覆 render（不在 streaming 中、不在 user 訊息）
         let askMatches = [];
         if (!isUser && !opts.suppressMarkdown) {
@@ -966,7 +973,10 @@
             const _flushStreamingRender = () => {
                 _rerenderTimer = null;
                 _ensureStreamShell();
-                _streamBubbleEl.textContent = acc.text || '⏳ ...';
+                const CT = window.ClaudeTerminal;
+                const shown = (CT && typeof CT.stripBoardTags === 'function')
+                    ? CT.stripBoardTags(acc.text, { streaming: true }) : acc.text;
+                _streamBubbleEl.textContent = shown || '⏳ ...';
                 if (acc.tools.length) {
                     if (!_streamToolEl) {
                         _streamToolEl = document.createElement('div');

@@ -428,6 +428,9 @@
      * 把門卡畫進主窗的宿舍頁。以前 DormPanel 自己造一個 #ccr-dorm 浮層、自己算座標、
      * 自己處理「點外面關掉」—— 那套整組拿掉了，現在它只負責內容。
      */
+    // 留言板（朋友圈樣）的頭像跟門卡同一套，不另外養一份
+    DormPanel.faceHtml = _faceHtml;
+
     DormPanel.renderInto = function (container) {
         if (!container) return;
         _el = container;

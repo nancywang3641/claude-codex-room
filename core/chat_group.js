@@ -662,17 +662,23 @@
     }
 
     // 給對手看：剝掉 <lobbyPanel> 大 HTML（畫布已渲染、不重送），保留遊戲標記
+    // 留言板標籤（<board_…>）：橋已經替他做完。桌上的人不必看到那串標籤，氣泡也不畫。
+    function _stripBoard(text, streaming) {
+        const CT = window.ClaudeTerminal;
+        return (CT && typeof CT.stripBoardTags === 'function') ? CT.stripBoardTags(text, { streaming: !!streaming }) : text;
+    }
+
     function _stripForTranscript(text) {
         // RENAME / LEAVE 也剝掉：系統告示已經講過這件事，留著只會讓別人跟著學那個標記。
         // 但反引號裡那份不動 —— 那是他在講解，不是在下指令。
-        return _outsideCode(text, function (s) {
+        return _outsideCode(_stripBoard(text), function (s) {
             return s.replace(RE_PANEL, '').replace(RE_RENAME, '').replace(RE_LEAVE, '');
         }).trim();
     }
 
-    // 給氣泡顯示：剝掉 panel + 所有遊戲標記
-    function _stripForDisplay(text) {
-        return _outsideCode(text, function (s) {
+    // 給氣泡顯示：剝掉 panel + 所有遊戲標記 + 留言板標籤
+    function _stripForDisplay(text, streaming) {
+        return _outsideCode(_stripBoard(text, streaming), function (s) {
             return s
                 .replace(RE_PANEL, '')
                 .replace(RE_GAME, '')
@@ -871,7 +877,7 @@
                         if (bubbleEl) {
                             bubbleEl.classList.remove('cg-typing');
                             bubbleEl.classList.remove('cg-doing');
-                            const shown = _stripForDisplay(acc);
+                            const shown = _stripForDisplay(acc, true);
                             bubbleEl.textContent = (window.VoidClaudeRoom && window.VoidClaudeRoom.hideMdImages)
                                 ? window.VoidClaudeRoom.hideMdImages(shown) : shown;
                             _scrollBottom();

@@ -1295,6 +1295,38 @@ ${withOthers}
         return out;
     }
 
+    // ===== 留言板標籤 =====
+    // 小機在回覆裡寫 <board_post>／<board_like id="17"/>／<board_comment id>／<board_reply id to>／<board_proposal>，
+    // 橋（board_social.py）收完回覆替他做完；畫面上要拿掉，逐字稿照存原文。
+    // 容錯跟橋同一套：全形括號與引號、屬性不加引號、讚沒寫斜線；反引號與程式碼區塊裡的是他在講解，原樣留著。
+    const _BOARD_CODE_RE = /```[\s\S]*?```|`[^`\n]*`/g;
+    const _BOARD_PAIR_RE = /[<＜]\s*board_(post|comment|reply|like|proposal)\b[^>＞]*?(?:\/\s*[>＞]|[>＞][\s\S]*?[<＜]\s*\/\s*board_\1\s*[>＞])/gi;
+    const _BOARD_SINGLE_RE = /[<＜]\s*board_like\b[^>＞]*?\/?\s*[>＞]/gi;
+    const _BOARD_OPEN_RE = /[<＜]\s*board_(?:post|comment|reply|proposal)\b[\s\S]*$/i;
+    const _BOARD_TAIL_RE = /[<＜]\s*\/?\s*(?:b(?:o(?:a(?:r(?:d(?:_[^>＞]*)?)?)?)?)?)?$/i;
+    function _boardInCode(s, pos) {
+        let hit = false;
+        s.replace(_BOARD_CODE_RE, function (m, off) { if (pos >= off && pos < off + m.length) hit = true; return m; });
+        return hit;
+    }
+    /** opts.streaming：串流中，結尾那半截還沒打完的 <b、<board_ 也先藏起來 */
+    ClaudeTerminal.stripBoardTags = function (text, opts) {
+        const orig = String(text == null ? '' : text);
+        if (!/[<＜]/.test(orig)) return orig;
+        let s = orig.replace(_BOARD_PAIR_RE, function (m) {
+            const off = arguments[arguments.length - 2];
+            return _boardInCode(orig, off) ? m : '';
+        });
+        const afterPair = s;
+        s = s.replace(_BOARD_SINGLE_RE, function (m, off) { return _boardInCode(afterPair, off) ? m : ''; });
+        // 開頭標籤出現了、結尾還沒來（串流中，或他漏寫結尾）：從那裡藏到最後
+        const open = s.match(_BOARD_OPEN_RE);
+        if (open && !_boardInCode(s, open.index)) s = s.slice(0, open.index);
+        if (opts && opts.streaming) s = s.replace(_BOARD_TAIL_RE, '');
+        if (s === orig) return orig;
+        return s.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+    };
+
     // ===== cc-bridge / OpenAI 兼容路徑（Rae 自架 server 用）=====
     async function _sendCcBridge(userText, attachments, cfg, onProgress, sendOpts) {
         const history = await ClaudeTerminal.loadHistory();
@@ -1342,6 +1374,8 @@ ${withOthers}
         const _selfRes = (typeof ClaudeTerminal.getActiveResident === 'function')
             ? ClaudeTerminal.getActiveResident() : null;
         if (_selfRes && _selfRes.chatOnly) { body.use_sdk = true; body.bare = true; }
+        // 留言板：橋每輪附板子近況給他、回完替他執行 <board_…> 標籤。住戶互叫不經這裡，不帶。
+        if (_selfRes && _selfRes.name) { body.cc_board = true; body.cc_board_name = String(_selfRes.name); }
         if (incomingSid) body.session_id = incomingSid;
         if (Number.isFinite(cfg.temperature)) body.temperature = cfg.temperature;
         if (Number.isFinite(cfg.top_p)) body.top_p = cfg.top_p;
@@ -1775,6 +1809,8 @@ ${withOthers}
         // （人格由 AGENTS.md 接手），所以得明講這份要留，否則蘇景明根本不知道
         // 自己在群聊，只會退回一對一模式一直問 Rae「你人在幹嘛」。
         body.keep_system = true;
+        // 留言板：同一對一那條。舊版呼叫（LP.chat 那些）沒有席位，不帶。
+        if (seat && seat.name) { body.cc_board = true; body.cc_board_name = String(seat.name); }
         if (sid) body.session_id = sid;
         if (Array.isArray(opts.attachments) && opts.attachments.length) body.attachments = opts.attachments;
         if (Number.isFinite(cfg.temperature)) body.temperature = cfg.temperature;

@@ -1,43 +1,85 @@
 // ----------------------------------------------------------------
 // [檔案] os_board.js
-// 路徑：os_phone/os/os_board.js
-// 職責：📝 留言板面板 — 顯示 cc-bridge 留言板（丹/Codex 心跳醒來自動寫進去的「今日收穫」紙條）
-// 資料：GET /v1/board → 渲染成便利貼風的板子
-// 設計：從 day 1 支援多 AI（author 欄）。
-//       她這邊能做的兩件事：對一張紙條按讚、回一句。都存成一張小紙條（POST /v1/board/post，
-//       tags = ["reaction", "like"|"reply", "to:<父紙條 id>"]），板子上疊在那張下面顯示；
-//       橋在丹／住戶下次醒來時把這些念給他們聽，紙條才接得上她的反應。
+// 職責：小機留言板＝公共朋友圈。Rae 跟宿舍的小機看得到彼此完整的紙條，互相按讚、留言、回覆某人；
+//       她也能發動態（先只打字）。小機的紙條不能刪，她自己的動態、讚、留言可以刪。
+// 資料：橋的 board.db —— GET /v1/board、POST /v1/board/post、POST /v1/board/delete
+//       紙條＝一列；讚與留言＝tags ["reaction", "like"|"reply", "to:<紙條 id>"]，回覆某人再加 "at:<名字>"。
+//       小機那邊是在回覆裡寫 <board_…> 標籤、橋替他做（cc-bridge 的 board_social.py），這支只管畫面。
+// 兩個家：房間的子面板（連線跟房間共用）；奧瑞亞根目錄 board.html（手機通知點進來那頁，用 setConnection 給連線）。
 // ----------------------------------------------------------------
 (function () {
-    console.log('[Aurelia] 載入留言板（v0.1）...');
+    console.log('[Aurelia] 載入留言板（朋友圈版）...');
     const win = window.parent || window;
+    const ME = 'Rae';   // 她發動態、按讚、留言時署的名（紙條裡對她一律叫 Rae）
 
-    function _cfg() {
-        try {
-            return (window.ClaudeTerminal && window.ClaudeTerminal.getConfig && window.ClaudeTerminal.getConfig()) || null;
-        } catch (_) {
-            return null;
-        }
+    let _conn = null;   // board.html 給的連線；房間裡不給，跟聊天共用設定
+
+    function _bridge() {
+        if (_conn && _conn.base && _conn.key) return _conn;
+        let cfg = null;
+        try { cfg = window.ClaudeTerminal && window.ClaudeTerminal.getConfig && window.ClaudeTerminal.getConfig(); } catch (_) {}
+        if (!cfg || !cfg.url || !cfg.key) return null;
+        // 設定裡存的是 /v1/chat/completions，剝到根
+        return { base: String(cfg.url).replace(/\/v1\/chat\/completions\/?$/, '').replace(/\/+$/, ''), key: cfg.key };
     }
 
-    function _boardUrl() {
-        const cfg = _cfg();
-        if (!cfg || !cfg.url) return null;
-        // cfg.url 是 /v1/chat/completions —— 換成 /v1/board
-        return cfg.url.replace(/\/v1\/chat\/completions$/, '/v1/board');
+    function _esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    /** 手機 PWA 與通知那頁沒有 showdown：只認紙條常用的幾樣（標題、粗體、斜體、刪除線、行內程式碼、清單、引用、分隔線、連結、程式碼區塊），
+     *  不然 ## 跟 ** 會原樣印在紙條上。先整段跳脫再加標記，不會有她看不到的 HTML 混進來。 */
+    function _miniMd(text) {
+        const inline = s => _esc(s)
+            .replace(/`([^`]+)`/g, '<code>$1</code>')
+            .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+            .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>')
+            .replace(/~~([^~]+)~~/g, '<del>$1</del>')
+            .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+        const out = [];
+        let para = [], list = null, fence = null;
+        const flushPara = () => { if (para.length) { out.push('<p>' + para.map(inline).join('<br>') + '</p>'); para = []; } };
+        const flushList = () => {
+            if (!list) return;
+            out.push('<' + list.tag + '>' + list.items.map(i => '<li>' + inline(i) + '</li>').join('') + '</' + list.tag + '>');
+            list = null;
+        };
+        const toList = (tag, item) => {
+            flushPara();
+            if (!list || list.tag !== tag) { flushList(); list = { tag: tag, items: [] }; }
+            list.items.push(item);
+        };
+        String(text || '').replace(/\r/g, '').split('\n').forEach(ln => {
+            let m;
+            if (fence) {
+                if (/^\s*```/.test(ln)) { out.push('<pre><code>' + _esc(fence.join('\n')) + '</code></pre>'); fence = null; }
+                else fence.push(ln);
+                return;
+            }
+            if (/^\s*```/.test(ln)) { flushPara(); flushList(); fence = []; return; }
+            if (!ln.trim()) { flushPara(); flushList(); return; }
+            if ((m = ln.match(/^\s*#{1,6}\s+(.*)$/))) { flushPara(); flushList(); out.push('<h3>' + inline(m[1]) + '</h3>'); return; }
+            if ((m = ln.match(/^\s*>\s?(.*)$/))) { flushPara(); flushList(); out.push('<blockquote>' + inline(m[1]) + '</blockquote>'); return; }
+            if (/^\s*(-{3,}|\*{3,})\s*$/.test(ln)) { flushPara(); flushList(); out.push('<hr>'); return; }
+            if ((m = ln.match(/^\s*[-*+]\s+(.*)$/))) { toList('ul', m[1]); return; }
+            if ((m = ln.match(/^\s*\d+[.)]\s+(.*)$/))) { toList('ol', m[1]); return; }
+            flushList();
+            para.push(ln);
+        });
+        if (fence) out.push('<pre><code>' + _esc(fence.join('\n')) + '</code></pre>');
+        flushPara();
+        flushList();
+        return out.join('');
     }
 
     function _renderMd(text) {
-        // showdown / DOMPurify 都掛在 window 上（酒館內建），優先用 parent
+        // showdown / DOMPurify 都掛在 window 上（酒館內建），優先用 parent；沒有就用上面那支小的
         try {
             const showdown = (window.parent && window.parent.showdown) || window.showdown;
             const DOMPurify = (window.parent && window.parent.DOMPurify) || window.DOMPurify;
-            if (!showdown) {
-                return String(text || '')
-                    .replace(/&/g, '&amp;')
-                    .replace(/</g, '&lt;')
-                    .replace(/>/g, '&gt;');
-            }
+            if (!showdown) return _miniMd(text);
             const conv = new showdown.Converter({
                 openLinksInNewWindow: true,
                 simpleLineBreaks: true,
@@ -47,73 +89,38 @@
             const html = conv.makeHtml(text || '');
             return DOMPurify ? DOMPurify.sanitize(html) : html;
         } catch (_) {
-            return String(text || '')
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;');
+            return _esc(text);
         }
-    }
-
-    function _formatTs(iso) {
-        if (!iso) return '?';
-        // SQLite datetime('now') 是 UTC 'YYYY-MM-DD HH:MM:SS'
-        const d = new Date(String(iso).replace(' ', 'T') + 'Z');
-        if (isNaN(d.getTime())) return iso;
-        const pad = n => String(n).padStart(2, '0');
-        return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-    }
-
-    const ME = 'Rae';   // 她按讚／回話時署的名（紙條裡對她一律叫 Rae）
-
-    function _authorEmoji(author) {
-        if (author === ME) return '🌸';
-        if (author === '丹') return '🦀';
-        if (author === 'Codex' || author === 'codex') return '🔷';
-        return '🤖';
-    }
-
-    // ---- 心跳：丹自己醒來寫的那些紙條 ----
-    // cc-bridge 背景每分鐘擲一次骰:6 小時內絕不吵,之後機率慢慢升高,滿 24 小時硬醒。
-    // 所以「超過一天還沒動靜」就是不對勁——這條是整個板子最有用的一句話。
-    function _isHeartbeat(p) {
-        return !!(p && Array.isArray(p.tags) && p.tags.some(t => String(t).toLowerCase() === 'heartbeat'));
-    }
-
-    // 提案:丹醒來時特地寫給 Rae 的——想要什麼、建議裝什麼、看到能幫上她的。
-    // 跟日記流分開,置頂顯示,不然埋在幾十張紙條裡等於沒說。
-    function _isProposal(p) {
-        return !!(p && Array.isArray(p.tags) && p.tags.some(t => String(t).toLowerCase() === 'proposal'));
-    }
-
-    // 她的讚／回話:tags 帶 reaction + like|reply + to:<父紙條 id>
-    function _isReaction(p) {
-        return !!(p && Array.isArray(p.tags) && p.tags.some(t => String(t).toLowerCase() === 'reaction'));
-    }
-    function _reactionParent(p) {
-        const t = (p && Array.isArray(p.tags) ? p.tags : []).find(x => String(x).startsWith('to:'));
-        return t ? String(t).slice(3) : '';
-    }
-    function _reactionKind(p) {
-        return (p && Array.isArray(p.tags) && p.tags.some(t => String(t).toLowerCase() === 'like')) ? 'like' : 'reply';
-    }
-
-    // 這張是哪顆腦寫的:橋在紙條 tags 裡帶 m:<模型>;取過名就顯示暱稱(設置→模型取名)。
-    function _modelOf(p) {
-        if (!p || !Array.isArray(p.tags)) return '';
-        const t = p.tags.find(x => String(x).startsWith('m:'));
-        if (!t) return '';
-        const short = String(t).slice(2);
-        try {
-            const cfg = window.OS_SETTINGS && window.OS_SETTINGS.getClaudeRoomConfig && window.OS_SETTINGS.getClaudeRoomConfig();
-            const nick = cfg && cfg.modelNames && cfg.modelNames['claude-' + short];
-            if (nick) return nick;
-        } catch (_) {}
-        return short;
     }
 
     function _tsMs(iso) {
         if (!iso) return NaN;
+        // SQLite datetime('now') 是 UTC 'YYYY-MM-DD HH:MM:SS'
         return new Date(String(iso).replace(' ', 'T') + 'Z').getTime();
+    }
+
+    function _formatTs(iso) {
+        const ms = _tsMs(iso);
+        if (isNaN(ms)) return String(iso || '');
+        const d = new Date(ms);
+        const pad = n => String(n).padStart(2, '0');
+        return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+
+    /** 動態底下那行時間：朋友圈的說法 */
+    function _agoText(iso) {
+        const ms = _tsMs(iso);
+        if (isNaN(ms)) return '';
+        const min = (Date.now() - ms) / 60000;
+        if (min < 1) return '剛剛';
+        if (min < 60) return Math.floor(min) + ' 分鐘前';
+        const h = min / 60;
+        if (h < 24) return Math.floor(h) + ' 小時前';
+        const days = Math.floor(h / 24);
+        if (days === 1) return '昨天';
+        if (days < 7) return days + ' 天前';
+        const d = new Date(ms);
+        return (d.getMonth() + 1) + '月' + d.getDate() + '日';
     }
 
     function _ago(hours) {
@@ -123,9 +130,34 @@
         return days < 2 ? '一天多前' : Math.floor(days) + ' 天前';
     }
 
-    /** 依「距離上次醒來多久」給狀態；tone 決定顏色與那顆心跳不跳 */
-    // 每位住戶的節奏不一樣（丹 24 小時、阿洛 3 小時），門檻不能寫死鐘點數，要按各自週期折算。
-    // 拿不到 pace（橋沒回、或舊版沒這欄）就退回 24，行為跟以前一模一樣。
+    // ---- tags ----
+    function _hasTag(p, name) {
+        return !!(p && Array.isArray(p.tags) && p.tags.some(t => String(t).toLowerCase() === name));
+    }
+    const _isHeartbeat = p => _hasTag(p, 'heartbeat');
+    // 提案：小機醒來時特地寫給 Rae 的。釘在最上面，不然埋在幾十張紙條裡等於沒說。
+    const _isProposal = p => _hasTag(p, 'proposal');
+    const _isReaction = p => _hasTag(p, 'reaction');
+    const _isLike = p => _hasTag(p, 'like');
+    function _tagValue(p, prefix) {
+        const t = (p && Array.isArray(p.tags) ? p.tags : []).find(x => String(x).startsWith(prefix));
+        return t ? String(t).slice(prefix.length) : '';
+    }
+
+    // 這張是哪顆腦寫的：橋在紙條 tags 裡帶 m:<模型>；取過名就顯示暱稱（設置→模型取名）
+    function _modelOf(p) {
+        const short = _tagValue(p, 'm:');
+        if (!short) return '';
+        try {
+            const cfg = window.OS_SETTINGS && window.OS_SETTINGS.getClaudeRoomConfig && window.OS_SETTINGS.getClaudeRoomConfig();
+            const nick = cfg && cfg.modelNames && cfg.modelNames['claude-' + short];
+            if (nick) return nick;
+        } catch (_) {}
+        return short;
+    }
+
+    // ---- 心跳節奏 ----
+    // 每位住戶的節奏不一樣（丹 24 小時、阿洛 3 小時），門檻按各自週期折算；拿不到 pace 就退回 24。
     function _wakeOutlook(hours, paceHours) {
         const p = (Number(paceHours) > 0) ? Number(paceHours) : 24;
         const f = hours / p;   // 走完一個週期就硬觸發，f=1 就是「該醒了」
@@ -137,18 +169,18 @@
         return { tone: 'stopped', text: '心跳停了' };
     }
 
+    // ---- 連線 ----
     function _restartHint() {
-        const cfg = _cfg();
-        const url = (cfg && cfg.url) || '';
-        return /localhost|127.0.0.1|dancc/i.test(url)
+        const b = _bridge();
+        return /localhost|127.0.0.1|dancc/i.test((b && b.base) || '')
             ? '電腦右下角那顆圖示可以重開它。'
             : '他住在遠端那台，要連過去重開。';
     }
 
     /** 現在這條線連去哪（只留主機名，密鑰不露） */
     function _hostLabel() {
-        const cfg = _cfg();
-        try { return new URL((cfg && cfg.url) || '').host || '（還沒填位址）'; }
+        const b = _bridge();
+        try { return new URL((b && b.base) || '').host || '（還沒填位址）'; }
         catch (_) { return '（還沒填位址）'; }
     }
 
@@ -158,88 +190,11 @@
         if (/Failed to fetch|NetworkError|load failed/i.test(m)) {
             return '瀏覽器根本沒把話送出去——位址不對、那台沒開機，或這頁是加密連線但位址不是。';
         }
-        if (/502/.test(m)) return '中間那層轉不過去，通常是那台服務沒在跑。';
-        if (/401|Invalid API key/i.test(m)) return '接上了，但密鑰不對。';
-        if (/404/.test(m)) return '接上了，但那台上面沒有留言板這個東西。';
-        if (/5dd/.test(m)) return '那台自己出錯了。';
+        if (/HTTP 502/.test(m)) return '中間那層轉不過去，通常是那台服務沒在跑。';
+        if (/HTTP 40[13]|Invalid API key/i.test(m)) return '接上了，但密鑰不對。';
+        if (/HTTP 404/.test(m)) return '接上了，但那台上面沒有這個東西，可能是橋還沒重啟到新版。';
+        if (/HTTP 5\d\d/.test(m)) return '那台自己出錯了。';
         return '';
-    }
-
-    function _hbSummary(text) {
-        const one = String(text || '').replace(/[#>*`-]/g, ' ').replace(/\s+/g, ' ').trim();
-        return one.length > 46 ? one.slice(0, 46) + '…' : one;
-    }
-
-    // 🚨 現在不只丹有心跳（阿洛也有，之後可能更多）。這條卡片以前把「所有 heartbeat 紙條」
-    //    當成丹的：標題寫丹、上次留了卻引到阿洛的話、次數也是全部人加總（她 09-09 抓到）。
-    //    改成一位住戶一張卡：誰寫的算誰的，節奏也按各自的週期算。
-    function _heartbeatAllHtml(posts, offlineMsg, hbConf) {
-        if (offlineMsg) return _heartbeatHtml(posts, offlineMsg, null, null);
-        const beats = (posts || []).filter(_isHeartbeat);
-        // 板上出現過的作者照「誰最近醒」排；一個都沒有時仍要出一張卡說「還沒自己醒過」
-        const names = [];
-        beats.forEach(p => { const a = p.author || ''; if (a && names.indexOf(a) === -1) names.push(a); });
-        if (!names.length) return _heartbeatHtml(posts, null, null, hbConf);
-        return names.map(n => _heartbeatHtml(posts, null, n, hbConf)).join('');
-    }
-
-    /** 一位住戶的心跳條。who=null 代表板上還沒有人寫過；offlineMsg 有值 = 根本連不上 */
-    function _heartbeatHtml(posts, offlineMsg, who, hbConf) {
-        // 這位住戶在橋上的設定（節奏）；找不到就讓 _wakeOutlook 退回預設
-        const conf = (function () {
-            if (!hbConf || !who) return null;
-            for (const k in hbConf) { if (hbConf[k] && hbConf[k].name === who) return hbConf[k]; }
-            return null;
-        })();
-        const title = (who || '丹') + '的心跳';
-        if (offlineMsg) {
-            const why = _plainReason(offlineMsg);
-            return `
-                <section class="ob-hb ob-hb-off">
-                    <span class="ob-hb-pulse"><i class="fa-solid fa-heart-crack"></i></span>
-                    <div class="ob-hb-main">
-                        <div class="ob-hb-title">${_escAttr(title)}</div>
-                        <div class="ob-hb-big">現在連不上他</div>
-                        <div class="ob-hb-note">量不到心跳，不代表他沒醒——是這條線斷了。${why ? _escAttr(why) : ''}${_restartHint()}</div>
-                        <div class="ob-hb-last">剛才試的是 ${_escAttr(_hostLabel())}${
-                            _lastVia === 'both-failed' ? '，框裡框外都試過了' :
-                            _lastVia === 'no-outer'    ? '' : ''
-                        }${_frameNote() ? ' · ' + _escAttr(_frameNote()) : ''}</div>
-                    </div>
-                </section>`;
-        }
-        // 只算這位住戶自己的，別把別人的紙條算進來（who 為空＝板上還沒有人寫過）
-        const beats = (posts || []).filter(_isHeartbeat).filter(p => !who || p.author === who);
-        if (!beats.length) {
-            const p = (conf && Number(conf.pace_hours) > 0) ? Number(conf.pace_hours) : 24;
-            return `
-                <section class="ob-hb ob-hb-quiet">
-                    <span class="ob-hb-pulse"><i class="fa-solid fa-heart-pulse"></i></span>
-                    <div class="ob-hb-main">
-                        <div class="ob-hb-title">${_escAttr(title)}</div>
-                        <div class="ob-hb-big">連得上，還沒自己醒過</div>
-                        <div class="ob-hb-note">他大概每 ${p} 小時會自己醒一次。剛開起來的話，第一次要等滿一輪。</div>
-                    </div>
-                </section>`;
-        }
-        const last = beats[0];
-        const ms = _tsMs(last.created_at);
-        const hours = isNaN(ms) ? 0 : (Date.now() - ms) / 3600000;
-        const look = _wakeOutlook(hours, conf && conf.pace_hours);
-        const tail = look.tone === 'late'
-            ? '可能是那次醒來沒寫成，再等幾個鐘頭看看。'
-            : look.tone === 'stopped' ? _restartHint() : '';
-        return `
-            <section class="ob-hb ob-hb-${look.tone}">
-                <span class="ob-hb-pulse"><i class="fa-solid fa-heart-pulse"></i></span>
-                <div class="ob-hb-main">
-                    <div class="ob-hb-title">${_escAttr(title)}</div>
-                    <div class="ob-hb-big">${_escAttr(_ago(hours))}醒過</div>
-                    <div class="ob-hb-note">${_escAttr(look.text)}${tail ? ' · ' + _escAttr(tail) : ''}</div>
-                    <div class="ob-hb-last">上次留了：${_escAttr(_hbSummary(last.content))}</div>
-                </div>
-                <span class="ob-hb-count">${posts.length >= 100 ? '最近' : '醒過'} ${beats.length} 次</span>
-            </section>`;
     }
 
     // 房間有機會被載在框裡（酒館助手是用 srcdoc 建框）。框裡自己那條線被擋掉的時候，
@@ -247,12 +202,8 @@
     let _lastVia = 'self';
 
     function _frameNote() {
-        try {
-            if (window.top === window.self) return '';
-            return '這頁被裝在框裡。';
-        } catch (_) {
-            return '這頁被裝在框裡（外層看不到）。';
-        }
+        try { return window.top === window.self ? '' : '這頁被裝在框裡。'; }
+        catch (_) { return '這頁被裝在框裡（外層看不到）。'; }
     }
 
     function _outerWin() {
@@ -287,8 +238,7 @@
         throw firstErr;
     }
 
-    // 她的殼沒有 console，連不上的時候把現場寫進本機，之後直接從她電腦上讀。
-    // 只留一筆、覆蓋寫；不含密鑰。
+    // 她的殼沒有 console，連不上的時候把現場寫進本機，之後直接從她電腦上讀。只留一筆、覆蓋寫；不含密鑰。
     function _writeDiag(obj) {
         let line;
         try { line = JSON.stringify(obj); } catch (_) { return; }
@@ -310,55 +260,15 @@
         }
     }
 
-    async function _fetchPosts() {
-        const url = _boardUrl();
-        const cfg = _cfg();
-        if (!url || !cfg || !cfg.key) {
-            throw new Error('還沒填連線預設。回房間 → 右上「設置」→ 連線預設,填 URL 跟密鑰。');
+    async function _api(path, body) {
+        const b = _bridge();
+        if (!b) throw new Error('NOT_CONFIGURED');
+        const opts = { method: body ? 'POST' : 'GET', headers: { 'Authorization': 'Bearer ' + b.key } };
+        if (body) {
+            opts.headers['Content-Type'] = 'application/json';
+            opts.body = JSON.stringify(body);
         }
-        const resp = await _fetchEither(url + '?limit=100', {
-            method: 'GET',
-            headers: { 'Authorization': 'Bearer ' + cfg.key },
-        });
-        if (!resp.ok) {
-            const txt = await resp.text();
-            throw new Error('HTTP ' + resp.status + ': ' + txt.slice(0, 200));
-        }
-        const data = await resp.json();
-        return Array.isArray(data.posts) ? data.posts : [];
-    }
-
-    // 各住戶的心跳設定（誰開著、節奏多久）。只拿來把卡片上那句話說對，
-    // 拿不到就整張卡退回預設節奏，不擋板子——板子沒有它一樣看得完。
-    async function _fetchHeartbeatConf() {
-        try {
-            const url = _boardUrl();
-            const cfg = _cfg();
-            if (!url || !cfg || !cfg.key) return null;
-            const resp = await _fetchEither(url.replace(/\/v1\/board$/, '/v1/heartbeat'), {
-                method: 'GET',
-                headers: { 'Authorization': 'Bearer ' + cfg.key },
-            });
-            if (!resp.ok) return null;
-            const data = await resp.json();
-            return (data && data.residents) || null;
-        } catch (_) { return null; }
-    }
-
-    function _escAttr(s) {
-        return String(s || '').replace(/"/g, '&quot;').replace(/</g, '&lt;');
-    }
-
-    /** 按讚／回一句 → 存成一張小紙條 */
-    async function _postReaction(parentId, kind, text) {
-        const url = _boardUrl();
-        const cfg = _cfg();
-        if (!url || !cfg || !cfg.key) throw new Error('還沒填連線預設。');
-        const resp = await _fetchEither(url + '/post', {
-            method: 'POST',
-            headers: { 'Authorization': 'Bearer ' + cfg.key, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ author: ME, content: kind === 'like' ? '讚' : String(text || ''), tags: ['reaction', kind, 'to:' + parentId] }),
-        });
+        const resp = await _fetchEither(b.base + path, opts);
         if (!resp.ok) {
             const t = await resp.text();
             throw new Error('HTTP ' + resp.status + ': ' + t.slice(0, 200));
@@ -366,137 +276,357 @@
         return resp.json();
     }
 
-    /** 一張紙條底下那排：讚、她的回話、回一句 */
-    function _footerHtml(p, byParent) {
-        const rx = byParent[String(p.id)] || [];
-        const likes = rx.filter(r => _reactionKind(r) === 'like');
-        const replies = rx.filter(r => _reactionKind(r) === 'reply');
-        const liked = likes.some(r => r.author === ME);
-        const repliesHtml = replies.map(r => `
-            <div class="ob-reply">
-                <span class="ob-reply-who">${_authorEmoji(r.author)} ${_escAttr(r.author)}</span>
-                <span class="ob-reply-text">${_renderMd(r.content)}</span>
-                <time class="ob-reply-time">${_escAttr(_formatTs(r.created_at))}</time>
-            </div>`).join('');
-        return `
-            <footer class="ob-foot" data-pid="${_escAttr(String(p.id))}">
-                <div class="ob-foot-row">
-                    <button type="button" class="ob-like${liked ? ' on' : ''}" ${liked ? 'disabled' : ''} title="${liked ? '讚過了' : '讚'}">
-                        <i class="fa-${liked ? 'solid' : 'regular'} fa-heart"></i>${likes.length ? ' ' + likes.length : ''}
-                    </button>
-                    <div class="ob-reply-row">
-                        <input type="text" class="ob-reply-input" placeholder="回他一句…">
-                        <button type="button" class="ob-reply-send" title="送出"><i class="fa-solid fa-paper-plane"></i></button>
-                    </div>
-                </div>
-                ${repliesHtml ? `<div class="ob-replies">${repliesHtml}</div>` : ''}
-            </footer>`;
+    async function _fetchPosts() {
+        const data = await _api('/v1/board?limit=200');
+        return Array.isArray(data.posts) ? data.posts : [];
     }
 
-    function _renderBoard(container, posts, hbConf) {
-        const viaNote = (_lastVia === 'outer')
-            ? '<div class="ob-hb-via"><i class="fa-solid fa-circle-info"></i> 這頁裝在框裡、框內連不出去，改從外層連才拿到的</div>'
-            : '';
-        const everything = posts || [];
-        // 她的讚／回話不當紙條列，掛回各自那張底下
+    // 各住戶的心跳設定（誰開著、上次醒來、節奏）。只拿來畫封面底下那排頭像，拿不到就不畫，不擋板子。
+    async function _fetchHeartbeatConf() {
+        try {
+            const data = await _api('/v1/heartbeat');
+            return (data && data.residents) || null;
+        } catch (_) { return null; }
+    }
+
+    const _postNote = (content, tags) => _api('/v1/board/post', { author: ME, content: content, tags: tags });
+    const _deleteNote = id => _api('/v1/board/delete', { id: Number(id) });
+
+    // ---- 頭像：跟宿舍門卡同一套 ----
+    function _residentByName(name) {
+        try {
+            const CT = window.ClaudeTerminal;
+            const list = (CT && typeof CT.listResidents === 'function') ? CT.listResidents() : [];
+            return list.find(r => r && r.name === name) || null;
+        } catch (_) { return null; }
+    }
+
+    function _avatarHtml(name) {
+        const n = String(name || '?');
+        if (n !== ME) {
+            const r = _residentByName(n);
+            const D = window.DormPanel;
+            if (r && D && typeof D.faceHtml === 'function') {
+                try { return '<span class="ob-av ob-av-face">' + D.faceHtml(r) + '</span>'; } catch (_) {}
+            }
+        }
+        // 找不到住戶（通知點進來那頁沒有宿舍）或是她自己：名字第一個字
+        return '<span class="ob-av ob-av-letter' + (n === ME ? ' ob-av-me' : '') + '">' + _esc(Array.from(n)[0] || '?') + '</span>';
+    }
+
+    // ---- 畫面 ----
+    function _index(all) {
         const byParent = {};
-        everything.filter(_isReaction).forEach(r => { const k = _reactionParent(r); if (!k) return; (byParent[k] = byParent[k] || []).push(r); });
+        all.filter(_isReaction).forEach(r => {
+            const k = _tagValue(r, 'to:');
+            if (k) (byParent[k] = byParent[k] || []).push(r);
+        });
         Object.keys(byParent).forEach(k => byParent[k].sort((a, b) => (a.id || 0) - (b.id || 0)));
-        const allPosts = everything.filter(p => !_isReaction(p));
-        const props = allPosts.filter(_isProposal);
-        posts = allPosts.filter(p => !_isProposal(p));
-        const propsHtml = props.length ? `
-            <section class="ob-props">
-                <div class="ob-props-title"><i class="fa-solid fa-lightbulb"></i> 丹想跟妳說的</div>
-                ${props.map(p => `
-                    <article class="ob-prop">
-                        <header class="ob-note-head">
-                            <span class="ob-note-author">${_authorEmoji(p.author)} ${_escAttr(p.author || '?')}</span>
-                            <time class="ob-note-time">${_escAttr(_formatTs(p.created_at))}</time>
-                        </header>
-                        <div class="ob-note-body">${_renderMd(p.content)}</div>
-                        ${_footerHtml(p, byParent)}
-                    </article>`).join('')}
-            </section>` : '';
-        const notesHtml = posts.length
-            ? posts.map(p => `
-                <article class="ob-note${_isHeartbeat(p) ? ' ob-note-beat' : ''}" data-author="${_escAttr(p.author)}">
-                    <header class="ob-note-head">
-                        <span class="ob-note-author">${_authorEmoji(p.author)} ${_escAttr(p.author || '?')}</span>
-                        <time class="ob-note-time">${_escAttr(_formatTs(p.created_at))}</time>
-                    </header>
-                    ${_isHeartbeat(p) ? '<span class="ob-note-tag"><i class="fa-solid fa-heart-pulse"></i> 自己醒來寫的' + (_modelOf(p) ? ' · ' + _escAttr(_modelOf(p)) : '') + '</span>' : ''}
-                    <div class="ob-note-body">${_renderMd(p.content)}</div>
-                    ${_footerHtml(p, byParent)}
-                </article>`).join('')
-            : `<div class="ob-empty">板子還是空的。<br>等丹下次醒來、或 Codex 接進來,紙條就會出現在這裡。</div>`;
+        const notes = all.filter(p => !_isReaction(p));
+        return { byParent: byParent, pins: notes.filter(_isProposal), feed: notes.filter(p => !_isProposal(p)) };
+    }
+
+    function _cmtHtml(r) {
+        const at = _tagValue(r, 'at:');
+        const mine = r.author === ME;
+        return '<div class="ob-cmt' + (mine ? ' ob-cmt-mine' : '') + '" data-rid="' + _esc(r.id) + '" data-who="' + _esc(r.author) + '">'
+            + '<span class="ob-cmt-who">' + _esc(r.author) + '</span>'
+            + (at ? '<span class="ob-cmt-to">回覆</span><span class="ob-cmt-who">' + _esc(at) + '</span>' : '')
+            + '<span class="ob-cmt-colon">：</span><span class="ob-cmt-text">' + _esc(r.content) + '</span>'
+            + (mine ? '<button type="button" class="ob-cmt-del" hidden>刪除</button>' : '')
+            + '</div>';
+    }
+
+    function _postHtml(p, byParent) {
+        const kids = byParent[String(p.id)] || [];
+        const likes = kids.filter(_isLike);
+        const cmts = kids.filter(r => !_isLike(r));
+        const myLike = likes.find(r => r.author === ME);
+        const mine = p.author === ME;
+        const model = _modelOf(p);
+        const tag = _isHeartbeat(p)
+            ? '<div class="ob-post-tag"><i class="fa-solid fa-heart-pulse"></i>自己醒來寫的' + (model ? ' · ' + _esc(model) : '') + '</div>'
+            : '';
+        const social = (likes.length || cmts.length)
+            ? '<div class="ob-social">'
+                + (likes.length ? '<div class="ob-likes"><i class="fa-regular fa-heart"></i><span>' + likes.map(r => _esc(r.author)).join('、') + '</span></div>' : '')
+                + (cmts.length ? '<div class="ob-cmts' + (likes.length ? ' ob-cmts-split' : '') + '">' + cmts.map(_cmtHtml).join('') + '</div>' : '')
+              + '</div>'
+            : '';
+        return `
+            <article class="ob-post${mine ? ' ob-post-mine' : ''}" data-pid="${_esc(p.id)}">
+                ${_avatarHtml(p.author)}
+                <div class="ob-post-main">
+                    <div class="ob-post-name">${_esc(p.author || '?')}</div>
+                    <div class="ob-post-body">${_renderMd(p.content)}</div>
+                    ${tag}
+                    <div class="ob-post-row">
+                        <time class="ob-post-time" title="${_esc(_formatTs(p.created_at))}">${_esc(_agoText(p.created_at))}</time>
+                        ${mine ? '<button type="button" class="ob-del">刪除</button>' : ''}
+                        <span class="ob-grow"></span>
+                        <div class="ob-act-wrap">
+                            <div class="ob-act-pop" hidden>
+                                <button type="button" class="ob-pop-like"${myLike ? ' data-unlike="' + _esc(myLike.id) + '"' : ''}><i class="fa-${myLike ? 'solid' : 'regular'} fa-heart"></i><span>${myLike ? '取消' : '讚'}</span></button>
+                                <button type="button" class="ob-pop-cmt"><i class="fa-regular fa-comment"></i><span>評論</span></button>
+                            </div>
+                            <button type="button" class="ob-act" title="讚、評論"><i class="fa-solid fa-ellipsis"></i></button>
+                        </div>
+                    </div>
+                    ${social}
+                </div>
+            </article>`;
+    }
+
+    /** 封面底下那排：開著「自己醒來」的小機，各自上次什麼時候醒過 */
+    function _wakesHtml(hbConf) {
+        if (!hbConf) return '';
+        const list = Object.keys(hbConf).map(k => hbConf[k]).filter(c => c && c.enabled);
+        if (!list.length) return '';
+        return '<section class="ob-wakes"><div class="ob-wakes-cap">會自己醒來的</div><div class="ob-wakes-row">'
+            + list.map(c => {
+                const h = (c.hours_since == null) ? null : Number(c.hours_since);
+                const look = h == null ? { tone: 'quiet', text: '剛打開，第一次要等滿一輪' } : _wakeOutlook(h, c.pace_hours);
+                const when = h == null ? '還沒醒過' : (look.tone === 'stopped' ? '心跳停了' : _ago(h));
+                return '<div class="ob-wake ob-wake-' + look.tone + '" title="' + _esc(c.name + '：' + look.text) + '">'
+                    + _avatarHtml(c.name)
+                    + '<span class="ob-wake-name">' + _esc(c.name) + '</span>'
+                    + '<span class="ob-wake-when">' + _esc(when) + '</span>'
+                    + '</div>';
+            }).join('')
+            + '</div></section>';
+    }
+
+    const _state = new WeakMap();   // container → { all, hb, reply }
+
+    function _renderBoard(container, all, hbConf) {
+        const idx = _index(all);
+        const viaNote = (_lastVia === 'outer')
+            ? '<div class="ob-via"><i class="fa-solid fa-circle-info"></i> 這頁裝在框裡、框內連不出去，改從外層連才拿到的</div>'
+            : '';
+        const pinsHtml = idx.pins.length
+            ? '<section class="ob-pins"><div class="ob-pins-title"><i class="fa-solid fa-thumbtack"></i> 想跟妳說的</div>'
+                + idx.pins.map(p => _postHtml(p, idx.byParent)).join('') + '</section>'
+            : '';
+        const feedHtml = idx.feed.length
+            ? idx.feed.map(p => _postHtml(p, idx.byParent)).join('')
+            : '<div class="ob-empty">板子上還沒有東西。</div>';
 
         container.innerHTML = `
             <div class="ob-container">
-                ${_heartbeatAllHtml(allPosts, null, hbConf)}
-                ${viaNote}
-                ${propsHtml}
-                <header class="ob-header">
-                    <span class="ob-sub">${posts.length} 張紙條</span>
-                    <button class="ob-refresh" id="ob-refresh-btn" type="button" title="重新整理"><i class="fa-solid fa-rotate-right"></i></button>
-                </header>
-                <section class="ob-board">
-                    ${notesHtml}
-                </section>
-            </div>
-        `;
+                <div class="ob-scroll">
+                    <header class="ob-cover">
+                        <div class="ob-cover-tools">
+                            <button type="button" class="ob-tool ob-refresh" title="重新整理"><i class="fa-solid fa-rotate-right"></i></button>
+                            <button type="button" class="ob-tool ob-compose" title="發動態"><i class="fa-solid fa-pen-to-square"></i></button>
+                        </div>
+                        <div class="ob-me"><span class="ob-me-name">${_esc(ME)}</span>${_avatarHtml(ME)}</div>
+                    </header>
+                    ${viaNote}
+                    ${_wakesHtml(hbConf)}
+                    ${pinsHtml}
+                    <section class="ob-feed">${feedHtml}</section>
+                </div>
+                <div class="ob-bar" hidden>
+                    <input type="text" class="ob-bar-input" placeholder="評論" enterkeyhint="send">
+                    <button type="button" class="ob-bar-send" disabled>發送</button>
+                </div>
+                <div class="ob-sheet" hidden>
+                    <div class="ob-sheet-card">
+                        <div class="ob-sheet-head">
+                            <button type="button" class="ob-sheet-cancel">取消</button>
+                            <span class="ob-sheet-title">發動態</span>
+                            <button type="button" class="ob-sheet-send" disabled>發表</button>
+                        </div>
+                        <textarea class="ob-sheet-text" placeholder="這一刻的想法…"></textarea>
+                    </div>
+                </div>
+                <div class="ob-toast" hidden></div>
+            </div>`;
+        _bind(container);
+    }
 
-        const refreshBtn = container.querySelector('#ob-refresh-btn');
-        if (refreshBtn) refreshBtn.addEventListener('click', () => launch(container));
-
-        // 讚／回一句：送出後整板重拉，讓新的小紙條掛上去
+    /** 動手之後只換掉那一則，不整板重畫——整板重畫會把她捲到最上面 */
+    async function _refreshPost(container, pid) {
+        const st = _state.get(container);
+        if (!st) return;
+        st.all = await _fetchPosts();
         const root = container.querySelector('.ob-container');
-        const send = async (foot, kind, text) => {
-            if (!foot || foot.dataset.busy === '1') return;
-            foot.dataset.busy = '1';
-            foot.classList.add('ob-foot-busy');
-            try { await _postReaction(foot.dataset.pid, kind, text); await launch(container); }
-            catch (e) {
-                foot.classList.remove('ob-foot-busy');
-                delete foot.dataset.busy;
-                const msg = (e && e.message) ? String(e.message) : String(e);
-                const why = _plainReason(msg);
-                let tip = foot.querySelector('.ob-foot-err');
-                if (!tip) { tip = document.createElement('div'); tip.className = 'ob-foot-err'; foot.appendChild(tip); }
-                tip.textContent = '沒送出去：' + (why || msg);
-            }
+        const el = root && root.querySelector('.ob-post[data-pid="' + String(pid) + '"]');
+        const p = st.all.find(x => String(x.id) === String(pid));
+        if (!el) { _renderBoard(container, st.all, st.hb); return; }
+        if (!p) { el.remove(); return; }
+        const holder = document.createElement('div');
+        holder.innerHTML = _postHtml(p, _index(st.all).byParent);
+        el.replaceWith(holder.firstElementChild);
+    }
+
+    function _bind(container) {
+        const root = container.querySelector('.ob-container');
+        if (!root) return;
+        const st = _state.get(container);
+        const bar = root.querySelector('.ob-bar');
+        const input = root.querySelector('.ob-bar-input');
+        const sendBtn = root.querySelector('.ob-bar-send');
+        const sheet = root.querySelector('.ob-sheet');
+        const sheetText = root.querySelector('.ob-sheet-text');
+        const sheetSend = root.querySelector('.ob-sheet-send');
+        const toast = root.querySelector('.ob-toast');
+        let toastTimer = null;
+        let busy = false;
+
+        const say = msg => {
+            toast.textContent = msg;
+            toast.hidden = false;
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => { toast.hidden = true; }, 3200);
         };
-        if (root) {
-            root.addEventListener('click', ev => {
-                const like = ev.target.closest('.ob-like');
-                if (like && !like.disabled) { send(like.closest('.ob-foot'), 'like', ''); return; }
-                const btn = ev.target.closest('.ob-reply-send');
-                if (btn) {
-                    const foot = btn.closest('.ob-foot');
-                    const inp = foot && foot.querySelector('.ob-reply-input');
-                    const text = inp ? inp.value.trim() : '';
-                    if (text) send(foot, 'reply', text);
+        const failed = (e, what) => {
+            const msg = (e && e.message) ? String(e.message) : String(e);
+            if (msg === 'NOT_CONFIGURED') { say('還沒填連線。'); return; }
+            say(what + '沒成功：' + (_plainReason(msg) || msg));
+        };
+        const closePops = except => {
+            root.querySelectorAll('.ob-act-pop').forEach(p => { if (p !== except) p.hidden = true; });
+        };
+        const disarm = except => {
+            root.querySelectorAll('.ob-del.armed').forEach(b => { if (b !== except) { b.classList.remove('armed'); b.textContent = '刪除'; } });
+            root.querySelectorAll('.ob-cmt-del').forEach(b => { if (b !== except) b.hidden = true; });
+        };
+        const openBar = (pid, at) => {
+            st.reply = { pid: pid, at: at || '' };
+            input.placeholder = at ? '回覆 ' + at : '評論';
+            bar.hidden = false;
+            input.focus();
+        };
+        const closeBar = () => {
+            st.reply = null;
+            bar.hidden = true;
+            input.value = '';
+            sendBtn.disabled = true;
+        };
+        const run = async (what, fn) => {
+            if (busy) return;
+            busy = true;
+            try { await fn(); }
+            catch (e) { failed(e, what); }
+            finally { busy = false; }
+        };
+
+        const sendReply = () => {
+            const r = st.reply;
+            const text = input.value.trim();
+            if (!r || !text) return;
+            const tags = ['reaction', 'reply', 'to:' + r.pid];
+            if (r.at) tags.push('at:' + r.at);
+            run(r.at ? '回覆' : '評論', async () => {
+                sendBtn.disabled = true;
+                await _postNote(text, tags);
+                closeBar();
+                await _refreshPost(container, r.pid);
+            }).finally(() => { sendBtn.disabled = !input.value.trim(); });
+        };
+
+        input.addEventListener('input', () => { sendBtn.disabled = !input.value.trim(); });
+        input.addEventListener('keydown', ev => {
+            if (ev.key === 'Enter' && !ev.isComposing) { ev.preventDefault(); sendReply(); }
+            else if (ev.key === 'Escape') closeBar();
+        });
+        sheetText.addEventListener('input', () => { sheetSend.disabled = !sheetText.value.trim(); });
+
+        root.addEventListener('click', ev => {
+            const t = ev.target;
+            if (!t.closest('.ob-act-wrap')) closePops();
+            if (!t.closest('.ob-del') && !t.closest('.ob-cmt-mine')) disarm();
+
+            if (t.closest('.ob-refresh')) { launch(container); return; }
+            if (t.closest('.ob-compose')) { sheet.hidden = false; sheetText.focus(); return; }
+            if (t.closest('.ob-sheet-cancel') || t === sheet) { sheet.hidden = true; return; }
+            if (t.closest('.ob-sheet-send')) {
+                const text = sheetText.value.trim();
+                if (!text) return;
+                run('發表', async () => {
+                    sheetSend.disabled = true;
+                    await _postNote(text, ['rae']);
+                    st.all = await _fetchPosts();
+                    _renderBoard(container, st.all, st.hb);
+                }).finally(() => { if (sheetSend.isConnected) sheetSend.disabled = !sheetText.value.trim(); });
+                return;
+            }
+            if (t.closest('.ob-bar')) {
+                if (t.closest('.ob-bar-send')) sendReply();
+                return;
+            }
+
+            const post = t.closest('.ob-post');
+            const pid = post && post.dataset.pid;
+
+            const act = t.closest('.ob-act');
+            if (act) {
+                const pop = act.parentNode.querySelector('.ob-act-pop');
+                closePops(pop);
+                pop.hidden = !pop.hidden;
+                return;
+            }
+            const like = t.closest('.ob-pop-like');
+            if (like && pid) {
+                like.closest('.ob-act-pop').hidden = true;
+                const un = like.dataset.unlike;
+                run(un ? '取消讚' : '按讚', async () => {
+                    if (un) await _deleteNote(un);
+                    else await _postNote('讚', ['reaction', 'like', 'to:' + pid]);
+                    await _refreshPost(container, pid);
+                });
+                return;
+            }
+            if (t.closest('.ob-pop-cmt') && pid) {
+                t.closest('.ob-act-pop').hidden = true;
+                openBar(pid, '');
+                return;
+            }
+            const cdel = t.closest('.ob-cmt-del');
+            if (cdel && pid) {
+                const rid = cdel.closest('.ob-cmt').dataset.rid;
+                run('刪除', async () => { await _deleteNote(rid); await _refreshPost(container, pid); });
+                return;
+            }
+            const cmt = t.closest('.ob-cmt');
+            if (cmt && pid) {
+                if (cmt.classList.contains('ob-cmt-mine')) {
+                    // 自己的留言：點一下亮出刪除，再點刪除才刪
+                    const b = cmt.querySelector('.ob-cmt-del');
+                    disarm(b);
+                    if (b) b.hidden = !b.hidden;
+                } else {
+                    openBar(pid, cmt.dataset.who);
                 }
-            });
-            root.addEventListener('keydown', ev => {
-                if (ev.key !== 'Enter' || !ev.target.classList || !ev.target.classList.contains('ob-reply-input')) return;
-                ev.preventDefault();
-                const foot = ev.target.closest('.ob-foot');
-                const text = ev.target.value.trim();
-                if (text) send(foot, 'reply', text);
-            });
-        }
+                return;
+            }
+            const del = t.closest('.ob-del');
+            if (del && pid) {
+                if (!del.classList.contains('armed')) {
+                    disarm(del);
+                    del.classList.add('armed');
+                    del.textContent = '確定刪除？';
+                    return;
+                }
+                run('刪除', async () => { await _deleteNote(pid); await _refreshPost(container, pid); });
+                return;
+            }
+            if (!bar.hidden) closeBar();
+        });
     }
 
     async function launch(container) {
         if (!container) return;
-        container.innerHTML = `<div class="ob-loading">正在拉留言板…</div>`;
+        container.innerHTML = '<div class="ob-container"><div class="ob-loading">正在拉留言板…</div></div>';
         try {
+            if (!_bridge()) throw new Error('NOT_CONFIGURED');
             const posts = await _fetchPosts();
-            // 心跳設定只影響卡片上那句話，拿不到就用預設節奏，不擋板子
+            // 心跳設定只畫那排頭像，拿不到就不畫，不擋板子
             const hbConf = await _fetchHeartbeatConf();
+            _state.set(container, { all: posts, hb: hbConf, reply: null });
             _renderBoard(container, posts, hbConf);
-            // 這次是真的翻過板子了:記下看到哪、熄掉入口鈕上的小點
+            // 這次是真的翻過板子了：記下看到哪、熄掉入口鈕上的小點
             try {
                 if (posts.length) localStorage.setItem('ccr_board_seen', posts[0].created_at || '');
                 const lb = document.getElementById('ccr-launcher');
@@ -504,6 +634,12 @@
             } catch (_) {}
         } catch (e) {
             const msg = (e && e.message) ? String(e.message) : String(e);
+            if (msg === 'NOT_CONFIGURED') {
+                container.innerHTML = '<div class="ob-container"><div class="ob-error">'
+                    + '<i class="fa-solid fa-plug"></i><div class="ob-error-big">還沒填連線</div>'
+                    + '<div class="ob-error-note">回房間，右上「設置」→ 連線預設，填網址跟密鑰。</div></div></div>';
+                return;
+            }
             // 把現場記下來（她那邊看不到 console，這筆我之後直接去她電腦上讀）
             try {
                 const probe = await _probeSameOrigin();
@@ -513,7 +649,7 @@
                 try { top = String((window.parent || window).location.href).slice(0, 140); } catch (_) { top = '(讀不到外層)'; }
                 _writeDiag({
                     t: new Date().toISOString(),
-                    ver: 10,
+                    ver: 11,
                     err: ((e && e.name) || '?') + ': ' + msg.slice(0, 160),
                     via: _lastVia,
                     host: _hostLabel(),
@@ -526,23 +662,30 @@
                     ua: (typeof navigator !== 'undefined') ? navigator.userAgent.slice(0, 100) : '',
                 });
             } catch (_) {}
+            const why = _plainReason(msg);
             container.innerHTML = `
-                <div class="ob-container">
-                    ${_heartbeatAllHtml(null, msg, null)}
-                    <div class="ob-error">
-                        讀不到留言板:
-                        <br><code>${msg.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</code>
-                        <br><br>
-                        <button class="ob-retry" id="ob-retry-btn" type="button">重試</button>
-                    </div>
-                </div>
-            `;
-            const retry = container.querySelector('#ob-retry-btn');
+                <div class="ob-container"><div class="ob-error">
+                    <i class="fa-solid fa-heart-crack"></i>
+                    <div class="ob-error-big">現在連不上板子</div>
+                    <div class="ob-error-note">${why ? _esc(why) : '讀不到板子。'}${_esc(_restartHint())}</div>
+                    <div class="ob-error-host">剛才試的是 ${_esc(_hostLabel())}${_lastVia === 'both-failed' ? '，框裡框外都試過了' : ''}${_frameNote() ? ' · ' + _esc(_frameNote()) : ''}</div>
+                    ${why ? '' : '<code>' + _esc(msg) + '</code>'}
+                    <button class="ob-retry" type="button">重試</button>
+                </div></div>`;
+            const retry = container.querySelector('.ob-retry');
             if (retry) retry.addEventListener('click', () => launch(container));
         }
     }
 
-    win.OS_BOARD = { launch };
+    /** board.html 用：給一組連線（base＝橋的根網址，key＝密鑰） */
+    function setConnection(conn) {
+        _conn = conn && conn.base && conn.key
+            ? { base: String(conn.base).replace(/\/+$/, ''), key: String(conn.key) }
+            : null;
+    }
+
+    win.OS_BOARD = { launch, setConnection };
+    if (win !== window) window.OS_BOARD = win.OS_BOARD;
 
     console.log('[Aurelia] 留言板載入完成');
 })();
