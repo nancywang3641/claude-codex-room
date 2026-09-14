@@ -130,6 +130,9 @@
         }
         if (r.modelId) return _modelLabel(r.modelId) + (r.chatOnly ? ' · 只聊天' : '');
         const cfg = _cfg();
+        // 沒鎖模型的住戶自己在房裡挑過就顯示那顆（丹、克語各記各的）
+        const own = cfg.residentModels && cfg.residentModels[r.id];
+        if (own) return _modelLabel(own);
         const cur = (cfg.providerModels && cfg.providerModels.claude) || cfg.inlineModel || cfg.model || '';
         return cur ? _modelLabel(cur) : '想用哪顆都行';
     }

@@ -991,6 +991,17 @@
     white-space: normal;
 }
 
+/* 🫧 回覆切成好幾顆之後，單獨一顆的表情包不套泡泡底框，像聊天軟體裡直接貼一張圖。
+   私聊 .claude-bubble、群聊 .cg-bubble 同一條；權重拉高是為了蓋過各住戶自己的泡泡底色與描邊。 */
+#aurelia-chat-window .cg-bubble.claude-bubble-md.claude-bubble-sticker,
+#aurelia-chat-window .claude-bubble.claude-bubble-md.claude-bubble-sticker,
+.claude-bubble.from-claude.claude-bubble-md.claude-bubble-sticker {
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    padding: 0;
+}
+
 #aurelia-chat-window .cg-system-line {
     align-self: center;
     text-align: center;

@@ -215,11 +215,19 @@ ${withOthers}
         };
     };
 
-    /** 當前住戶鎖定的模型；沒鎖回空字串 */
+    /** 當前住戶的模型：鎖了模型的分身用自己那顆；沒鎖的住戶（丹、克語）用自己在房裡挑過的那顆；
+     *  都沒有回空字串 → 吃 picker 的共用預設。以前沒鎖的住戶共用一格，她選一個另一個跟著換。 */
     function _residentModel() {
         if (typeof ClaudeTerminal.getActiveResident !== 'function') return '';
         const r = ClaudeTerminal.getActiveResident();
-        return (r && r.provider === _provider && r.modelId) ? r.modelId : '';
+        if (!r || r.provider !== _provider) return '';
+        return r.modelId || _residentPicked(r);
+    }
+    /** 沒鎖模型的 Claude 住戶自己挑的那顆（cfg.residentModels = {住戶id: modelId}）；沒挑過回空字串 */
+    function _residentPicked(r) {
+        if (!r || r.modelId || r.provider !== 'claude') return '';
+        const cfg = _cfgRead();
+        return String((cfg && cfg.residentModels && cfg.residentModels[r.id]) || '').trim();
     }
 
     ClaudeTerminal.isConfigured = function() {
@@ -418,7 +426,7 @@ ${withOthers}
             const r = all.find(x => x.id === id);
             if (!r || r.provider === 'group') return;
             if (out.some(x => x.id === r.id)) return;   // 名單重複 → 只留第一筆
-            out.push(Object.assign({}, r, { seatModelId: r.modelId || '' }));
+            out.push(Object.assign({}, r, { seatModelId: r.modelId || _residentPicked(r) || '' }));
         });
         return out;
     };
@@ -443,6 +451,8 @@ ${withOthers}
         const r = ClaudeTerminal.getResident(rid);
         if (!r || r.provider !== 'claude') return '';
         if (r.modelId) return ClaudeTerminal.modelLabel(r.modelId);
+        const own = _residentPicked(r);
+        if (own) return ClaudeTerminal.modelLabel(own);
         const cfg = _cfgRead() || {};
         const cur = (cfg.providerModels && cfg.providerModels.claude) || cfg.inlineModel || cfg.model || '';
         return cur ? ClaudeTerminal.modelLabel(cur) : '';

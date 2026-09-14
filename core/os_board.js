@@ -37,6 +37,8 @@
             .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
             .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>')
             .replace(/~~([^~]+)~~/g, '<del>$1</del>')
+            // 表情包圖 ![說明](https://…)：房間私聊／群聊在手機 PWA 也借這支，要畫得出圖（排在連結前面，不然會被當成連結）
+            .replace(/!\[([^\]]*)\]\((https:\/\/[^)\s]+)\)/g, '<img class="claude-md-img" alt="$1" src="$2">')
             .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
         const out = [];
         let para = [], list = null, fence = null;
@@ -684,7 +686,8 @@
             : null;
     }
 
-    win.OS_BOARD = { launch, setConnection };
+    // miniMd：沒有 showdown 的地方（手機 PWA）房間私聊、群聊也用這支，markdown 只維護一份
+    win.OS_BOARD = { launch, setConnection, miniMd: _miniMd };
     if (win !== window) window.OS_BOARD = win.OS_BOARD;
 
     console.log('[Aurelia] 留言板載入完成');

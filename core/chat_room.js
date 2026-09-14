@@ -145,6 +145,16 @@
         return (r && r.modelId) ? r.modelId : '';
     }
 
+    // helper:當前住戶自己在房裡挑的模型。沒鎖模型的 Claude 住戶（丹、克語）各記各的（cfg.residentModels），
+    //   以前共用 providerModels.claude 那一格，她選一個另一個跟著換。沒挑過回空字串 → 吃共用預設。
+    function _residentPick() {
+        const CT = window.ClaudeTerminal;
+        if (_provider() !== 'claude' || !CT || typeof CT.getActiveResident !== 'function') return '';
+        const r = CT.getActiveResident('claude');
+        const cfg = _getClaudeRoomCfg();
+        return (r && !r.modelId && cfg && cfg.residentModels && cfg.residentModels[r.id]) || '';
+    }
+
     function _getClaudeRoomCfg() {
         return (window.OS_SETTINGS && window.OS_SETTINGS.getClaudeRoomConfig)
             ? window.OS_SETTINGS.getClaudeRoomConfig() : null;
@@ -196,7 +206,7 @@
         if (sep1) sep1.style.display = hasEffort ? '' : 'none';
         if (m) {
             const emoji = isCodex ? '🔷 ' : isDeepseek ? '🟢 ' : '';
-            m.textContent = emoji + _modelLabel(_lockedModel() || _getProviderModel(cfg, prov), prov);
+            m.textContent = emoji + _modelLabel(_lockedModel() || _residentPick() || _getProviderModel(cfg, prov), prov);
         }
         if (e && hasEffort) e.textContent = _shortEffortLabel(cfg.inlineEffort);
         if (ep) ep.textContent = _shortEndpointLabel(cfg);
@@ -216,7 +226,7 @@
             const nick = _modelNick(m.id);
             return nick ? { id: m.id, label: nick } : m;
         });
-        const curModel    = _getProviderModel(cfg, prov);
+        const curModel    = _residentPick() || _getProviderModel(cfg, prov);
         const curEffort   = cfg.inlineEffort  || '';
         const curPresetId = cfg.activePresetId || '';
         const modelSectionTitle = prov === 'codex'    ? 'Codex Model'
@@ -266,7 +276,15 @@
         });
         popup.querySelectorAll('[data-model]').forEach(el => el.onclick = () => {
             const c = _getClaudeRoomCfg();
-            _setProviderModel(c, prov, el.dataset.model);
+            // Claude 住戶各記各的：在誰的房間選就只換誰（沒鎖模型的才走到這裡，鎖了的整排不給選）
+            const CT = window.ClaudeTerminal;
+            const r = (prov === 'claude' && CT && typeof CT.getActiveResident === 'function') ? CT.getActiveResident('claude') : null;
+            if (r && !r.modelId) {
+                c.residentModels = Object.assign({}, c.residentModels || {});
+                c.residentModels[r.id] = el.dataset.model;
+            } else {
+                _setProviderModel(c, prov, el.dataset.model);
+            }
             _saveClaudeRoomCfg(c);
             _updateClaudePickerLabel(); _openClaudePickerPopup();
         });
@@ -553,9 +571,43 @@
         return box.innerHTML;
     }
 
+    // 🫧 一則回覆切成好幾顆泡泡。她：「你們輸出都一段一段的，中間還帶著表情包，好奇怪」
+    //   空行分段；單獨一行的表情包圖自己一顆。程式碼區塊裡的空行不算分段；空行隔開的清單項目併回同一顆。
+    //   私聊與群聊共用這一支（VoidClaudeRoom.splitReplySegments），規則只有一份。
+    function _isStickerSeg(s) { return /^!\[[^\]\n]*\]\(https:\/\/[^\s)]+\)$/.test(String(s == null ? '' : s).trim()); }
+    function _splitReplySegments(text) {
+        const src = String(text == null ? '' : text).replace(/\r/g, '');
+        const segs = [];
+        let cur = [], fence = false;
+        const isList = (s) => /^\s*([-*+]|\d+[.)])\s+/.test(s || '');
+        const flush = () => {
+            const s = cur.join('\n').trim();
+            cur = [];
+            if (!s) return;
+            const prev = segs[segs.length - 1];
+            if (prev && !_isStickerSeg(prev) && isList(s.split('\n')[0]) && isList(prev.split('\n').pop())) segs[segs.length - 1] = prev + '\n\n' + s;
+            else segs.push(s);
+        };
+        src.split('\n').forEach(ln => {
+            if (/^\s*```/.test(ln)) { fence = !fence; cur.push(ln); return; }
+            if (fence) { cur.push(ln); return; }
+            if (!ln.trim()) { flush(); return; }
+            if (_isStickerSeg(ln)) { flush(); segs.push(ln.trim()); return; }
+            cur.push(ln);
+        });
+        flush();
+        return segs.length ? segs : [src];
+    }
+
     let _claudeMdConverter = null;
     function _claudeMarkdownToSafeHtml(text) {
-        if (!window.showdown || !window.DOMPurify) return _plainWithImagesHtml(text);
+        // 手機 PWA 沒載 showdown：借留言板那支小的 markdown（標題、粗體、清單、程式碼、表情包圖都認得），
+        // 以前這裡只剩「圖片語法畫成圖、其他全是純文字」，## 跟 ** 原樣印在泡泡裡。
+        if (!window.showdown || !window.DOMPurify) {
+            const B = window.OS_BOARD;
+            if (B && typeof B.miniMd === 'function') return B.miniMd(text);
+            return _plainWithImagesHtml(text);
+        }
         if (!_claudeMdConverter) {
             _claudeMdConverter = new window.showdown.Converter({
                 tables: true,
@@ -732,22 +784,32 @@
             if (ts) wrap.appendChild(ts);
         }
 
-        const bubble = document.createElement('div');
-        bubble.className = 'claude-bubble ' + (isUser ? 'from-user' : 'from-claude');
-        if (isUser || opts.suppressMarkdown) {
-            // User 訊息 / streaming 中：raw text 顯示（streaming 期間每 chunk re-render
-            // 一次 markdown 太貴，stream 結束最後一次 render 才開 markdown）
-            bubble.textContent = isUser ? content : _hideMdImages(content);
-        } else {
-            // Claude 回覆：解析 markdown 後 sanitize 再插入
-            const safeHtml = _claudeMarkdownToSafeHtml(content);
-            if (safeHtml !== null) {
-                bubble.innerHTML = safeHtml;
-                bubble.classList.add('claude-bubble-md');
-            } else {
-                bubble.textContent = content;
+        // 🫧 他的最終回覆切成好幾顆（空行分段、表情包自己一顆）；使用者訊息與串流中照舊一顆
+        const _segs = (!isUser && !opts.suppressMarkdown) ? _splitReplySegments(content) : [content];
+        const _fillBubble = (el, text) => {
+            if (isUser || opts.suppressMarkdown) {
+                // User 訊息 / streaming 中：raw text 顯示（streaming 期間每 chunk re-render
+                // 一次 markdown 太貴，stream 結束最後一次 render 才開 markdown）
+                el.textContent = isUser ? text : _hideMdImages(text);
+                return;
             }
-        }
+            // Claude 回覆：解析 markdown 後 sanitize 再插入
+            const safeHtml = _claudeMarkdownToSafeHtml(text);
+            if (safeHtml !== null) {
+                el.innerHTML = safeHtml;
+                el.classList.add('claude-bubble-md');
+            } else {
+                el.textContent = text;
+            }
+            if (_isStickerSeg(text)) el.classList.add('claude-bubble-sticker');
+        };
+        let bubble = null;
+        _segs.forEach(seg => {
+            if (bubble) wrap.appendChild(bubble);   // 前一顆先放上去；最後一顆留給下面掛附件
+            bubble = document.createElement('div');
+            bubble.className = 'claude-bubble ' + (isUser ? 'from-user' : 'from-claude');
+            _fillBubble(bubble, seg);
+        });
 
         // 附件：圖片 → 內嵌縮圖（點放大）；非圖 → chip
         if (Array.isArray(opts.attachments) && opts.attachments.length) {
@@ -1140,6 +1202,8 @@
     VoidClaudeRoom.handleFilePick    = _handleClaudeFilePick;
     VoidClaudeRoom.sendMessage       = _sendClaudeMessage;
     VoidClaudeRoom.markdownToSafeHtml = _claudeMarkdownToSafeHtml;
+    VoidClaudeRoom.splitReplySegments = _splitReplySegments;   // 群聊切泡泡用同一支
+    VoidClaudeRoom.isStickerSegment = _isStickerSeg;
     VoidClaudeRoom.hideMdImages       = _hideMdImages;
     // 群聊借這兩支：折疊塊與串流中的人話標籤，兩邊長一樣、只維護一份
     VoidClaudeRoom.buildToolSummary   = _buildToolSummary;

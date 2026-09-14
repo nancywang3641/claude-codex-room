@@ -344,18 +344,35 @@
     function _scrollBottom() { if (_streamEl) _streamEl.scrollTop = _streamEl.scrollHeight; }
 
     // 把內容塞進氣泡：AI → markdown 渲染；Rae → 純文字。一律先剝遊戲標記。
-    function _setBubbleContent(bubbleEl, speaker, content) {
+    //   🫧 AI 的話切成好幾顆（空行分段、表情包自己一顆，規則跟私聊同一支），多出來的接在 bubbleEl 後面，
+    //   所以 bubbleEl 要已經在畫面上。回傳最後一顆（附件、工具掛那裡）。opts.noSplit：前情提要卡不切。
+    function _setBubbleContent(bubbleEl, speaker, content, opts) {
         const clean = _stripForDisplay(content);
-        if (speaker !== 'rae' && window.VoidClaudeRoom
-            && typeof window.VoidClaudeRoom.markdownToSafeHtml === 'function') {
-            const html = window.VoidClaudeRoom.markdownToSafeHtml(clean);
-            if (html !== null && html !== undefined) {
-                bubbleEl.innerHTML = html;
-                bubbleEl.classList.add('claude-bubble-md');
-                return;
-            }
+        const room = window.VoidClaudeRoom;
+        if (speaker !== 'rae' && room && typeof room.markdownToSafeHtml === 'function') {
+            const canSplit = !(opts && opts.noSplit) && typeof room.splitReplySegments === 'function' && bubbleEl.parentNode;
+            const segs = canSplit ? room.splitReplySegments(clean) : [clean];
+            let el = bubbleEl;
+            segs.forEach(function (seg, i) {
+                if (i > 0) {
+                    const next = document.createElement('div');
+                    next.className = String(bubbleEl.className).replace(/\b(cg-typing|cg-doing|cg-error|claude-bubble-sticker)\b/g, ' ').replace(/\s+/g, ' ').trim();
+                    el.parentNode.insertBefore(next, el.nextSibling);
+                    el = next;
+                }
+                const html = room.markdownToSafeHtml(seg);
+                if (html !== null && html !== undefined) {
+                    el.innerHTML = html;
+                    el.classList.add('claude-bubble-md');
+                } else {
+                    el.textContent = seg;
+                }
+                if (typeof room.isStickerSegment === 'function' && room.isStickerSegment(seg)) el.classList.add('claude-bubble-sticker');
+            });
+            return el;
         }
         bubbleEl.textContent = clean;
+        return bubbleEl;
     }
 
     /** 把「🔧 跑了 N 個命令」那顆折疊塊掛在氣泡下面。
@@ -403,7 +420,7 @@
             hdr.textContent = '📋 前情提要(已壓縮)';
             const body = document.createElement('div');
             body.className = 'cg-recap-body';
-            _setBubbleContent(body, speaker, content);
+            _setBubbleContent(body, speaker, content, { noSplit: true });
             card.appendChild(hdr);
             card.appendChild(body);
             _streamEl.appendChild(card);
@@ -421,17 +438,17 @@
         }
         const b = document.createElement('div');
         b.className = 'cg-bubble cg-from-' + css;
-        _setBubbleContent(b, speaker, content);
+        wrap.appendChild(b);   // 先放進 wrap：切成好幾顆時要接在它後面
+        const lastB = _setBubbleContent(b, speaker, content) || b;
 
-        // 附件：圖片 → 內嵌縮圖（點放大）；非圖 → 📎 chip
+        // 附件：圖片 → 內嵌縮圖（點放大）；非圖 → 📎 chip。掛在最後一顆
         const attBox = _buildAttachmentsBox(attachments);
-        if (attBox) b.appendChild(attBox);
-        _attachTools(b, toolsUsed);
+        if (attBox) lastB.appendChild(attBox);
+        _attachTools(lastB, toolsUsed);
 
-        wrap.appendChild(b);
         _streamEl.appendChild(wrap);
         _scrollBottom();
-        return b;
+        return lastB;
     }
 
     function _renderTyping(speaker) {
@@ -1006,12 +1023,12 @@
             if (typingWrap && typingWrap.parentNode) typingWrap.parentNode.removeChild(typingWrap);
         } else if (bubbleEl) {
             bubbleEl.classList.remove('cg-typing');
-            _setBubbleContent(bubbleEl, rid, result.reply);
+            const lastB = _setBubbleContent(bubbleEl, rid, result.reply) || bubbleEl;
             if (imgAtts) {
                 const box = _buildAttachmentsBox(imgAtts);
-                if (box) bubbleEl.appendChild(box);
+                if (box) lastB.appendChild(box);
             }
-            _attachTools(bubbleEl, result.toolsUsed);
+            _attachTools(lastB, result.toolsUsed);
         }
         const turnEntry = { speaker: rid, content: transcriptText, ts: Date.now(), usage: result.usage || null };
         if (imgAtts) turnEntry.attachments = imgAtts;
