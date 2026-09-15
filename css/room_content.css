@@ -228,6 +228,27 @@
     .claude-bubble-pop { animation: none; }
 }
 
+/* 🧩 小面板：回覆裡的 <widget> 畫成對話中間的隔離小框；高度由框裡回報後寫在 height 屬性 */
+.claude-bubble.claude-bubble-widget {
+    width: min(360px, 100%);
+    max-width: 100%;
+    padding: 6px;
+    white-space: normal;
+}
+.claude-widget { display: flex; flex-direction: column; gap: 4px; }
+.claude-widget-title {
+    font-size: 12px;
+    color: var(--cl-cafe-latte, #46639b);
+    padding: 2px 6px 0;
+}
+.claude-widget-frame {
+    display: block;
+    width: 100%;
+    border: 0;
+    border-radius: 10px;
+    background: #ffffff;
+}
+
 /* tool summary 摺疊塊（仿 Claude.ai 桌面端「Edited 2 files, ran a command」） */
 /* 串流當下的「他正在做什麼」。跟折疊塊同一套配色，但它不是可以點開的東西，
    所以拿掉 cursor:pointer、改成呼吸的透明度，讓它讀起來像「還在進行中」。

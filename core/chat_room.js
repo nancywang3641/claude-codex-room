@@ -772,11 +772,94 @@
         _scrollClaudeChatToBottom();
     }
 
+    // 🧩 小面板：回覆裡 <widget title="…">完整 HTML</widget>（開頭標籤在行首、</widget> 在行尾）
+    //   畫成對話中間的隔離小框（sandbox 只給 allow-scripts，碰不到房間的網頁、設定與記錄）。
+    //   切段前把整段換成單獨一行的記號，所以它自己成一顆；畫的時候認出記號就建框。
+    //   串流中還沒寫到 </widget> 的，從 <widget 那行起先藏著，不會露出一堆程式碼。
+    const WIDGET_TOKEN_RE = /^\[\[ccr-widget:([A-Za-z0-9+/=]*)\]\]$/;
+    const _b64enc = (s) => { try { return btoa(unescape(encodeURIComponent(s))); } catch (_) { return ''; } };
+    const _b64dec = (s) => { try { return decodeURIComponent(escape(atob(s))); } catch (_) { return ''; } };
+    function _widgetize(text, streaming) {
+        let s = String(text == null ? '' : text).replace(
+            /^[ \t]*<widget\b([^>\n]*)>([\s\S]*?)<\/widget>[ \t]*$/gim,
+            (_, attrs, html) => {
+                const t = /title\s*=\s*"([^"]*)"/i.exec(attrs || '');
+                return '\n\n[[ccr-widget:' + _b64enc(JSON.stringify({ title: t ? t[1] : '', html: html })) + ']]\n\n';
+            });
+        const open = s.search(/^[ \t]*<widget\b/im);
+        if (open >= 0) s = s.slice(0, open) + (streaming ? '' : '\n\n（這個小面板沒寫完整，畫不出來）');
+        return s;
+    }
+    function _isWidgetSeg(seg) { return WIDGET_TOKEN_RE.test(String(seg == null ? '' : seg).trim()); }
+
+    let _widgetSeq = 0;
+    const _widgetFrames = new Map();
+    let _widgetListening = false;
+    // 框裡回報內容多高，框就長多高（用 height 屬性，不寫 inline style）
+    function _ensureWidgetListener() {
+        if (_widgetListening) return;
+        _widgetListening = true;
+        window.addEventListener('message', (ev) => {
+            const d = ev && ev.data;
+            if (!d || typeof d.ccrWidget !== 'string') return;
+            const f = _widgetFrames.get(d.ccrWidget);
+            if (!f) return;
+            if (!f.isConnected) { _widgetFrames.delete(d.ccrWidget); return; }
+            if (ev.source !== f.contentWindow) return;
+            f.setAttribute('height', String(Math.max(60, Math.min(640, Math.ceil(Number(d.h) || 0)))));
+        });
+    }
+    function _widgetDoc(html, id) {
+        const base = '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
+            + '<style>html{margin:0;padding:0}body{margin:0;padding:8px;box-sizing:border-box;'
+            + 'font-family:"Noto Sans TC","Microsoft JhengHei",sans-serif;color:#1f3a68;background:#fff}*,*::before,*::after{box-sizing:border-box}</style>';
+        const report = '<script>(function(){var id=' + JSON.stringify(id) + ';'
+            + 'function h(){try{parent.postMessage({ccrWidget:id,h:document.documentElement.scrollHeight},"*")}catch(e){}}'
+            + 'window.addEventListener("load",h);if(window.ResizeObserver){new ResizeObserver(h).observe(document.documentElement)}'
+            + 'setTimeout(h,60);setTimeout(h,600);})();<\/script>';
+        return base + html + report;
+    }
+    function _buildWidget(seg) {
+        const m = WIDGET_TOKEN_RE.exec(String(seg == null ? '' : seg).trim());
+        if (!m) return null;
+        let data = {};
+        try { data = JSON.parse(_b64dec(m[1]) || '{}') || {}; } catch (_) { data = {}; }
+        const id = 'w' + (++_widgetSeq) + '_' + Date.now().toString(36);
+        const box = document.createElement('div');
+        box.className = 'claude-widget';
+        if (data.title) {
+            const h = document.createElement('div');
+            h.className = 'claude-widget-title';
+            h.textContent = data.title;
+            box.appendChild(h);
+        }
+        const f = document.createElement('iframe');
+        f.className = 'claude-widget-frame';
+        f.setAttribute('sandbox', 'allow-scripts');
+        f.setAttribute('title', data.title || '小面板');
+        f.setAttribute('height', '120');
+        f.srcdoc = _widgetDoc(String(data.html || ''), id);
+        _widgetFrames.set(id, f);
+        _ensureWidgetListener();
+        box.appendChild(f);
+        return box;
+    }
+    /** 這段是小面板就把框放進泡泡、回 true；不是回 false */
+    function _fillWidgetSeg(el, seg) {
+        if (!_isWidgetSeg(seg)) return false;
+        const w = _buildWidget(seg);
+        if (!w) return false;
+        el.classList.add('claude-bubble-widget');
+        el.appendChild(w);
+        return true;
+    }
+
     // 🫧 泡泡一顆一顆出來（她從三個小樣挑的第一個：點點等一下，再冒出一顆）
     const DOTS_HTML = '<i></i><i></i><i></i>';
 
-    /** 他的一段話畫進一顆泡泡：markdown、表情包自己不套底框 */
+    /** 他的一段話畫進一顆泡泡：markdown、表情包自己不套底框、小面板建框 */
     function _fillReplyBubble(el, text) {
+        if (_fillWidgetSeg(el, text)) return;
         const safeHtml = _claudeMarkdownToSafeHtml(text);
         if (safeHtml !== null) {
             el.innerHTML = safeHtml;
@@ -874,7 +957,7 @@
         if (!isUser && !opts.suppressMarkdown) {
             const r = _parseAskMarkers(content);
             askMatches = r.asks;
-            content = r.stripped;
+            content = _widgetize(r.stripped, false);   // 🧩 小面板換成自己一顆的記號
         }
 
         if (!isUser) {
@@ -897,6 +980,7 @@
                 el.textContent = isUser ? text : _hideMdImages(text);
                 return;
             }
+            if (_fillWidgetSeg(el, text)) return;   // 🧩 小面板
             // Claude 回覆：解析 markdown 後 sanitize 再插入
             const safeHtml = _claudeMarkdownToSafeHtml(text);
             if (safeHtml !== null) {
@@ -1151,7 +1235,7 @@
                 let shown = (CT && typeof CT.stripBoardTags === 'function')
                     ? CT.stripBoardTags(raw, { streaming: streaming }) : raw;
                 if (!streaming && !shown && String(raw || '').trim()) shown = '（去留言板上動了一下）';
-                return _splitReplySegments(_parseAskMarkers(shown || '').stripped);
+                return _splitReplySegments(_widgetize(_parseAskMarkers(shown || '').stripped, streaming));
             };
             const _flushStreamingRender = () => {
                 _rerenderTimer = null;
