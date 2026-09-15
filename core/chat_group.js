@@ -387,6 +387,14 @@
         host.appendChild(ts);
     }
 
+    /** 思考摺疊塊放在他的泡泡上面（名字標頭底下）。借一對一房間那顆，兩邊長一樣。 */
+    function _attachThinking(firstBubbleEl, thinking) {
+        if (!firstBubbleEl || !firstBubbleEl.parentNode || !thinking) return;
+        if (!window.VoidClaudeRoom || typeof window.VoidClaudeRoom.buildThinkingBlock !== 'function') return;
+        const t = window.VoidClaudeRoom.buildThinkingBlock(thinking);
+        if (t) firstBubbleEl.parentNode.insertBefore(t, firstBubbleEl);
+    }
+
     // 把附件陣列建成氣泡內的附件區塊（圖片 → 縮圖點放大；非圖 → 📎 chip）。空 → null。
     function _buildAttachmentsBox(attachments) {
         if (!Array.isArray(attachments) || !attachments.length) return null;
@@ -409,7 +417,7 @@
         return box;
     }
 
-    function _renderBubble(speaker, content, attachments, toolsUsed) {
+    function _renderBubble(speaker, content, attachments, toolsUsed, thinking) {
         if (!_streamEl) return null;
         // 'recap' = 「🧹 摘要重啟」按鈕生成的前情提要,render 成置中分隔卡(非氣泡)
         if (speaker === 'recap') {
@@ -440,6 +448,7 @@
         b.className = 'cg-bubble cg-from-' + css;
         wrap.appendChild(b);   // 先放進 wrap：切成好幾顆時要接在它後面
         const lastB = _setBubbleContent(b, speaker, content) || b;
+        if (speaker !== 'rae') _attachThinking(b, thinking);
 
         // 附件：圖片 → 內嵌縮圖（點放大）；非圖 → 📎 chip。掛在最後一顆
         const attBox = _buildAttachmentsBox(attachments);
@@ -601,7 +610,7 @@
             if (m.speaker === 'rae' && m.content && m.content.indexOf('（系統）') === 0) return;
             const hasAtt = Array.isArray(m.attachments) && m.attachments.length;
             if (!_stripForDisplay(m.content) && !hasAtt) return;
-            _renderBubble(m.speaker, m.content, m.attachments, m.toolsUsed);
+            _renderBubble(m.speaker, m.content, m.attachments, m.toolsUsed, m.thinking);
         });
     };
 
@@ -1029,9 +1038,11 @@
                 if (box) lastB.appendChild(box);
             }
             _attachTools(lastB, result.toolsUsed);
+            _attachThinking(bubbleEl, result.thinking);
         }
         const turnEntry = { speaker: rid, content: transcriptText, ts: Date.now(), usage: result.usage || null };
         if (imgAtts) turnEntry.attachments = imgAtts;
+        if (result.thinking) turnEntry.thinking = result.thinking;
         // 存起來，不然重新進群聊就只剩文字、看不出他做過什麼
         if (Array.isArray(result.toolsUsed) && result.toolsUsed.length) turnEntry.toolsUsed = result.toolsUsed;
         _transcript.push(turnEntry);

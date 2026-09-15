@@ -742,6 +742,23 @@
         document.body.appendChild(ov);
     }
 
+    /** 思考摺疊塊：泡泡上面一條「思考」，點開看模型的思考摘要。沒內容 → null */
+    function _buildThinkingBlock(thinking) {
+        const text = String(thinking || '').trim();
+        if (!text) return null;
+        const t = document.createElement('div');
+        t.className = 'claude-thinking';
+        const header = document.createElement('div');
+        header.className = 'claude-thinking-header';
+        header.innerHTML = '<i class="fa-solid fa-chevron-right claude-thinking-toggle"></i><i class="fa-solid fa-brain"></i><span>思考</span>';
+        const body = document.createElement('div');
+        body.className = 'claude-thinking-content';
+        body.textContent = text;
+        t.appendChild(header); t.appendChild(body);
+        t.addEventListener('click', () => t.classList.toggle('open'));
+        return t;
+    }
+
     function _renderClaudeBubble(role, content, opts = {}) {
         const stream = _el('claude-chat-stream');
         if (!stream) return;
@@ -764,18 +781,9 @@
             content = r.stripped;
         }
 
-        if (!isUser && opts.thinking) {
-            const t = document.createElement('div');
-            t.className = 'claude-thinking';
-            const header = document.createElement('div');
-            header.className = 'claude-thinking-header';
-            header.innerHTML = '<span class="claude-thinking-toggle">▶</span><span>💭 thinking...</span>';
-            const body = document.createElement('div');
-            body.className = 'claude-thinking-content';
-            body.textContent = opts.thinking;
-            t.appendChild(header); t.appendChild(body);
-            t.addEventListener('click', () => t.classList.toggle('open'));
-            wrap.appendChild(t);
+        if (!isUser) {
+            const t = _buildThinkingBlock(opts.thinking);
+            if (t) wrap.appendChild(t);
         }
 
         // tool summary 摺疊塊（仿 Claude.ai 桌面端「Edited 2 files, ran a command」）
@@ -1207,6 +1215,7 @@
     VoidClaudeRoom.hideMdImages       = _hideMdImages;
     // 群聊借這兩支：折疊塊與串流中的人話標籤，兩邊長一樣、只維護一份
     VoidClaudeRoom.buildToolSummary   = _buildToolSummary;
+    VoidClaudeRoom.buildThinkingBlock = _buildThinkingBlock;
     VoidClaudeRoom.toolDoingLabel     = _toolDoingLabel;
 
     console.log('✅ VoidClaudeRoom（Claude 房間 UI）模組就緒');

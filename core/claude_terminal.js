@@ -1827,7 +1827,7 @@ ${withOthers}
         if (Number.isFinite(cfg.top_p)) body.top_p = cfg.top_p;
 
         const r = await _ccBridgePostQueued(cfg, body, opts.onProgress, opts.signal);
-        return { reply: r.reply, sessionId: r.newSid || sid, usage: r.usage, images: r.images || [] };
+        return { reply: r.reply, sessionId: r.newSid || sid, usage: r.usage, images: r.images || [], thinking: r.thinking || '' };
     };
 
     /**
