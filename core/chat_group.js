@@ -347,6 +347,7 @@
     //   🫧 AI 的話切成好幾顆（空行分段、表情包自己一顆，規則跟私聊同一支），多出來的接在 bubbleEl 後面，
     //   所以 bubbleEl 要已經在畫面上。回傳最後一顆（附件、工具掛那裡）。opts.noSplit：前情提要卡不切。
     function _setBubbleContent(bubbleEl, speaker, content, opts) {
+        bubbleEl.classList.remove('claude-bubble-dots');   // 原本是等他開口的點點泡泡
         const clean = _stripForDisplay(content);
         const room = window.VoidClaudeRoom;
         if (speaker !== 'rae' && room && typeof room.markdownToSafeHtml === 'function') {
@@ -356,7 +357,7 @@
             segs.forEach(function (seg, i) {
                 if (i > 0) {
                     const next = document.createElement('div');
-                    next.className = String(bubbleEl.className).replace(/\b(cg-typing|cg-doing|cg-error|claude-bubble-sticker)\b/g, ' ').replace(/\s+/g, ' ').trim();
+                    next.className = String(bubbleEl.className).replace(/\b(cg-typing|cg-doing|cg-error|claude-bubble-sticker|claude-bubble-dots|claude-bubble-pop)\b/g, ' ').replace(/\s+/g, ' ').trim();
                     el.parentNode.insertBefore(next, el.nextSibling);
                     el = next;
                 }
@@ -469,8 +470,10 @@
         hdr.className = 'cg-bubble-hdr cg-hdr-' + css;
         _fillHdr(hdr, speaker);
         const b = document.createElement('div');
-        b.className = 'cg-bubble cg-from-' + css + ' cg-typing';
-        b.textContent = '正在輸入…';
+        // 🫧 等他開口：一顆點點泡泡（跟私聊同一種），他的段落會在它前面一顆一顆冒出來
+        const _dots = window.VoidClaudeRoom && window.VoidClaudeRoom.DOTS_HTML;
+        b.className = 'cg-bubble cg-from-' + css + ' cg-typing' + (_dots ? ' claude-bubble-dots' : '');
+        if (_dots) b.innerHTML = _dots; else b.textContent = '正在輸入…';
         wrap.appendChild(hdr);
         wrap.appendChild(b);
         _streamEl.appendChild(wrap);
@@ -887,6 +890,30 @@
         const bubbleEl = typingWrap && typingWrap.querySelector('.cg-bubble');
         let acc = '';
 
+        // 🫧 段落一顆一顆冒出來（同私聊那支）：bubbleEl 當點點，寫完一段就在它前面放一顆
+        const _room = window.VoidClaudeRoom;
+        let revealer = null;
+        function _ensureRevealer() {
+            if (revealer) return revealer;
+            if (!typingWrap || !bubbleEl || !_room || typeof _room.createBubbleRevealer !== 'function'
+                || typeof _room.splitReplySegments !== 'function' || typeof _room.markdownToSafeHtml !== 'function') return null;
+            const css = _cssOf(rid);
+            revealer = _room.createBubbleRevealer(typingWrap, bubbleEl, function (seg) {
+                const el = document.createElement('div');
+                el.className = 'cg-bubble cg-from-' + css + ' claude-bubble-still';
+                const html = _room.markdownToSafeHtml(seg);
+                if (html !== null && html !== undefined) {
+                    el.innerHTML = html;
+                    el.classList.add('claude-bubble-md');
+                } else {
+                    el.textContent = seg;
+                }
+                if (typeof _room.isStickerSegment === 'function' && _room.isStickerSegment(seg)) el.classList.add('claude-bubble-sticker');
+                return el;
+            }, _scrollBottom);
+            return revealer;
+        }
+
         function _send(sid) {
             acc = '';
             return window.ClaudeTerminal.sendGroup({
@@ -900,7 +927,17 @@
                 onProgress: function (ev) {
                     if (ev && ev.type === 'text') {
                         acc = ev.accumulated || (acc + (ev.delta || ''));
-                        if (bubbleEl) {
+                        const rv = _ensureRevealer();
+                        if (bubbleEl && rv) {
+                            // 寫到一半的那段不畫（會露出 ** 跟 -）。剛才在寫「正在動手」的話換回點點
+                            if (bubbleEl.classList.contains('cg-doing')) {
+                                bubbleEl.classList.remove('cg-doing');
+                                bubbleEl.classList.add('claude-bubble-dots');
+                                bubbleEl.innerHTML = _room.DOTS_HTML;
+                            }
+                            const segs = _room.splitReplySegments(_stripForDisplay(acc, true));
+                            if (segs.length - 1 > rv.count) rv.push(segs.slice(rv.count, segs.length - 1));
+                        } else if (bubbleEl) {
                             bubbleEl.classList.remove('cg-typing');
                             bubbleEl.classList.remove('cg-doing');
                             const shown = _stripForDisplay(acc, true);
@@ -915,6 +952,7 @@
                         // 不要讓狀態字蓋掉他講的話。
                         if (bubbleEl && !acc) {
                             bubbleEl.classList.remove('cg-typing');
+                            bubbleEl.classList.remove('claude-bubble-dots');
                             bubbleEl.classList.add('cg-doing');
                             bubbleEl.textContent = _doingLabel(ev.tool);
                             _scrollBottom();
@@ -939,8 +977,10 @@
                 _renderSystemLine(_labelOf(rid) + '：' + _me);
                 return { spoke: false, failed: true, markers: {} };
             }
+            if (revealer) revealer.stop();
             if (bubbleEl) {
                 bubbleEl.classList.remove('cg-typing');
+                bubbleEl.classList.remove('claude-bubble-dots');
                 bubbleEl.classList.add('cg-error');
                 bubbleEl.textContent = '⚠️ ' + ((err && err.message) || '送出失敗');
             }
@@ -1039,6 +1079,14 @@
             // 只有標記、沒閒聊文字也沒圖：移掉氣泡，但 transcript 仍要記（對手要看到 [MOVE]）
             if (typingWrap && typingWrap.parentNode) typingWrap.parentNode.removeChild(typingWrap);
         } else if (bubbleEl) {
+            // 🫧 還沒冒出來的段落照同一個節奏放完，放完換成完整那份（附件、工具、思考掛上去，不再播動畫）
+            const rv = _ensureRevealer();
+            if (rv && displayText) {
+                rv.push(_room.splitReplySegments(displayText).slice(rv.count));
+                await rv.drain();
+                typingWrap.querySelectorAll('.cg-bubble').forEach(function (el) { if (el !== bubbleEl) el.remove(); });
+                bubbleEl.classList.add('claude-bubble-still');
+            }
             bubbleEl.classList.remove('cg-typing');
             const lastB = _setBubbleContent(bubbleEl, rid, result.reply) || bubbleEl;
             if (imgAtts) {

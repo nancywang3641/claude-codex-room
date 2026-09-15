@@ -772,6 +772,72 @@
         _scrollClaudeChatToBottom();
     }
 
+    // 🫧 泡泡一顆一顆出來（她從三個小樣挑的第一個：點點等一下，再冒出一顆）
+    const DOTS_HTML = '<i></i><i></i><i></i>';
+
+    /** 他的一段話畫進一顆泡泡：markdown、表情包自己不套底框 */
+    function _fillReplyBubble(el, text) {
+        const safeHtml = _claudeMarkdownToSafeHtml(text);
+        if (safeHtml !== null) {
+            el.innerHTML = safeHtml;
+            el.classList.add('claude-bubble-md');
+        } else {
+            el.textContent = text;
+        }
+        if (_isStickerSeg(text)) el.classList.add('claude-bubble-sticker');
+    }
+
+    /** 一顆一顆放泡泡。host 裡擺一顆點點泡泡 dots；push 進來的每段先讓點點停一下，再在點點前面冒出那顆。
+     *  make(段落) 回一顆畫好的泡泡。count 是 push 過幾段（照段落順序算，空段也算），呼叫端拿它切還沒放的。
+     *  用計時器，不綁轉場結束事件：視窗在背景時轉場不走，綁事件會卡成看不見；背景時直接放、不等。
+     *  host 被拿掉（出錯、換頁）或 stop() 之後就不再放。 */
+    function _createBubbleRevealer(host, dots, make, onStep) {
+        const queue = [];
+        let count = 0;
+        let running = null;
+        let stopped = false;
+        const wait = (ms) => new Promise(r => setTimeout(r, ms));
+        const place = (seg, pop) => {
+            if (stopped || !host || !host.isConnected) return;
+            let el = null;
+            try { el = make(seg); } catch (_) { return; }
+            if (!el) return;
+            if (dots && dots.parentNode === host) host.insertBefore(el, dots);
+            else host.appendChild(el);
+            if (pop) {
+                el.classList.add('claude-bubble-pop');
+                setTimeout(() => el.classList.remove('claude-bubble-pop'), 400);
+            }
+            if (typeof onStep === 'function') { try { onStep(); } catch (_) {} }
+        };
+        const run = async () => {
+            while (queue.length && !stopped) {
+                const seg = queue.shift();
+                if (document.hidden) { place(seg, false); continue; }
+                await wait(Math.min(900, 380 + String(seg).length * 18));
+                if (stopped) return;
+                place(seg, true);
+                await wait(160);
+            }
+        };
+        const kick = () => {
+            if (running || stopped) return;
+            running = run().then(() => { running = null; if (queue.length) kick(); });
+        };
+        return {
+            push(segs) {
+                (segs || []).forEach(s => {
+                    count++;
+                    if (String(s == null ? '' : s).trim()) queue.push(s);
+                });
+                kick();
+            },
+            get count() { return count; },
+            async drain() { while (running) await running; },
+            stop() { stopped = true; queue.length = 0; },
+        };
+    }
+
     /** 思考摺疊塊：泡泡上面一條「思考」，點開看模型的思考摘要。沒內容 → null */
     function _buildThinkingBlock(thinking) {
         const text = String(thinking || '').trim();
@@ -845,7 +911,7 @@
         _segs.forEach(seg => {
             if (bubble) wrap.appendChild(bubble);   // 前一顆先放上去；最後一顆留給下面掛附件
             bubble = document.createElement('div');
-            bubble.className = 'claude-bubble ' + (isUser ? 'from-user' : 'from-claude');
+            bubble.className = 'claude-bubble ' + (isUser ? 'from-user' : 'from-claude') + (opts.still ? ' claude-bubble-still' : '');
             _fillBubble(bubble, seg);
         });
 
@@ -1042,6 +1108,7 @@
         // 提到 try 外:finally / catch 也要碰這兩個變數(清 throttle timer + 殘留 stream bubble)
         let streamWrap = null;
         let _rerenderTimer = null;
+        let _revealer = null;   // 🫧 一顆一顆放泡泡的那支（_createBubbleRevealer）
 
         try {
             // streaming 漸進式 render：stream 期間每收到 text/tool 事件就 destroy 舊 wrapper
@@ -1059,24 +1126,39 @@
             //   _ensureStreamShell()  → 第一次建 wrap + bubble + (optional) tool placeholder
             //   後續呼叫 → 直接 textContent = acc.text,零重排
             //   stream 結束 → finally 移除 streamWrap,再走 _renderClaudeBubble final(帶 markdown)
-            let _streamBubbleEl = null;
+            let _streamDotsEl = null;
             let _streamToolEl = null;
             const _ensureStreamShell = () => {
                 if (streamWrap) return;
                 streamWrap = document.createElement('div');
                 streamWrap.className = 'claude-bubble-wrap from-claude';
-                _streamBubbleEl = document.createElement('div');
-                _streamBubbleEl.className = 'claude-bubble from-claude';
-                streamWrap.appendChild(_streamBubbleEl);
+                // 🫧 寫到一半的那段不畫（會露出 ** 跟 -）：先放一顆點點，寫完一段就在點點前面冒出一顆
+                _streamDotsEl = document.createElement('div');
+                _streamDotsEl.className = 'claude-bubble from-claude claude-bubble-dots';
+                _streamDotsEl.innerHTML = DOTS_HTML;
+                streamWrap.appendChild(_streamDotsEl);
                 stream.appendChild(streamWrap);
+                _revealer = _createBubbleRevealer(streamWrap, _streamDotsEl, (seg) => {
+                    const el = document.createElement('div');
+                    el.className = 'claude-bubble from-claude claude-bubble-still';
+                    _fillReplyBubble(el, seg);
+                    return el;
+                }, _scrollClaudeChatToBottom);
+            };
+            // 切段跟最終那次畫法同一套：拿掉留言板標籤與 ASK 標記再切
+            const _replySegments = (raw, streaming) => {
+                const CT = window.ClaudeTerminal;
+                let shown = (CT && typeof CT.stripBoardTags === 'function')
+                    ? CT.stripBoardTags(raw, { streaming: streaming }) : raw;
+                if (!streaming && !shown && String(raw || '').trim()) shown = '（去留言板上動了一下）';
+                return _splitReplySegments(_parseAskMarkers(shown || '').stripped);
             };
             const _flushStreamingRender = () => {
                 _rerenderTimer = null;
                 _ensureStreamShell();
-                const CT = window.ClaudeTerminal;
-                const shown = (CT && typeof CT.stripBoardTags === 'function')
-                    ? CT.stripBoardTags(acc.text, { streaming: true }) : acc.text;
-                _streamBubbleEl.textContent = shown || '⏳ ...';
+                // 最後一段可能還在寫，只放前面寫完的
+                const segs = _replySegments(acc.text, true);
+                if (segs.length - 1 > _revealer.count) _revealer.push(segs.slice(_revealer.count, segs.length - 1));
                 if (acc.tools.length) {
                     if (!_streamToolEl) {
                         _streamToolEl = document.createElement('div');
@@ -1136,6 +1218,15 @@
                 _rerenderTimer = null;
             }
 
+            // 🫧 還沒冒出來的段落照同一個節奏放完（整則一次到的也是在這裡一顆一顆放），
+            //    放完才換成完整那份：思考、工具、附件、用量掛上去，泡泡不再播一次動畫
+            if (String(reply || '').trim()) {
+                _ensureStreamShell();
+                if (_streamToolEl && _streamToolEl.parentNode) _streamToolEl.parentNode.removeChild(_streamToolEl);
+                _revealer.push(_replySegments(reply, false).slice(_revealer.count));
+                await _revealer.drain();
+            }
+
             // 移除 stream 期間最後一個 placeholder wrap，下面做最終 render（含 markdown）
             if (streamWrap && streamWrap.parentNode) {
                 streamWrap.parentNode.removeChild(streamWrap);
@@ -1156,12 +1247,12 @@
                     '⚠️ 之前的 session 失效了（cc-bridge 重啟過 / log 被清 / 太久沒聊）。\n\n' +
                     '我從零開始記新對話了。如果想讓我知道之前聊過什麼，把重點再講一次給我聽吧。\n\n' +
                     '---\n\n' + reply,
-                    { thinking, usage, toolsUsed, attachments: images }
+                    { thinking, usage, toolsUsed, attachments: images, still: true }
                 );
                 _setClaudePortraitState('happy');
                 setTimeout(() => _setClaudePortraitState('living'), 600);
             } else {
-                _renderClaudeBubble('assistant', reply, { thinking, usage, toolsUsed, attachments: images });
+                _renderClaudeBubble('assistant', reply, { thinking, usage, toolsUsed, attachments: images, still: true });
                 _setClaudePortraitState('happy');
                 setTimeout(() => _setClaudePortraitState('living'), 600);
             }
@@ -1211,6 +1302,7 @@
                 clearTimeout(_rerenderTimer);
                 _rerenderTimer = null;
             }
+            if (_revealer) _revealer.stop();
             if (streamWrap && streamWrap.parentNode) {
                 streamWrap.parentNode.removeChild(streamWrap);
                 streamWrap = null;
@@ -1251,6 +1343,9 @@
     VoidClaudeRoom.buildToolSummary   = _buildToolSummary;
     VoidClaudeRoom.buildThinkingBlock = _buildThinkingBlock;
     VoidClaudeRoom.modelErrorText     = _modelErrorText;   // 群聊也照這句話畫系統提示
+    // 群聊也一顆一顆放泡泡，同一個節奏
+    VoidClaudeRoom.createBubbleRevealer = _createBubbleRevealer;
+    VoidClaudeRoom.DOTS_HTML          = DOTS_HTML;
     VoidClaudeRoom.toolDoingLabel     = _toolDoingLabel;
 
     console.log('✅ VoidClaudeRoom（Claude 房間 UI）模組就緒');
