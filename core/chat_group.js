@@ -372,6 +372,8 @@
             });
             return el;
         }
+        // 😺 她從表情包框送的那張：畫成圖（跟私聊同一支）
+        if (speaker === 'rae' && room && typeof room.renderUserSticker === 'function' && room.renderUserSticker(bubbleEl, clean)) return bubbleEl;
         bubbleEl.textContent = clean;
         return bubbleEl;
     }

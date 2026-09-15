@@ -854,6 +854,20 @@
         return true;
     }
 
+    /** 她的訊息整則只有一張表情包（![名字](網址)）→ 畫成圖、不套底框，回 true；不是回 false。群聊也借這支 */
+    function _renderUserSticker(el, text) {
+        const m = /^!\[([^\]\n]*)\]\((https?:\/\/[^\s)]+)\)$/.exec(String(text == null ? '' : text).trim());
+        if (!m) return false;
+        const img = document.createElement('img');
+        img.className = 'claude-md-img';
+        img.alt = m[1];
+        img.src = m[2];
+        el.textContent = '';
+        el.appendChild(img);
+        el.classList.add('claude-bubble-sticker');
+        return true;
+    }
+
     // 🫧 泡泡一顆一顆出來（她從三個小樣挑的第一個：點點等一下，再冒出一顆）
     const DOTS_HTML = '<i></i><i></i><i></i>';
 
@@ -974,6 +988,7 @@
         // 🫧 他的最終回覆切成好幾顆（空行分段、表情包自己一顆）；使用者訊息與串流中照舊一顆
         const _segs = (!isUser && !opts.suppressMarkdown) ? _splitReplySegments(content) : [content];
         const _fillBubble = (el, text) => {
+            if (isUser && _renderUserSticker(el, text)) return;   // 😺 她從表情包框送的那張
             if (isUser || opts.suppressMarkdown) {
                 // User 訊息 / streaming 中：raw text 顯示（streaming 期間每 chunk re-render
                 // 一次 markdown 太貴，stream 結束最後一次 render 才開 markdown）
@@ -1430,6 +1445,7 @@
     // 群聊也一顆一顆放泡泡，同一個節奏
     VoidClaudeRoom.createBubbleRevealer = _createBubbleRevealer;
     VoidClaudeRoom.DOTS_HTML          = DOTS_HTML;
+    VoidClaudeRoom.renderUserSticker  = _renderUserSticker;   // 群聊她送的表情包也畫成圖
     VoidClaudeRoom.toolDoingLabel     = _toolDoingLabel;
 
     console.log('✅ VoidClaudeRoom（Claude 房間 UI）模組就緒');

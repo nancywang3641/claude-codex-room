@@ -112,10 +112,12 @@
                 </div>
                 <div class="claude-picker-popup" id="claude-picker-popup" style="display:none;"></div>
                 <div class="claude-attach-chips" id="claude-attach-chips"></div>
+                <div class="claude-stk-panel" id="claude-stk-panel" hidden></div>
                 <input type="file" id="claude-file-input" multiple style="display:none;"
                        accept="image/*,application/pdf,.txt,.md,.json,.csv,.js,.ts,.py,.html,.css,.yml,.yaml,.toml,.log">
                 <div class="cw-input-row">
                     <textarea id="cw-input" class="cw-input" placeholder="對 Claude 說點什麼..." rows="1" autocomplete="off"></textarea>
+                    <button class="cw-attach-btn claude-stk-btn" id="claude-stk-btn" type="button" title="表情包"><i class="fa-regular fa-face-smile"></i></button>
                     <button class="cw-attach-btn" id="claude-attach-btn" type="button" title="附加檔案">📎</button>
                     <button class="cw-send-btn" id="cw-send-btn" type="button"><i class="fa-solid fa-paper-plane"></i></button>
                 </div>
@@ -359,6 +361,16 @@
                 fileInput.value = '';
             };
         }
+        // 😺 表情包框：按一下開、再按一下收
+        const stkBtn = el.querySelector('#claude-stk-btn');
+        const stkPanel = el.querySelector('#claude-stk-panel');
+        if (stkBtn && stkPanel) {
+            stkBtn.onclick = (e) => {
+                e.stopPropagation();
+                if (stkPanel.hidden) { _renderStickerPanel(el); stkPanel.hidden = false; }
+                else stkPanel.hidden = true;
+            };
+        }
         if (pickerBtn) {
             pickerBtn.onclick = (e) => {
                 e.stopPropagation();
@@ -370,6 +382,130 @@
                 }
             };
         }
+    }
+
+    // ── 😺 表情包框 ──
+    // 直接讀奧瑞亞微信那份庫（os_sticker_libs：{id, name, baseUrl, stickers:[{name, file}]}）。
+    // 一份就是一份：這裡不另存，匯入也交給微信那支 WX_STICKER.importFromFile，寫進同一份。
+    // 點一張就送出 ![名字](網址)：小機看得到名字，房間把它畫成圖。
+    const STK_RECENT_KEY = 'ccr_sticker_recent';
+    const STK_RECENT_MAX = 16;
+    let _stkTab = '';
+    function _stkLibs() {
+        try {
+            const l = JSON.parse(localStorage.getItem('os_sticker_libs') || '[]');
+            return Array.isArray(l) ? l.filter(x => x && Array.isArray(x.stickers) && x.stickers.length) : [];
+        } catch (_) { return []; }
+    }
+    function _stkUrl(lib, file) {
+        if (!file) return '';
+        const u = /^https?:\/\//i.test(file) ? file : String(lib.baseUrl || '').replace(/\/?$/, '/') + file;
+        return u.replace(/[^\x00-\x7F]/g, c => encodeURIComponent(c)).replace(/ /g, '%20');
+    }
+    function _stkRecent() {
+        try {
+            const r = JSON.parse(localStorage.getItem(STK_RECENT_KEY) || '[]');
+            return Array.isArray(r) ? r.filter(x => x && x.url) : [];
+        } catch (_) { return []; }
+    }
+    function _stkRemember(item) {
+        try {
+            const r = _stkRecent().filter(x => x.url !== item.url);
+            r.unshift({ name: item.name, url: item.url });
+            localStorage.setItem(STK_RECENT_KEY, JSON.stringify(r.slice(0, STK_RECENT_MAX)));
+        } catch (_) {}
+    }
+    function _sendSticker(el, item) {
+        const name = String(item.name || '').replace(/[\[\]()\n]/g, ' ').trim();
+        const md = '![' + name + '](' + item.url + ')';
+        _stkRemember(item);
+        const panel = el.querySelector('#claude-stk-panel');
+        if (panel) panel.hidden = true;
+        if (_provider === 'group') {
+            if (window.ChatGroup && typeof window.ChatGroup.sendUserMessage === 'function') window.ChatGroup.sendUserMessage(md);
+        } else if (window.VoidClaudeRoom && typeof window.VoidClaudeRoom.sendMessage === 'function') {
+            window.VoidClaudeRoom.sendMessage(md);
+        }
+    }
+    function _renderStickerPanel(el) {
+        const panel = el.querySelector('#claude-stk-panel');
+        if (!panel) return;
+        const libs = _stkLibs();
+        const recent = _stkRecent();
+        const tabDefs = [];
+        if (recent.length) tabDefs.push({ id: '__recent', name: '最近' });
+        libs.forEach(l => tabDefs.push({ id: l.id, name: l.name || '表情包' }));
+        if (!tabDefs.some(t => t.id === _stkTab)) _stkTab = tabDefs.length ? tabDefs[0].id : '';
+
+        panel.innerHTML = '';
+        const tabs = document.createElement('div');
+        tabs.className = 'claude-stk-tabs';
+        tabDefs.forEach(t => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'claude-stk-tab' + (t.id === _stkTab ? ' is-on' : '');
+            b.textContent = t.name;
+            b.onclick = (e) => { e.stopPropagation(); _stkTab = t.id; _renderStickerPanel(el); };
+            tabs.appendChild(b);
+        });
+        // 匯入：交給奧瑞亞微信那支，寫進同一份庫；房間單獨裝、沒有奧瑞亞時不顯示
+        const W = window.WX_STICKER;
+        const canImport = !!(W && typeof W.importFromFile === 'function');
+        if (canImport) {
+            const file = document.createElement('input');
+            file.type = 'file';
+            file.accept = '.txt,text/plain';
+            file.hidden = true;
+            file.onchange = () => {
+                if (!file.files || !file.files.length) return;
+                W.importFromFile(file);
+                setTimeout(() => { _stkTab = ''; _renderStickerPanel(el); }, 400);
+            };
+            const imp = document.createElement('button');
+            imp.type = 'button';
+            imp.className = 'claude-stk-import';
+            imp.innerHTML = '<i class="fa-solid fa-file-import"></i><span>匯入</span>';
+            imp.onclick = (e) => { e.stopPropagation(); file.click(); };
+            tabs.appendChild(imp);
+            tabs.appendChild(file);
+        }
+        panel.appendChild(tabs);
+
+        const grid = document.createElement('div');
+        grid.className = 'claude-stk-grid';
+        let items = [];
+        if (_stkTab === '__recent') {
+            items = recent;
+        } else {
+            const lib = libs.find(l => l.id === _stkTab);
+            if (lib) items = lib.stickers.map(s => ({ name: s.name, url: _stkUrl(lib, s.file) })).filter(x => x.url);
+        }
+        if (!items.length) {
+            const empty = document.createElement('div');
+            empty.className = 'claude-stk-empty';
+            empty.textContent = canImport ? '還沒有表情包，按「匯入」選一份表情包清單' : '還沒有表情包，到奧瑞亞微信的表情包設定匯入';
+            grid.appendChild(empty);
+        }
+        items.forEach(it => {
+            const cell = document.createElement('button');
+            cell.type = 'button';
+            cell.className = 'claude-stk-item';
+            cell.title = it.name || '';
+            const img = document.createElement('img');
+            img.loading = 'lazy';
+            img.alt = it.name || '';
+            img.src = it.url;
+            img.onerror = () => {
+                const fb = document.createElement('span');
+                fb.className = 'claude-stk-fallback';
+                fb.textContent = it.name || '';
+                img.replaceWith(fb);
+            };
+            cell.appendChild(img);
+            cell.onclick = (e) => { e.stopPropagation(); _sendSticker(el, it); };
+            grid.appendChild(cell);
+        });
+        panel.appendChild(grid);
     }
 
     // 載入當前 provider 的 conv 歷史並渲染進浮窗

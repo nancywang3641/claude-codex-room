@@ -464,6 +464,101 @@
     box-shadow: 0 0 12px rgba(42, 74, 128, 0.4);
 }
 
+/* ── 😺 表情包框：輸入列上方，分包頁籤＋格子（讀奧瑞亞微信那份庫）── */
+#aurelia-chat-window .claude-stk-panel {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 10px 6px;
+    background: var(--cl-cream-light, #f4efe3);
+    border-top: 1px solid rgba(42, 74, 128, 0.22);
+}
+#aurelia-chat-window .claude-stk-panel[hidden] { display: none; }
+#aurelia-chat-window .claude-stk-tabs {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+#aurelia-chat-window .claude-stk-tabs::-webkit-scrollbar { display: none; }
+#aurelia-chat-window .claude-stk-tab,
+#aurelia-chat-window .claude-stk-import {
+    flex-shrink: 0;
+    border: 1px solid rgba(42, 74, 128, 0.3);
+    background: #ffffff;
+    color: var(--cl-cafe-latte, #46639b);
+    border-radius: 999px;
+    padding: 3px 10px;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: nowrap;
+    cursor: pointer;
+}
+#aurelia-chat-window .claude-stk-tab.is-on {
+    background: var(--cl-grenadine, #2a4a80);
+    border-color: transparent;
+    color: #ffffff;
+}
+#aurelia-chat-window .claude-stk-import {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: transparent;
+}
+#aurelia-chat-window .claude-stk-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(58px, 1fr));
+    gap: 6px;
+    max-height: 196px;
+    overflow-y: auto;
+}
+#aurelia-chat-window .claude-stk-item {
+    aspect-ratio: 1;
+    max-width: 100%;
+    border: 0;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.7);
+    padding: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    cursor: pointer;
+}
+#aurelia-chat-window .claude-stk-item:hover {
+    background: #ffffff;
+    box-shadow: 0 0 0 1px var(--cl-beeswax, #b9924f);
+}
+#aurelia-chat-window .claude-stk-item img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+#aurelia-chat-window .claude-stk-fallback {
+    font-size: 11px;
+    color: var(--cl-cafe-latte, #46639b);
+    text-align: center;
+    word-break: break-all;
+}
+#aurelia-chat-window .claude-stk-empty {
+    grid-column: 1 / -1;
+    padding: 18px 8px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--cl-cafe-latte, #46639b);
+}
+/* 她送的表情包：跟小機那邊一樣不套底框 */
+#aurelia-chat-window .claude-chat-stream .claude-bubble.from-user.claude-bubble-sticker,
+#aurelia-chat-window .cg-bubble.cg-from-rae.claude-bubble-sticker {
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    padding: 0;
+}
+
 /* ============================================================
  * 子面板內容：設置 / 會話（額度 / 留言板在各自 css 檔）
  * 統一暖色紙皮,顏色吃 --cl-* 變數（Codex 房自動轉冷色）。
