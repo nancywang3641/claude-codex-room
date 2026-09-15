@@ -931,6 +931,14 @@
                 if (typingWrap && typingWrap.parentNode) typingWrap.parentNode.removeChild(typingWrap);
                 return { spoke: false, failed: true, markers: {} };
             }
+            // 模型那邊擋下或出錯：拿掉他那顆「正在輸入」，改一行系統提示（不是他講的話）
+            const _me = (window.VoidClaudeRoom && typeof window.VoidClaudeRoom.modelErrorText === 'function')
+                ? window.VoidClaudeRoom.modelErrorText(err) : null;
+            if (_me) {
+                if (typingWrap && typingWrap.parentNode) typingWrap.parentNode.removeChild(typingWrap);
+                _renderSystemLine(_labelOf(rid) + '：' + _me);
+                return { spoke: false, failed: true, markers: {} };
+            }
             if (bubbleEl) {
                 bubbleEl.classList.remove('cg-typing');
                 bubbleEl.classList.add('cg-error');

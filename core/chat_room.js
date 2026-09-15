@@ -742,6 +742,30 @@
         document.body.appendChild(ov);
     }
 
+    /** 模型那邊擋下或出錯（送出時丟的 REFUSED: / MODEL_ERROR:<種類>）→ 給她看的一句話；其他錯誤 → null */
+    function _modelErrorText(err) {
+        const m = /^(REFUSED|MODEL_ERROR):(.*)$/.exec(String((err && err.message) || err || ''));
+        if (!m) return null;
+        if (m[1] === 'REFUSED') return '這則被模型那邊的安全檢查擋下來了，他沒收到。再傳一次通常就會過。';
+        switch (m[2]) {
+            case 'rate_limit':            return '模型那邊的用量到上限了，這則沒送出，晚一點再傳。';
+            case 'billing_error':         return '模型那邊的帳號額度有問題，這則沒送出。';
+            case 'authentication_failed': return '模型那邊的登入失效了，這則沒送出。';
+            default:                      return '模型那邊出錯了，這則沒送出，再傳一次試試。';
+        }
+    }
+
+    /** 一行系統提示：置中小字，不是誰講的話，也不存進記錄 */
+    function _renderClaudeNotice(text) {
+        const stream = _el('claude-chat-stream');
+        if (!stream) return;
+        const d = document.createElement('div');
+        d.className = 'claude-sys-line';
+        d.textContent = text;
+        stream.appendChild(d);
+        _scrollClaudeChatToBottom();
+    }
+
     /** 思考摺疊塊：泡泡上面一條「思考」，點開看模型的思考摘要。沒內容 → null */
     function _buildThinkingBlock(thinking) {
         const text = String(thinking || '').trim();
@@ -1151,6 +1175,10 @@
                 // 主動停止：靜默顯示已停止氣泡，不噴錯誤
                 _setClaudePortraitState('living');
                 _renderClaudeBubble('assistant', '⏹ 已停止');
+            } else if (_modelErrorText(e)) {
+                // 模型那邊擋下或出錯：一行系統提示，不畫成他的泡泡
+                _setClaudePortraitState('living');
+                _renderClaudeNotice(_modelErrorText(e));
             } else {
                 _setClaudePortraitState('error');
                 const raw = (e && e.message) || '未知錯誤';
@@ -1216,6 +1244,7 @@
     // 群聊借這兩支：折疊塊與串流中的人話標籤，兩邊長一樣、只維護一份
     VoidClaudeRoom.buildToolSummary   = _buildToolSummary;
     VoidClaudeRoom.buildThinkingBlock = _buildThinkingBlock;
+    VoidClaudeRoom.modelErrorText     = _modelErrorText;   // 群聊也照這句話畫系統提示
     VoidClaudeRoom.toolDoingLabel     = _toolDoingLabel;
 
     console.log('✅ VoidClaudeRoom（Claude 房間 UI）模組就緒');

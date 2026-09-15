@@ -189,6 +189,19 @@
 }
 .claude-thinking.open .claude-thinking-content { display: block; }
 
+/* 一行系統提示（模型那邊擋下或出錯）：置中小字，不是誰講的話 */
+.claude-sys-line {
+    align-self: center;
+    max-width: 90%;
+    text-align: center;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--cl-cafe-latte, #46639b);
+    opacity: 0.85;
+    margin: 4px 0;
+    padding: 0 12px;
+}
+
 /* tool summary 摺疊塊（仿 Claude.ai 桌面端「Edited 2 files, ran a command」） */
 /* 串流當下的「他正在做什麼」。跟折疊塊同一套配色，但它不是可以點開的東西，
    所以拿掉 cursor:pointer、改成呼吸的透明度，讓它讀起來像「還在進行中」。

@@ -1402,6 +1402,7 @@ ${withOthers}
         let thinking = null;
         let imagesAcc = null;
         let usedTurn = false;
+        let apiError = null;   // 舊版串流那條收到的模型錯誤（橋的 done chunk api_error）
         try {
             const t = await _ccBridgeTurn(cfg, body, onProgress, sendOpts && sendOpts.signal,
                 { taskId: sendOpts && sendOpts.taskId });
@@ -1500,6 +1501,7 @@ ${withOthers}
                             if (chunk.session_id !== undefined) newSid = chunk.session_id;
                             if (chunk.usage_meta) usageMeta = chunk.usage_meta;
                             if (typeof chunk.thinking === 'string' && chunk.thinking.trim()) thinking = chunk.thinking;
+                            if (chunk.api_error) apiError = chunk.api_error;
                             if (Array.isArray(chunk.images) && chunk.images.length) imagesAcc = chunk.images;
                         }
                     }
@@ -1510,6 +1512,10 @@ ${withOthers}
             }
         }
 
+        if (apiError && !replyAcc.trim()) {
+            await ClaudeTerminal.saveHistory(history);
+            throw new Error((apiError.refusal ? 'REFUSED:' : 'MODEL_ERROR:') + (apiError.kind || 'unknown'));
+        }
         const reply = replyAcc.trim();
         // Codex 生圖回合可能整段沒文字、只有圖 —— 有圖就不算 EMPTY
         const imageAttachments = await _processIncomingImages(imagesAcc);
@@ -1643,7 +1649,8 @@ ${withOthers}
             if (Array.isArray(st.images) && st.images.length) imagesAcc = st.images;
 
             if (st.status === 'running') { await _turnSleep(TURN_POLL_MS); continue; }
-            if (st.status === 'error') throw new Error('SERVER:' + (st.error || '這輪跑失敗了。'));
+            // REFUSED / MODEL_ERROR：模型那邊擋下或出錯（橋的 turns 標的），原樣往上丟，畫面照這兩個開頭畫系統提示
+            if (st.status === 'error') throw new Error(/^(REFUSED|MODEL_ERROR):/.test(st.error || '') ? st.error : 'SERVER:' + (st.error || '這輪跑失敗了。'));
             if (st.status === 'cancelled') {
                 const ab = new Error('Aborted'); ab.name = 'AbortError'; throw ab;
             }
@@ -1700,7 +1707,7 @@ ${withOthers}
         }
         const reader = resp.body.getReader();
         const decoder = new TextDecoder();
-        let buf = '', replyAcc = '', newSid = null, usageMeta = null, imagesAcc = null, thinking = '';
+        let buf = '', replyAcc = '', newSid = null, usageMeta = null, imagesAcc = null, thinking = '', apiError = null;
         const toolsUsed = [];
         try {
             while (true) {
@@ -1736,6 +1743,7 @@ ${withOthers}
                         if (chunk.session_id !== undefined) newSid = chunk.session_id;
                         if (chunk.usage_meta) usageMeta = chunk.usage_meta;
                         if (typeof chunk.thinking === 'string' && chunk.thinking.trim()) thinking = chunk.thinking;
+                        if (chunk.api_error) apiError = chunk.api_error;
                         if (Array.isArray(chunk.images) && chunk.images.length) imagesAcc = chunk.images;
                     }
                 }
@@ -1743,6 +1751,9 @@ ${withOthers}
         } catch (e) {
             if (e && e.name === 'AbortError') throw e;
             throw new Error('STREAM:讀取流失敗：' + (e.message || e));
+        }
+        if (apiError && !replyAcc.trim()) {
+            throw new Error((apiError.refusal ? 'REFUSED:' : 'MODEL_ERROR:') + (apiError.kind || 'unknown'));
         }
         const reply = replyAcc.trim();
         const images = await _processIncomingImages(imagesAcc);
