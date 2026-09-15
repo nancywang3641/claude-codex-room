@@ -377,7 +377,7 @@
 
     /** 把「🔧 跑了 N 個命令」那顆折疊塊掛在氣泡下面。
      *  借一對一房間那顆（VoidClaudeRoom.buildToolSummary）—— 兩邊長一樣、只維護一份。
-     *  群聊的 sendGroup 一直有回 toolsUsed，只是從來沒畫出來。 */
+     *  sendGroup 以前沒把 toolsUsed 帶回來，這裡一直收到空的，摺疊塊從來沒畫出來過。 */
     function _attachTools(bubbleEl, toolsUsed) {
         if (!bubbleEl || !Array.isArray(toolsUsed) || !toolsUsed.length) return;
         if (!window.VoidClaudeRoom || typeof window.VoidClaudeRoom.buildToolSummary !== 'function') return;

@@ -1664,7 +1664,7 @@ ${withOthers}
             const t = await _ccBridgeTurn(cfg, body, onProgress, signal);
             const imgs = await _processIncomingImages(t.imagesRaw);
             if (!t.reply && !imgs.length) throw new Error('EMPTY:沒回半個字。');
-            return { reply: t.reply, newSid: t.newSid, usage: t.usage, images: imgs };
+            return { reply: t.reply, newSid: t.newSid, usage: t.usage, images: imgs, toolsUsed: t.toolsUsed, thinking: t.thinking };
         } catch (e) {
             if ((e && e.message) !== 'NO_ENDPOINT') throw e;
         }
@@ -1700,7 +1700,8 @@ ${withOthers}
         }
         const reader = resp.body.getReader();
         const decoder = new TextDecoder();
-        let buf = '', replyAcc = '', newSid = null, usageMeta = null, imagesAcc = null;
+        let buf = '', replyAcc = '', newSid = null, usageMeta = null, imagesAcc = null, thinking = '';
+        const toolsUsed = [];
         try {
             while (true) {
                 const { done, value } = await reader.read();
@@ -1726,11 +1727,15 @@ ${withOthers}
                         // 他動手做事的訊號（跑命令、生圖都走這條）。私聊那條路徑本來就在轉發，
                         // 群聊這條漏了 —— 症狀是他生圖那三十秒畫面上只有「正在輸入…」，
                         // 訊號一直有送，只是沒人接。
-                        if (chunk.tool_use && typeof onProgress === 'function') {
-                            try { onProgress({ type: 'tool_use', tool: chunk.tool_use }); } catch (_) {}
+                        if (chunk.tool_use) {
+                            toolsUsed.push(chunk.tool_use);
+                            if (typeof onProgress === 'function') {
+                                try { onProgress({ type: 'tool_use', tool: chunk.tool_use }); } catch (_) {}
+                            }
                         }
                         if (chunk.session_id !== undefined) newSid = chunk.session_id;
                         if (chunk.usage_meta) usageMeta = chunk.usage_meta;
+                        if (typeof chunk.thinking === 'string' && chunk.thinking.trim()) thinking = chunk.thinking;
                         if (Array.isArray(chunk.images) && chunk.images.length) imagesAcc = chunk.images;
                     }
                 }
@@ -1742,7 +1747,7 @@ ${withOthers}
         const reply = replyAcc.trim();
         const images = await _processIncomingImages(imagesAcc);
         if (!reply && !images.length) throw new Error('EMPTY:沒回半個字。');
-        return { reply: reply, newSid: newSid, usage: usageMeta, images: images };
+        return { reply: reply, newSid: newSid, usage: usageMeta, images: images, toolsUsed: toolsUsed, thinking: thinking };
     }
 
     // cc-bridge 請求排隊：一次只跑一個，避免群聊與畫布同時打 cc-bridge 撞串流。
@@ -1827,7 +1832,7 @@ ${withOthers}
         if (Number.isFinite(cfg.top_p)) body.top_p = cfg.top_p;
 
         const r = await _ccBridgePostQueued(cfg, body, opts.onProgress, opts.signal);
-        return { reply: r.reply, sessionId: r.newSid || sid, usage: r.usage, images: r.images || [], thinking: r.thinking || '' };
+        return { reply: r.reply, sessionId: r.newSid || sid, usage: r.usage, images: r.images || [], toolsUsed: r.toolsUsed || [], thinking: r.thinking || '' };
     };
 
     /**
