@@ -477,7 +477,8 @@
     }
 
     /** 串流當下要顯示的那句人話。「使用工具中...(3)」是機器在講話，
-     *  而她要的是知道「他現在在幹嘛」。先看工具名，Bash 再往指令內容猜。 */
+     *  而她要的是知道「他現在在幹嘛」。先看工具名，Bash 有中文說明就照念，
+     *  沒有才往指令內容猜。 */
     function _toolDoingLabel(tool) {
         const name = String((tool && tool.name) || '');
         const cmd  = String((tool && tool.input && tool.input.command) || '').toLowerCase();
@@ -485,11 +486,14 @@
         if (/^(Read|NotebookRead)$/.test(name))                 return '正在讀檔…';
         if (/^(Grep|Glob)$/.test(name))                         return '正在找東西…';
         if (/^(WebFetch|WebSearch)$/.test(name))                return '正在上網查…';
+        // 他自己寫的中文說明比我們猜的準，Bash 有 description 就照著念。
+        const desc = String((tool && tool.input && tool.input.description) || '').trim();
+        if (name === 'Bash' && desc) return (desc.length > 24 ? desc.slice(0, 24) + '…' : desc + '…');
         if (/image[-_ ]?gen|imagegen|generate[-_ ]?image/.test(cmd)) return '正在畫圖…';
         if (/curl|wget|fetch|http/.test(cmd))                   return '正在上網查…';
-        if (/git/.test(cmd))                               return '正在翻程式碼…';
-        if (/(cat|type|head|tail|less)/.test(cmd))          return '正在讀檔…';
-        if (/(ls|dir|find|grep|rg)/.test(cmd))              return '正在找東西…';
+        if (/\bgit\b/.test(cmd))                               return '正在翻程式碼…';
+        if (/\b(cat|type|head|tail|less)\b/.test(cmd))          return '正在讀檔…';
+        if (/\b(ls|dir|find|grep|rg)\b/.test(cmd))              return '正在找東西…';
         if (name === 'Bash')                                     return '正在跑指令…';
         return '正在動手…';
     }
@@ -528,7 +532,9 @@
             const p = (inp.file_path || inp.notebook_path || '');
             return p ? p.replace(/^.*[\\/]/, '') : '';  // basename only
         }
-        if (name === 'Bash')      return (inp.command || '').slice(0, 80);
+        // Bash 的 description 是他自己寫的中文說明（「找工具標籤的函式」），
+        // 指令原文她看不懂。有說明就給說明，沒有才退回指令。
+        if (name === 'Bash')      return (String(inp.description || '').trim() || inp.command || '').slice(0, 80);
         if (name === 'Grep')      return (inp.pattern || '').slice(0, 60) + (inp.path ? ` in ${inp.path.replace(/^.*[\\/]/, '')}` : '');
         if (name === 'Glob')      return (inp.pattern || '').slice(0, 60);
         if (name === 'WebFetch')  return (inp.url || '').slice(0, 80);
