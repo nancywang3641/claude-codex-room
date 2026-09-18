@@ -946,7 +946,11 @@
         header.innerHTML = '<i class="fa-solid fa-chevron-right claude-thinking-toggle"></i><i class="fa-solid fa-brain"></i><span>思考</span>';
         const body = document.createElement('div');
         body.className = 'claude-thinking-content';
-        body.textContent = text;
+        // 思考摘要常帶 **小標**（阿洛那條整段都是這種）：跟泡泡同一支排版，不然星號原樣印出來
+        let html = '';
+        try { html = _claudeMarkdownToSafeHtml(text); } catch (_) { html = ''; }
+        if (html) { body.classList.add('is-md'); body.innerHTML = html; }
+        else body.textContent = text;
         t.appendChild(header); t.appendChild(body);
         t.addEventListener('click', () => t.classList.toggle('open'));
         return t;

@@ -188,6 +188,9 @@
     font-style: italic; line-height: 1.5; white-space: pre-wrap;
 }
 .claude-thinking.open .claude-thinking-content { display: block; }
+.claude-thinking-content.is-md { white-space: normal; }
+.claude-thinking-content.is-md p { margin: 0 0 4px; }
+.claude-thinking-content.is-md p:last-child { margin-bottom: 0; }
 
 /* 一行系統提示（模型那邊擋下或出錯）：置中小字，不是誰講的話 */
 .claude-sys-line {
