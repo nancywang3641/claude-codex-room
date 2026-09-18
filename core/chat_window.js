@@ -323,8 +323,10 @@
                         return;
                     }
                 }
-                // 一般送出
-                if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+                // 一般送出：電腦 Enter 送出、Shift+Enter 換行。
+                //   手機螢幕鍵盤那顆是「換行」，她在 iPhone 上按它是要換行，以前一按就送出去；手機上送出一律按送出鍵。
+                const touchKb = (() => { try { return !!(window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches); } catch (_) { return false; } })();
+                if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229 && !touchKb) {
                     e.preventDefault();
                     ChatWindow.submitInput();
                 }
