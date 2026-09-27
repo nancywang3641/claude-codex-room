@@ -570,6 +570,11 @@
         } catch (_) { /* 連不到橋：房間聊天本來就會自己報，這裡不多話 */ }
     }
 
+    /** 他在聊天裡動了房間：重畫目前開著的那間（群聊沒有上半部那塊，不畫） */
+    ChatWindow.refreshDecor = function () {
+        if (_winEl && _isOpen && _view === 'room' && _provider !== 'group') _renderDecor(_provider);
+    };
+
     async function _loadRoom(provider) {
         const cwBody = _winEl && _winEl.querySelector('#cw-body');
         // 🧹 摘要按鈕只在群聊房顯示

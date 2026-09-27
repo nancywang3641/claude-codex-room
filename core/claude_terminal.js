@@ -1320,15 +1320,17 @@ ${withOthers}
         return out;
     }
 
-    // ===== 留言板標籤 =====
+    // ===== 留言板標籤、房間布置標籤 =====
     // 小機在回覆裡寫 <board_post>／<board_like id="17"/>／<board_comment id>／<board_reply id to>／<board_proposal>，
     // 橋（board_social.py）收完回覆替他做完；畫面上要拿掉，逐字稿照存原文。
+    // 房間布置（橋的 room_decor.py）同一套：<room_place …>一整張 svg</room_place>、<room_paint/>、<room_move/>、<room_remove/>，
+    // 尤其 room_place 裡是整段 svg 程式碼，串流中還沒寫到結尾也要先藏著。
     // 容錯跟橋同一套：全形括號與引號、屬性不加引號、讚沒寫斜線；反引號與程式碼區塊裡的是他在講解，原樣留著。
     const _BOARD_CODE_RE = /```[\s\S]*?```|`[^`\n]*`/g;
-    const _BOARD_PAIR_RE = /[<＜]\s*board_(post|comment|reply|like|proposal)\b[^>＞]*?(?:\/\s*[>＞]|[>＞][\s\S]*?[<＜]\s*\/\s*board_\1\s*[>＞])/gi;
-    const _BOARD_SINGLE_RE = /[<＜]\s*board_like\b[^>＞]*?\/?\s*[>＞]/gi;
-    const _BOARD_OPEN_RE = /[<＜]\s*board_(?:post|comment|reply|proposal)\b[\s\S]*$/i;
-    const _BOARD_TAIL_RE = /[<＜]\s*\/?\s*(?:b(?:o(?:a(?:r(?:d(?:_[^>＞]*)?)?)?)?)?)?$/i;
+    const _BOARD_PAIR_RE = /[<＜]\s*(board_(?:post|comment|reply|like|proposal)|room_place)\b[^>＞]*?(?:\/\s*[>＞]|[>＞][\s\S]*?[<＜]\s*\/\s*\1\s*[>＞])/gi;
+    const _BOARD_SINGLE_RE = /[<＜]\s*(?:board_like|room_(?:paint|move|remove))\b[^>＞]*?\/?\s*[>＞]/gi;
+    const _BOARD_OPEN_RE = /[<＜]\s*(?:board_(?:post|comment|reply|proposal)|room_place)\b[\s\S]*$/i;
+    const _BOARD_TAIL_RE = /[<＜]\s*\/?\s*(?:b(?:o(?:a(?:r(?:d(?:_[^>＞]*)?)?)?)?)?|r(?:o(?:o(?:m(?:_[^>＞]*)?)?)?)?)?$/i;
     function _boardInCode(s, pos) {
         let hit = false;
         s.replace(_BOARD_CODE_RE, function (m, off) { if (pos >= off && pos < off + m.length) hit = true; return m; });
@@ -1401,6 +1403,8 @@ ${withOthers}
         if (_selfRes && _selfRes.chatOnly) { body.use_sdk = true; body.bare = true; }
         // 留言板：橋每輪附板子近況給他、回完替他執行 <board_…> 標籤。住戶互叫不經這裡，不帶。
         if (_selfRes && _selfRes.name) { body.cc_board = true; body.cc_board_name = String(_selfRes.name); }
+        // 他的房間：橋附房間近況、回完替他執行 <room_…> 標籤。房間用名冊 id 認，改名不會不見。
+        if (_selfRes && _selfRes.id) body.cc_room_id = String(_selfRes.id);
         if (incomingSid) body.session_id = incomingSid;
         if (Number.isFinite(cfg.temperature)) body.temperature = cfg.temperature;
         if (Number.isFinite(cfg.top_p)) body.top_p = cfg.top_p;
@@ -1548,6 +1552,12 @@ ${withOthers}
         if (toolsUsed.length) assistantMsg.tools_used = toolsUsed;
         if (imageAttachments.length) assistantMsg.attachments = imageAttachments;
         await ClaudeTerminal.saveHistory([...updatedHistory, assistantMsg]);
+
+        // 他這輪動了房間：橋收完回覆才在背景替他做，晚一下再重畫上半部那塊
+        if (/[<＜]\s*room_(?:place|paint|move|remove)\b/i.test(reply)
+            && window.ChatWindow && typeof window.ChatWindow.refreshDecor === 'function') {
+            setTimeout(() => window.ChatWindow.refreshDecor(), 1500);
+        }
 
         return { reply, thinking, usage: usageMeta, sessionFallback, toolsUsed, images: imageAttachments };
     }
@@ -1852,6 +1862,8 @@ ${withOthers}
         body.keep_system = true;
         // 留言板：同一對一那條。舊版呼叫（LP.chat 那些）沒有席位，不帶。
         if (seat && seat.name) { body.cc_board = true; body.cc_board_name = String(seat.name); }
+        // 房間：同一對一那條，在群聊裡也動得了自己的房間
+        if (opts.residentId) body.cc_room_id = String(opts.residentId);
         if (sid) body.session_id = sid;
         if (Array.isArray(opts.attachments) && opts.attachments.length) body.attachments = opts.attachments;
         if (Number.isFinite(cfg.temperature)) body.temperature = cfg.temperature;
