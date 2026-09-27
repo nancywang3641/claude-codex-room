@@ -232,8 +232,9 @@
 
     function _b64(s) { return btoa(unescape(encodeURIComponent(s))); }
 
+    // 沒打扮過一律用預設樣子自己的顏色：舊版的橋沒換過也會回小螃蟹的橘，洛德照單全收就變成一隻橘色幽靈
     function _bodyOf(wear, base) {
-        return /^#[0-9a-f]{3,6}$/i.test((wear && wear.body) || '') ? wear.body : BASES[base].body;
+        return (wear && wear.own && /^#[0-9a-f]{3,6}$/i.test(wear.body || '')) ? wear.body : BASES[base].body;
     }
 
     function _wornOf(wear) {

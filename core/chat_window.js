@@ -103,7 +103,7 @@
                 <div class="claude-chat-stream" id="claude-chat-stream"></div>
                 <div class="claude-picker-bar" id="claude-picker-bar">
                     <button class="claude-picker-btn" id="claude-picker-btn" type="button">
-                        <span id="claude-pick-model">Fable 5</span>
+                        <span id="claude-pick-model">Fable 5.1</span>
                         <span class="claude-pick-sep" id="claude-pick-sep1">·</span>
                         <span id="claude-pick-effort">🧠 medium</span>
                         <span class="claude-pick-sep" id="claude-pick-sep2">·</span>

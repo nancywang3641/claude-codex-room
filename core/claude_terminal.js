@@ -196,7 +196,7 @@ ${withOthers}
     //   codex/deepseek 預設空字串 = 不傳 --model,讓 CLI 自己用預設
     function _modelFor(c, prov) {
         const pm = (c && c.providerModels) || {};
-        if (prov === 'claude') return (pm.claude || c.inlineModel || c.model || 'claude-opus-4-7').trim();
+        if (prov === 'claude') return (pm.claude || c.inlineModel || c.model || 'claude-fable-5-1').trim();
         return (pm[prov] || '').trim();
     }
 

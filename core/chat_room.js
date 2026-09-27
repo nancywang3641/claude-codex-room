@@ -65,26 +65,32 @@
     // 優先度：段落空行 > 單換行 > 句末標點 > 逗號 > 字數硬切
     // ===== Claude inline picker（聊天室上方橫條：model / effort / endpoint） =====
 
-    // Claude 5 家族(2026):Fable 5 是新的 Mythos 級旗艦,坐在 Opus 之上。
-    // 舊 4.x 只留 Opus 4.7 —— 既有存檔選的是它,拿掉的話 label 會退成裸 id。
+    // 照 Claude 官方 app 的選單（2026-09-28 她貼的）：前四個是現行，後面是「More models」裡的舊版。
+    // 舊的都留著——既有存檔或鎖了模型的住戶（天天鎖 4.6）選的是它們，拿掉的話 label 會退成裸 id。
     const CLAUDE_MODELS = [
-        { id: 'claude-fable-5',            label: 'Fable 5 ⭐'    },
-        { id: 'claude-opus-5',             label: 'Opus 5'        },
+        { id: 'claude-opus-5-5',           label: 'Opus 5.5'      },
+        { id: 'claude-fable-5-1',          label: 'Fable 5.1 ⭐'  },
         { id: 'claude-sonnet-5',           label: 'Sonnet 5'      },
         { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5'     },
+        { id: 'claude-opus-5',             label: 'Opus 5(舊)'    },
+        { id: 'claude-fable-5',            label: 'Fable 5(舊)'   },
+        { id: 'claude-opus-4-8',           label: 'Opus 4.8(舊)'  },
         { id: 'claude-opus-4-7',           label: 'Opus 4.7(舊)'  },
         { id: 'claude-opus-4-6',           label: 'Opus 4.6(舊)'  },
+        { id: 'claude-sonnet-4-6',         label: 'Sonnet 4.6(舊)' },
     ];
     // Codex CLI 走 ~/.codex/config.toml 決定預設主模型,也接受 --model 字串 hint。
-    // 清單按 ChatGPT App / Codex 訂閱帳號當前能 access 的 model 命名(小寫破折號)。
-    // 如果跑時報 "model not found" → 回 picker 選「預設」交給 config.toml。
+    // 清單照 ~/.codex/models_cache.json 列出來的（2026-09-28：6 系列、5.6 系列、5.5），跟 Codex App 的選單一樣。
+    // 如果跑時報 "model not found" → 回 picker 選「預設」交給 config.toml；命令列 codex 太舊也會認不得新模型。
     const CODEX_MODELS = [
         { id: '',               label: '預設(走 ~/.codex/config.toml)⭐' },
-        { id: 'gpt-5.5',        label: 'GPT-5.5(旗艦)' },
-        { id: 'gpt-5.4',        label: 'GPT-5.4' },
-        { id: 'gpt-5.4-mini',   label: 'GPT-5.4-Mini(快版,便宜)' },
-        { id: 'gpt-5.3-codex',  label: 'GPT-5.3-Codex(寫程式專用)' },
-        { id: 'gpt-5.2',        label: 'GPT-5.2(舊版)' },
+        { id: 'gpt-6-astra',    label: 'GPT-6 Astra' },
+        { id: 'gpt-6-sol',      label: 'GPT-6 Sol' },
+        { id: 'gpt-6-luna',     label: 'GPT-6 Luna' },
+        { id: 'gpt-5.6-sol',    label: 'GPT-5.6 Sol' },
+        { id: 'gpt-5.6-terra',  label: 'GPT-5.6 Terra' },
+        { id: 'gpt-5.6-luna',   label: 'GPT-5.6 Luna' },
+        { id: 'gpt-5.5',        label: 'GPT-5.5(10/14 退役)' },
     ];
     // DeepSeek V4 系列(2026 起,V3 chat/coder/reasoner 已下架)
     // `deepseek models` 列出來只有兩個:pro 是預設旗艦、flash 是便宜快版
@@ -105,7 +111,7 @@
     //   claude 兼容舊欄位 cfg.inlineModel(歷史遺產,純 Claude 時代用的)
     function _getProviderModel(cfg, prov) {
         const pm = (cfg && cfg.providerModels) || {};
-        if (prov === 'claude') return pm.claude || cfg.inlineModel || cfg.model || 'claude-fable-5';
+        if (prov === 'claude') return pm.claude || cfg.inlineModel || cfg.model || 'claude-fable-5-1';
         return pm[prov] || '';  // codex/deepseek 預設空 = 不指定、讓 CLI 自己用預設
     }
     // helper:設定「該 provider 的 model id」回寫進 cfg
@@ -168,7 +174,7 @@
         const nick = _modelNick(modelId);
         if (nick) return nick;
         const m = CLAUDE_MODELS.find(x => x.id === modelId);
-        return m ? m.label.replace(' ⭐', '') : (modelId || 'Fable 5');
+        return m ? m.label.replace(' ⭐', '') : (modelId || 'Fable 5.1');
     }
     function _shortEffortLabel(eff) {
         if (!eff) return '🧠 預設';
