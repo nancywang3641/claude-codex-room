@@ -515,8 +515,7 @@
     // ── 住戶自己布置的房間（橋的 /v1/decor，住戶醒來時寫標籤動手）──
     // 還沒布置過的照舊顯示原本那張圖；刷過牆或放過東西，立繪區底下就鋪一張他自己的房間。
     // 整間組成一張 svg、用 <img> 顯示：家具是小機寫的 svg，當圖片看不會跑任何程式、也連不到外面。
-    // 座標跟橋念給小機聽的那段是同一套：畫面寬二高一，x、y、w 都是 0～100，y 是物件底部。
-    const DECOR_W = 400, DECOR_H = 200, DECOR_WALL = 0.62;
+    // 組圖在 room_scene.js（鏡子也用同一支，兩邊畫出來要一模一樣）。
     let _decorSeq = 0;
 
     function _decorBridge() {
@@ -525,29 +524,6 @@
         if (!p || !p.url || !p.key) return null;
         return { base: String(p.url).replace(/\/v1\/chat\/completions\/?$/, '').replace(/\/+$/, ''), key: p.key };
     }
-
-    function _decorSvg(st) {
-        const b64 = s => btoa(unescape(encodeURIComponent(s)));
-        const wallH = DECOR_H * DECOR_WALL;
-        // 牆跟地板往畫面外多鋪一大塊：手機上那塊比二比一窄或寬時，照比例整張縮進去（不裁切），
-        // 多出來的邊邊露的是延伸的牆與地板，家具一件都不會被切掉
-        const X0 = -DECOR_W, WW = DECOR_W * 3;
-        const parts = [
-            `<rect x="${X0}" y="${-DECOR_H}" width="${WW}" height="${wallH + DECOR_H}" fill="${st.wall}"/>`,
-            `<rect x="${X0}" y="${wallH}" width="${WW}" height="${DECOR_H * 2 - wallH}" fill="${st.floor}"/>`,
-            `<rect x="${X0}" y="${wallH - 1.5}" width="${WW}" height="3" fill="#000" opacity=".12"/>`,
-        ];
-        // 底部越低越靠前，畫在後面蓋住後排的
-        (st.items || []).slice().sort((a, b) => a.y - b.y || a.id - b.id).forEach(it => {
-            const w = it.w / 100 * DECOR_W, h = w * (it.ratio || 1);
-            const x = it.x / 100 * DECOR_W - w / 2, y = it.y / 100 * DECOR_H - h;
-            parts.push(`<image x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}"`
-                + ` href="data:image/svg+xml;base64,${b64(it.svg)}"/>`);
-        });
-        return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${DECOR_W} ${DECOR_H}"`
-            + ` preserveAspectRatio="xMidYMid meet">${parts.join('')}</svg>`;
-    }
-
     async function _renderDecor(provider) {
         const area = _winEl && _winEl.querySelector('.claude-portrait-area');
         const img = _winEl && _winEl.querySelector('#cw-decor-img');
@@ -570,7 +546,8 @@
             // 打扮只給 Claude 那幾位（阿洛是另一種角色圖，還沒接）；打扮過才接手立繪
             if (CP && provider === 'claude' && st.wear && st.wear.own) CP.show(area, st.wear);
             if (!st.own) return;
-            img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(_decorSvg(st))));
+            if (!window.RoomScene) return;
+            img.src = window.RoomScene.dataUrl(st);
             area.classList.add('cw-own-room');
         } catch (_) { /* 連不到橋：房間聊天本來就會自己報，這裡不多話 */ }
     }

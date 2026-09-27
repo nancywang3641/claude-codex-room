@@ -168,16 +168,24 @@
 
     function _b64(s) { return btoa(unescape(encodeURIComponent(s))); }
 
-    /** 照這身打扮接手立繪。wear 是橋回的那包；沒打扮過（own=false）就交回原本的動圖。 */
-    ClawdPortrait.show = function (area, wear) {
-        if (!area || !wear || !wear.own) { ClawdPortrait.hide(area); return; }
-        _ensureCanvas(area);
-        _body = /^#[0-9a-f]{3,6}$/i.test(wear.body || '') ? wear.body : BODY_DEFAULT;
-        _worn = (wear.items || []).map(it => {
+    function _bodyOf(wear) {
+        return /^#[0-9a-f]{3,6}$/i.test((wear && wear.body) || '') ? wear.body : BODY_DEFAULT;
+    }
+
+    function _wornOf(wear) {
+        return ((wear && wear.items) || []).map(it => {
             const img = new Image();
             img.src = 'data:image/svg+xml;base64,' + _b64(it.svg || '');
             return { img, ratio: +it.ratio || 1, x: +it.x || 0, y: +it.y || 0, w: +it.w || 6, face: !!it.face };
         });
+    }
+
+    /** 照這身打扮接手立繪。wear 是橋回的那包；沒打扮過（own=false）就交回原本的動圖。 */
+    ClawdPortrait.show = function (area, wear) {
+        if (!area || !wear || !wear.own) { ClawdPortrait.hide(area); return; }
+        _ensureCanvas(area);
+        _body = _bodyOf(wear);
+        _worn = _wornOf(wear);
         area.classList.add('cw-clawd-on');
         if (!_timer) _timer = setInterval(_tick, FPS_MS);
         _tick();
@@ -191,6 +199,24 @@
     };
 
     ClawdPortrait.isOn = function () { return !!(_area && _area.classList.contains('cw-clawd-on')); };
+
+    /** 在指定的畫布上畫一格定格（鏡子用）。等戴的東西都載好才畫，畫完不影響房間裡正在動的那隻。 */
+    ClawdPortrait.renderStill = async function (canvas, wear, state, frame) {
+        const worn = _wornOf(wear);
+        await Promise.all(worn.map(it => (it.img.decode ? it.img.decode() : Promise.resolve()).catch(() => {})));
+        canvas.width = W * S;
+        canvas.height = H * S;
+        const saved = [_ctx, _body, _worn];
+        _ctx = canvas.getContext('2d');
+        _body = _bodyOf(wear);
+        _worn = worn;
+        try {
+            _ctx.clearRect(0, 0, W * S, H * S);
+            (ACTIONS[STATE_ACTION[state] || state] || ACTIONS.idle)(frame || 0);
+        } finally {
+            [_ctx, _body, _worn] = saved;
+        }
+    };
 
     /** 房間換立繪狀態時叫（沒接手時也記著，接手那一刻就用對的動作） */
     ClawdPortrait.setState = function (state) {
