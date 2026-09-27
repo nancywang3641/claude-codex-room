@@ -327,6 +327,17 @@
 #aurelia-chat-window.cw-codex .claude-portrait-area {
     background-image: url('https://raw.githubusercontent.com/nancywang3641/sound-files/main/aseets/codex_room.png');
 }
+/* 住戶自己布置過的房間：鋪在立繪底下，蓋住上面那張共用的圖（chat_window.js 的 _renderDecor） */
+#aurelia-chat-window .cw-decor-img {
+    display: none;
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+    pointer-events: none;
+}
+#aurelia-chat-window .claude-portrait-area.cw-own-room .cw-decor-img { display: block; }
 
 /* picker 橫條：原本 display:none，浮窗內顯示 */
 #aurelia-chat-window .claude-picker-bar {
