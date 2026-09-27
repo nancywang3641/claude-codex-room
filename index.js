@@ -226,7 +226,7 @@
     // 手機瀏覽器把這批靜態檔快取得很兇,沒版本參數的話核心檔更新永遠到不了手機
     // (症狀:桌機是新版、手機停在幾個月前,甚至 chat_window 跟 chat_room 各停在不同版本)。
     // 檔案有改就把 VER +1,跟奧瑞亞 sw.js 的 CACHE_VERSION 同一套習慣。
-    const VER = 77;
+    const VER = 78;
 
     function loadCSS(href) {
         if (document.querySelector('link[data-ccr="' + href + '"]')) return;
@@ -262,6 +262,7 @@
     const FILES = [
         'core/claude_terminal.js', // window.ClaudeTerminal（os_board 依賴它）
         'core/chat_canvas.js',     // window.ChatCanvas / VoidCanvas
+        'core/clawd_portrait.js',  // window.ClawdPortrait（打扮過的 Claude 住戶改用程式畫立繪）
         'core/chat_window.js',     // window.ChatWindow（外殼）
         'core/chat_room.js',       // window.VoidClaudeRoom
         'core/chat_group.js',      // window.ChatGroup

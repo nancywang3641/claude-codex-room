@@ -553,8 +553,10 @@
         const img = _winEl && _winEl.querySelector('#cw-decor-img');
         if (!area || !img) return;
         const seq = ++_decorSeq;
-        // 先收起來：從布置過的房間切到沒布置過的，不能留著上一位的房間
+        // 先收起來：從布置過（打扮過）的房間切到沒有的，不能留著上一位的房間跟樣子
         area.classList.remove('cw-own-room');
+        const CP = window.ClawdPortrait;
+        if (CP) CP.hide(area);
         const CT = window.ClaudeTerminal;
         const r = (CT && typeof CT.getActiveResident === 'function') ? CT.getActiveResident(provider) : null;
         const b = _decorBridge();
@@ -564,7 +566,10 @@
                 { headers: { 'Authorization': 'Bearer ' + b.key } });
             if (!res.ok) return;          // 舊版橋沒有這條 → 照舊顯示原本那張圖
             const st = await res.json();
-            if (seq !== _decorSeq || !st || !st.own) return;
+            if (seq !== _decorSeq || !st) return;
+            // 打扮只給 Claude 那幾位（阿洛是另一種角色圖，還沒接）；打扮過才接手立繪
+            if (CP && provider === 'claude' && st.wear && st.wear.own) CP.show(area, st.wear);
+            if (!st.own) return;
             img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(_decorSvg(st))));
             area.classList.add('cw-own-room');
         } catch (_) { /* 連不到橋：房間聊天本來就會自己報，這裡不多話 */ }

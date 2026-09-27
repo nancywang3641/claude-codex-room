@@ -369,6 +369,8 @@
             _currentPortraitState = state;
             return;
         }
+        // 打扮過的住戶是程式畫的立繪（ClawdPortrait），它也照這個狀態換動作；沒接手時只記著
+        if (window.ClawdPortrait) window.ClawdPortrait.setState(state);
         const img = _el('claude-portrait-img');
         if (!img) return;
         const CT = window.ClaudeTerminal || {};

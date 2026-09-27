@@ -338,6 +338,20 @@
     pointer-events: none;
 }
 #aurelia-chat-window .claude-portrait-area.cw-own-room .cw-decor-img { display: block; }
+/* 打扮過的 Claude 住戶：程式畫的立繪接手，原本那組動圖藏起來（clawd_portrait.js） */
+#aurelia-chat-window .cw-clawd-canvas {
+    display: none;
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    height: 96%;
+    image-rendering: pixelated;
+    filter: drop-shadow(0 6px 16px rgba(42, 74, 128, 0.25));
+    z-index: 2;
+    pointer-events: none;
+}
+#aurelia-chat-window .claude-portrait-area.cw-clawd-on .cw-clawd-canvas { display: block; }
+#aurelia-chat-window .claude-portrait-area.cw-clawd-on .claude-portrait-img { display: none; }
 
 /* picker 橫條：原本 display:none，浮窗內顯示 */
 #aurelia-chat-window .claude-picker-bar {
