@@ -1303,3 +1303,121 @@
     border-radius: 6px;
     box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
 }
+
+/* ── 🤚 放著、按了才回：魔杖鈕（有放著的就亮、右上角數字）；🎙 按住說話的麥克風與浮起來那張卡 ── */
+#aurelia-chat-window .cw-reply-btn { position: relative; }
+#aurelia-chat-window .cw-reply-btn.has-held {
+    background: linear-gradient(135deg, var(--cl-beeswax, #b9924f), var(--cl-grenadine, #2a4a80));
+    color: #ffffff;
+    border-color: rgba(42, 74, 128, 0.5);
+}
+#aurelia-chat-window .cw-held-n {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 4px;
+    border-radius: 9px;
+    background: #d9534f;
+    color: #ffffff;
+    font-size: 11px;
+    line-height: 17px;
+    text-align: center;
+}
+#aurelia-chat-window .cw-held-n[hidden] { display: none; }
+#aurelia-chat-window .cw-mic-btn {
+    touch-action: none;
+    -webkit-touch-callout: none;
+    user-select: none;
+    -webkit-user-select: none;
+}
+#aurelia-chat-window .cw-mic-btn.holding {
+    background: #d9534f;
+    color: #ffffff;
+    border-color: #d9534f;
+}
+/* 群聊照舊送出就回，這兩顆只在私聊 */
+#aurelia-chat-window .cw-body-group .cw-mic-btn,
+#aurelia-chat-window .cw-body-group .cw-reply-btn { display: none; }
+#aurelia-chat-window .cw-hold-card {
+    position: absolute;
+    left: 50%;
+    bottom: 70px;
+    transform: translateX(-50%);
+    width: min(260px, calc(100% - 32px));
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: rgba(24, 34, 56, 0.92);
+    color: #ffffff;
+    z-index: 30;
+    pointer-events: none;
+    text-align: center;
+}
+#aurelia-chat-window .cw-hold-card[hidden] { display: none; }
+#aurelia-chat-window .cw-hold-card[data-state="cancel"] { background: rgba(160, 50, 50, 0.94); }
+#aurelia-chat-window .cw-hold-top { display: flex; align-items: center; justify-content: center; gap: 10px; }
+#aurelia-chat-window .cw-hold-level { display: inline-flex; align-items: flex-end; gap: 3px; height: 18px; }
+#aurelia-chat-window .cw-hold-level i { width: 4px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.35); }
+#aurelia-chat-window .cw-hold-level[data-lv="1"] i:nth-child(-n+1),
+#aurelia-chat-window .cw-hold-level[data-lv="2"] i:nth-child(-n+2),
+#aurelia-chat-window .cw-hold-level[data-lv="3"] i:nth-child(-n+3),
+#aurelia-chat-window .cw-hold-level[data-lv="4"] i:nth-child(-n+4) { background: #ffffff; }
+#aurelia-chat-window .cw-hold-level i:nth-child(2) { height: 8px; }
+#aurelia-chat-window .cw-hold-level i:nth-child(3) { height: 12px; }
+#aurelia-chat-window .cw-hold-level i:nth-child(4) { height: 17px; }
+#aurelia-chat-window .cw-hold-timer { font-variant-numeric: tabular-nums; font-size: 15px; }
+#aurelia-chat-window .cw-hold-text { margin-top: 6px; font-size: 13px; line-height: 1.5; min-height: 1.5em; opacity: 0.9; }
+#aurelia-chat-window .cw-hold-hint { margin-top: 4px; font-size: 12px; opacity: 0.7; }
+
+/* ── 🎤 語音泡泡：播放鍵＋聲紋＋秒數，「字」展開看說了什麼 ── */
+#aurelia-chat-window .claude-voice-bar { display: flex; align-items: center; gap: 8px; }
+#aurelia-chat-window .claude-voice-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 108px;
+    padding: 2px 2px;
+    background: none;
+    border: 0;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+#aurelia-chat-window .claude-voice-wave { display: inline-flex; align-items: center; gap: 3px; height: 18px; }
+#aurelia-chat-window .claude-voice-wave i { width: 3px; border-radius: 2px; background: currentColor; opacity: 0.55; }
+#aurelia-chat-window .claude-voice-wave i:nth-child(1) { height: 6px; }
+#aurelia-chat-window .claude-voice-wave i:nth-child(2) { height: 12px; }
+#aurelia-chat-window .claude-voice-wave i:nth-child(3) { height: 17px; }
+#aurelia-chat-window .claude-voice-wave i:nth-child(4) { height: 10px; }
+#aurelia-chat-window .claude-voice-wave i:nth-child(5) { height: 7px; }
+#aurelia-chat-window .claude-voice-row.playing .claude-voice-wave i { animation: claude-voice-wave 0.9s ease-in-out infinite; opacity: 0.9; }
+#aurelia-chat-window .claude-voice-row.playing .claude-voice-wave i:nth-child(2) { animation-delay: 0.15s; }
+#aurelia-chat-window .claude-voice-row.playing .claude-voice-wave i:nth-child(3) { animation-delay: 0.3s; }
+#aurelia-chat-window .claude-voice-row.playing .claude-voice-wave i:nth-child(4) { animation-delay: 0.45s; }
+#aurelia-chat-window .claude-voice-row.loading { animation: claude-voice-wait 1s ease-in-out infinite; }
+@keyframes claude-voice-wave { 0%, 100% { transform: scaleY(0.5); } 50% { transform: scaleY(1.15); } }
+@keyframes claude-voice-wait { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+#aurelia-chat-window .claude-voice-sec { font-size: 12px; opacity: 0.75; }
+#aurelia-chat-window .claude-voice-textbtn {
+    padding: 0 6px;
+    border: 1px solid currentColor;
+    border-radius: 6px;
+    background: none;
+    color: inherit;
+    font-size: 11px;
+    line-height: 18px;
+    opacity: 0.6;
+    cursor: pointer;
+}
+#aurelia-chat-window .claude-voice-text {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px dashed currentColor;
+    font-size: 13px;
+    line-height: 1.6;
+    opacity: 0.9;
+}
+#aurelia-chat-window .claude-voice-note { margin-top: 4px; font-size: 12px; opacity: 0.8; }
+#aurelia-chat-window .claude-voice-text[hidden],
+#aurelia-chat-window .claude-voice-note[hidden] { display: none; }

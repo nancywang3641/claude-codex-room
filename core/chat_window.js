@@ -114,12 +114,22 @@
                 <div class="claude-picker-popup" id="claude-picker-popup" style="display:none;"></div>
                 <div class="claude-attach-chips" id="claude-attach-chips"></div>
                 <div class="claude-stk-panel" id="claude-stk-panel" hidden></div>
+                <div class="cw-hold-card" id="cw-hold-card" hidden>
+                    <div class="cw-hold-top">
+                        <span class="cw-hold-level" id="cw-hold-level"><i></i><i></i><i></i><i></i></span>
+                        <span class="cw-hold-timer" id="cw-hold-timer">0:00</span>
+                    </div>
+                    <div class="cw-hold-text" id="cw-hold-text"></div>
+                    <div class="cw-hold-hint" id="cw-hold-hint"></div>
+                </div>
                 <input type="file" id="claude-file-input" multiple style="display:none;"
                        accept="image/*,application/pdf,.txt,.md,.json,.csv,.js,.ts,.py,.html,.css,.yml,.yaml,.toml,.log">
                 <div class="cw-input-row">
                     <textarea id="cw-input" class="cw-input" placeholder="對 Claude 說點什麼..." rows="1" autocomplete="off"></textarea>
                     <button class="cw-attach-btn claude-stk-btn" id="claude-stk-btn" type="button" title="表情包"><i class="fa-regular fa-face-smile"></i></button>
                     <button class="cw-attach-btn" id="claude-attach-btn" type="button" title="附加檔案">📎</button>
+                    <button class="cw-attach-btn cw-mic-btn" id="cw-mic-btn" type="button" title="按住說話"><i class="fa-solid fa-microphone"></i></button>
+                    <button class="cw-attach-btn cw-reply-btn" id="cw-reply-btn" type="button" title="讓他回"><i class="fa-solid fa-wand-magic-sparkles"></i><span class="cw-held-n" id="cw-held-n" hidden>0</span></button>
                     <button class="cw-send-btn" id="cw-send-btn" type="button"><i class="fa-solid fa-paper-plane"></i></button>
                 </div>
             </div>
@@ -201,6 +211,18 @@
         const pickerBtn = el.querySelector('#claude-picker-btn');
 
         if (sendBtn) sendBtn.onclick = ChatWindow.submitInput;
+        // 🤚 魔杖：把放著的那幾條一起送、叫他回。🎙 麥克風：按住說話（放開放上去）
+        const replyBtn = el.querySelector('#cw-reply-btn');
+        if (replyBtn) replyBtn.onclick = () => {
+            if (window.VoidClaudeRoom && typeof window.VoidClaudeRoom.replyNow === 'function') window.VoidClaudeRoom.replyNow();
+        };
+        const micBtn = el.querySelector('#cw-mic-btn');
+        if (micBtn) {
+            micBtn.addEventListener('pointerdown', (e) => {
+                if (window.VoidClaudeRoom && typeof window.VoidClaudeRoom.micStart === 'function') window.VoidClaudeRoom.micStart(e);
+            });
+            micBtn.addEventListener('contextmenu', (e) => e.preventDefault());   // 手機長按不要跳選單
+        }
         if (input) {
             // ── @-mention 自動完成（只在群聊 provider 啟用）──
             // 每次都現讀入席名單：她可能剛在宿舍面板加了人 / 改了名字，這裡不能拿快照。
@@ -426,8 +448,8 @@
         if (panel) panel.hidden = true;
         if (_provider === 'group') {
             if (window.ChatGroup && typeof window.ChatGroup.sendUserMessage === 'function') window.ChatGroup.sendUserMessage(md);
-        } else if (window.VoidClaudeRoom && typeof window.VoidClaudeRoom.sendMessage === 'function') {
-            window.VoidClaudeRoom.sendMessage(md);
+        } else if (window.VoidClaudeRoom && typeof window.VoidClaudeRoom.holdMessage === 'function') {
+            window.VoidClaudeRoom.holdMessage(md);      // 🤚 私聊只放上去，按魔杖才回
         }
     }
     function _renderStickerPanel(el) {
@@ -1268,8 +1290,8 @@
             if (window.ChatGroup && typeof window.ChatGroup.sendUserMessage === 'function') {
                 window.ChatGroup.sendUserMessage(txt);
             }
-        } else if (window.VoidClaudeRoom && typeof window.VoidClaudeRoom.sendMessage === 'function') {
-            window.VoidClaudeRoom.sendMessage(txt);
+        } else if (window.VoidClaudeRoom && typeof window.VoidClaudeRoom.holdMessage === 'function') {
+            window.VoidClaudeRoom.holdMessage(txt);     // 🤚 私聊只放上去，按魔杖才回
         }
     };
 

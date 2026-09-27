@@ -862,6 +862,144 @@
         return true;
     }
 
+    // 🎤 語音泡泡。他在回覆裡寫 <voice>要說的話</voice> → 自己一顆，她按了才用他的聲音念（借奧瑞亞的 OS_MINIMAX，
+    //   誰用哪個音色照「系統設置 → 語音清單」的角色名稱對住戶名字）。合成過的留在記憶體，同一句重播不再扣錢。
+    //   她按住麥克風說的那條：記錄帶 voiceAudio（錄音存在奧瑞亞圖庫 aud_room_…），泡泡點了播她自己的聲音。
+    //   反引號裡的 <voice> 是他在講解，不算。串流中開頭來了、結尾還沒來的，從那裡先藏著。
+    const VOICE_TOKEN_RE = /^\[\[ccr-voice:([A-Za-z0-9+/=]*)\]\]$/;
+    function _voiceize(text, streaming) {
+        let s = String(text == null ? '' : text).replace(/(?<!`)<voice>([\s\S]*?)<\/voice>(?!`)/gi,
+            (_, said) => '\n\n[[ccr-voice:' + _b64enc(JSON.stringify({ text: String(said).trim() })) + ']]\n\n');
+        const open = s.search(/(?<!`)<voice>/i);
+        if (open >= 0) s = streaming ? s.slice(0, open) : s.replace(/(?<!`)<voice>/gi, '');
+        if (streaming) s = s.replace(/<(?:v(?:o(?:i(?:c(?:e)?)?)?)?)?$/i, '');
+        return s;
+    }
+    function _voiceSegText(seg) {
+        const m = VOICE_TOKEN_RE.exec(String(seg == null ? '' : seg).trim());
+        if (!m) return null;
+        try { return String((JSON.parse(_b64dec(m[1]) || '{}') || {}).text || ''); } catch (_) { return ''; }
+    }
+    const _voiceCache = new Map();          // 「音色§字」→ 合成好的聲音
+    const SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+    let _voiceEl = null, _voiceRow = null, _voiceUrl = null;
+    function _voiceSecOf(text) { return Math.max(1, Math.round(String(text || '').replace(/\s/g, '').length / 4.5)); }
+    function _stopVoice() {
+        if (_voiceEl) { try { _voiceEl.pause(); } catch (_) {} }
+        if (_voiceUrl) { URL.revokeObjectURL(_voiceUrl); _voiceUrl = null; }
+        if (_voiceRow) {
+            _voiceRow.classList.remove('playing', 'loading');
+            const ic = _voiceRow.querySelector('.claude-voice-icon');
+            if (ic) ic.className = 'fa-solid fa-play claude-voice-icon';
+        }
+        _voiceRow = null;
+    }
+    function _voiceWhy(e, who) {
+        const code = String((e && e.message) || e || '');
+        if (code === 'NO_TTS') return '這裡沒有接語音，要在奧瑞亞裡打開房間才念得出來';
+        if (code === 'NO_VOICE') return '還沒幫' + who + '挑聲音：到系統設置的語音清單，加一個角色名稱叫「' + who + '」的音色';
+        if (code === 'NO_KEY') return '語音清單還沒填 MiniMax 的 Group ID 和金鑰';
+        if (code === 'GONE') return '這段錄音找不到了';
+        if (code === 'NOTHING_TO_SAY') return '這段沒有可以念的字';
+        return '沒念出來：' + code;
+    }
+    /** 點了播、再點停。她的錄音從圖庫拿；他的話現在才合成（第一次按才花錢），合成好的留著重播 */
+    async function _toggleVoice(row, text, v, note, body) {
+        if (_voiceRow === row) { _stopVoice(); return; }
+        _stopVoice();
+        // 手機要在點的那一下就開好播放器，不然等合成回來再播會被擋
+        if (!_voiceEl) _voiceEl = new Audio();
+        try { _voiceEl.src = SILENT_WAV; _voiceEl.play().catch(() => {}); } catch (_) {}
+        _voiceRow = row;
+        row.classList.add('loading');
+        note.hidden = true;
+        try {
+            let blobUrl;
+            if (v.audioId) {
+                blobUrl = window.OS_DB && typeof window.OS_DB.getImage === 'function' ? await window.OS_DB.getImage(v.audioId) : null;
+                if (!blobUrl) throw new Error('GONE');
+            } else {
+                const MM = window.OS_MINIMAX;
+                if (!MM || typeof MM.findVoiceId !== 'function') throw new Error('NO_TTS');
+                const voiceId = MM.findVoiceId(v.who);
+                if (!voiceId) throw new Error('NO_VOICE');
+                const key = voiceId + '§' + text;
+                let blob = _voiceCache.get(key);
+                if (!blob) {
+                    if (typeof MM.synth !== 'function') {         // 舊版奧瑞亞沒有只合成那支：交給它自己播，不留著
+                        const ok = await MM.play(text, voiceId);
+                        if (_voiceRow === row) _stopVoice();
+                        if (!ok) throw new Error('NO_KEY');
+                        return;
+                    }
+                    blob = await MM.synth(text, voiceId);
+                    _voiceCache.set(key, blob);
+                }
+                blobUrl = URL.createObjectURL(blob);
+            }
+            if (_voiceRow !== row) { URL.revokeObjectURL(blobUrl); return; }   // 等的時候她又點了別顆
+            _voiceUrl = blobUrl;
+            _voiceEl.onended = () => { if (_voiceRow === row) _stopVoice(); };
+            _voiceEl.src = blobUrl;
+            await _voiceEl.play();
+            row.classList.remove('loading');
+            row.classList.add('playing');
+            const ic = row.querySelector('.claude-voice-icon');
+            if (ic) ic.className = 'fa-solid fa-pause claude-voice-icon';
+        } catch (e) {
+            if (_voiceRow === row) _stopVoice();
+            note.textContent = _voiceWhy(e, v.who || '他');
+            note.hidden = false;
+            body.hidden = false;
+        }
+    }
+    /** 一顆語音：播放鍵、聲紋、秒數，旁邊「字」可以展開看說了什麼。v：{ who, audioId?, sec? } */
+    function _buildVoice(text, v) {
+        const box = document.createElement('div');
+        box.className = 'claude-voice';
+        const bar = document.createElement('div');
+        bar.className = 'claude-voice-bar';
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'claude-voice-row';
+        row.innerHTML = '<i class="fa-solid fa-play claude-voice-icon"></i><span class="claude-voice-wave"><i></i><i></i><i></i><i></i><i></i></span><span class="claude-voice-sec"></span>';
+        row.querySelector('.claude-voice-sec').textContent = (v.sec ? Math.max(1, Math.round(v.sec)) : _voiceSecOf(text)) + '″';
+        const tbtn = document.createElement('button');
+        tbtn.type = 'button';
+        tbtn.className = 'claude-voice-textbtn';
+        tbtn.title = '看字';
+        tbtn.textContent = '字';
+        const body = document.createElement('div');
+        body.className = 'claude-voice-text';
+        body.textContent = text;
+        body.hidden = true;
+        const note = document.createElement('div');
+        note.className = 'claude-voice-note';
+        note.hidden = true;
+        row.addEventListener('click', (e) => { e.stopPropagation(); _toggleVoice(row, text, v, note, body); });
+        tbtn.addEventListener('click', (e) => { e.stopPropagation(); body.hidden = !body.hidden; });
+        bar.appendChild(row);
+        bar.appendChild(tbtn);
+        box.appendChild(bar);
+        box.appendChild(body);
+        box.appendChild(note);
+        return box;
+    }
+    function _residentName() {
+        const CT = window.ClaudeTerminal;
+        const r = (CT && typeof CT.getActiveResident === 'function') ? CT.getActiveResident(_provider()) : null;
+        return (r && r.name) || '他';
+    }
+    /** 這段是他的語音就把語音放進泡泡、回 true */
+    function _fillVoiceSeg(el, seg) {
+        const text = _voiceSegText(seg);
+        if (text === null) return false;
+        el.classList.add('claude-bubble-voice');
+        el.appendChild(_buildVoice(text, { who: _residentName() }));
+        return true;
+    }
+    const HER_VOICE_PREFIX = '（語音）';
+
     /** 她的訊息整則只有一張表情包（![名字](網址)）→ 畫成圖、不套底框，回 true；不是回 false。群聊也借這支 */
     function _renderUserSticker(el, text) {
         const m = /^!\[([^\]\n]*)\]\((https?:\/\/[^\s)]+)\)$/.exec(String(text == null ? '' : text).trim());
@@ -882,6 +1020,7 @@
     /** 他的一段話畫進一顆泡泡：markdown、表情包自己不套底框、小面板建框 */
     function _fillReplyBubble(el, text) {
         if (_fillWidgetSeg(el, text)) return;
+        if (_fillVoiceSeg(el, text)) return;
         const safeHtml = _claudeMarkdownToSafeHtml(text);
         if (safeHtml !== null) {
             el.innerHTML = safeHtml;
@@ -983,7 +1122,7 @@
         if (!isUser && !opts.suppressMarkdown) {
             const r = _parseAskMarkers(content);
             askMatches = r.asks;
-            content = _widgetize(r.stripped, false);   // 🧩 小面板換成自己一顆的記號
+            content = _voiceize(_widgetize(r.stripped, false), false);   // 🧩 小面板、🎤 語音換成自己一顆的記號
         }
 
         if (!isUser) {
@@ -1001,6 +1140,11 @@
         const _segs = (!isUser && !opts.suppressMarkdown) ? _splitReplySegments(content) : [content];
         const _fillBubble = (el, text) => {
             if (isUser && _renderUserSticker(el, text)) return;   // 😺 她從表情包框送的那張
+            if (isUser && opts.voice) {                           // 🎤 她按住麥克風說的那條
+                el.classList.add('claude-bubble-voice');
+                el.appendChild(_buildVoice(String(text || '').replace(HER_VOICE_PREFIX, ''), { who: '妳', audioId: opts.voice.audioId, sec: opts.voice.sec }));
+                return;
+            }
             if (isUser || opts.suppressMarkdown) {
                 // User 訊息 / streaming 中：raw text 顯示（streaming 期間每 chunk re-render
                 // 一次 markdown 太貴，stream 結束最後一次 render 才開 markdown）
@@ -1008,6 +1152,7 @@
                 return;
             }
             if (_fillWidgetSeg(el, text)) return;   // 🧩 小面板
+            if (_fillVoiceSeg(el, text)) return;    // 🎤 語音
             // Claude 回覆：解析 markdown 後 sanitize 再插入
             const safeHtml = _claudeMarkdownToSafeHtml(text);
             if (safeHtml !== null) {
@@ -1089,10 +1234,12 @@
                     thinking: m.thinking || null,
                     usage: m.usage || null,
                     toolsUsed: (Array.isArray(m.tools_used) && m.tools_used.length) ? m.tools_used : null,
+                    voice: m.voiceAudio ? { audioId: m.voiceAudio, sec: m.voiceSec } : null,
                 }
             );
         });
         _scrollClaudeChatToBottom();
+        _paintHeld();
     }
 
     // ===== 附件 chip 預覽列（輸入框上方）=====
@@ -1169,8 +1316,163 @@
         setTimeout(() => _setClaudePortraitState('living'), 600);
     }
 
-    // 發送 Claude 房間訊息（走 cc-bridge / OpenAI 兼容；持久化由 ClaudeTerminal 處理）
+    // 🤚 先放著、按了才回（她：「我發現我只能發一條後，就觸發回應了」）。跟她聊天 app 那顆魔杖一樣：
+    //   輸入框送出、表情包、按住說話都只是放上去（記錄裡 held:true），想發幾條就發幾條；
+    //   按輸入列那顆魔杖（_replyNow），他一次讀到這幾條、回一整段。ASK 按鈕選了答案照舊馬上送（連同放著的一起）。
+    //   沒送成功（出錯、按停）那幾條還是放著，再按一次就好。群聊不走這條，照舊送出就回。
+    function _heldTail() {
+        const h = _activeHistory() || [];
+        const out = [];
+        for (let i = h.length - 1; i >= 0 && h[i].role === 'user' && h[i].held; i--) out.unshift(h[i]);
+        return out;
+    }
+    function _paintHeld() {
+        const n = _heldTail().length;
+        const btn = _el('cw-reply-btn');
+        if (btn) btn.classList.toggle('has-held', n > 0);
+        const badge = _el('cw-held-n');
+        if (badge) { badge.textContent = String(n); badge.hidden = n === 0; }
+    }
+    /** 放一條上去（不叫他回）。extra 可帶 voiceAudio／voiceSec（她按住說話的那條） */
+    function _holdMessage(text, extra) {
+        const attachmentsSnapshot = _pendingClaudeAttachments
+            .filter(a => a && a.path)
+            .map(a => ({ path: a.path, filename: a.filename, mime: a.mime, size: a.size }));
+        _pendingClaudeAttachments = [];
+        _renderClaudeAttachChips();
+        const msg = Object.assign({
+            role: 'user', content: text, ts: Date.now(), held: true,
+            attachments: attachmentsSnapshot.length ? attachmentsSnapshot : undefined,
+        }, extra || {});
+        _activeHistory().push(msg);
+        _renderClaudeBubble('user', text, {
+            attachments: attachmentsSnapshot,
+            voice: msg.voiceAudio ? { audioId: msg.voiceAudio, sec: msg.voiceSec } : null,
+        });
+        _scrollClaudeChatToBottom();
+        _scheduleSave();
+        _paintHeld();
+    }
+
+    // 🎙 按住說話（照她聊天 app 那顆麥克風）：按住錄、放開轉成字放上去（跟打字一樣先放著），往上滑再放開＝取消。
+    //   錄音與轉字借奧瑞亞的 OS_VOICE_INPUT（轉字方式跟著她在設置 → 語音選的），錄音存奧瑞亞圖庫，泡泡點了播她自己的聲音；
+    //   他讀到的是「（語音）」開頭的字。第一次按會跳麥克風權限框，手指早放開了：那次不算，跟她說再按住一次。最長 60 秒。
+    const MIC_MAX_SEC = 60;
+    let _mic = null;          // { phase: 'starting'|'recording'|'sending', t0, y0, cancel, released, tick, text, room }
+    let _micH = null;
+    function _micPaint() {
+        const h = _mic;
+        const state = !h ? '' : (h.phase === 'recording' && h.cancel ? 'cancel' : h.phase);
+        const card = _el('cw-hold-card');
+        const btn = _el('cw-mic-btn');
+        if (btn) btn.classList.toggle('holding', !!h);
+        if (!card) return;
+        card.hidden = !h;
+        if (!h) return;
+        card.dataset.state = state;
+        const s = h.t0 ? Math.floor((Date.now() - h.t0) / 1000) : 0;
+        const timer = _el('cw-hold-timer');
+        if (timer) timer.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+        const VI = window.OS_VOICE_INPUT;
+        const lv = _el('cw-hold-level');
+        if (lv) { const v = (h.phase === 'recording' && VI && VI.level) ? VI.level() : 0; lv.dataset.lv = v < 0.01 ? 0 : (v < 0.03 ? 1 : (v < 0.07 ? 2 : (v < 0.14 ? 3 : 4))); }
+        const txt = _el('cw-hold-text');
+        if (txt) txt.textContent = h.text.length > 60 ? '…' + h.text.slice(-60) : h.text;
+        const hint = _el('cw-hold-hint');
+        if (hint) hint.textContent = { starting: '開麥克風…', recording: '鬆開放上去，往上滑取消', cancel: '鬆開取消', sending: '正在轉成字…' }[state] || '';
+    }
+    function _micListen(on) {
+        if (on) {
+            if (_micH) return;
+            const move = (e) => { const h = _mic; if (!h || h.phase === 'sending') return; const c = (h.y0 - e.clientY) > 60; if (c !== h.cancel) { h.cancel = c; _micPaint(); } };
+            const up = () => { const h = _mic; if (!h) return; if (h.phase === 'starting') { h.released = true; return; } if (h.phase === 'recording') _micEnd(h.cancel); };
+            const lost = () => { const h = _mic; if (!h) return; if (h.phase === 'starting') { h.released = true; return; } if (h.phase === 'recording') _micEnd(true); };
+            _micH = { move, up, lost };
+            document.addEventListener('pointermove', move);
+            document.addEventListener('pointerup', up);
+            document.addEventListener('pointercancel', lost);
+        } else if (_micH) {
+            document.removeEventListener('pointermove', _micH.move);
+            document.removeEventListener('pointerup', _micH.up);
+            document.removeEventListener('pointercancel', _micH.lost);
+            _micH = null;
+        }
+    }
+    function _micWhy(e) {
+        if (e && e.name === 'NotAllowedError') return '沒有麥克風權限，要到瀏覽器設定裡允許';
+        return (e && e.message) || String(e || '不知道為什麼');
+    }
+    async function _micStart(ev) {
+        if (ev && ev.preventDefault) ev.preventDefault();      // 不要順手點到輸入框叫出鍵盤、不要長按選字
+        const VI = window.OS_VOICE_INPUT;
+        if (_mic) return;
+        if (!VI || !VI.isSupported()) { _renderClaudeNotice('這裡不能錄音（要在奧瑞亞裡打開房間），可以用打的'); return; }
+        if (VI.isRecording()) return;
+        if (!VI.isReady()) { _renderClaudeNotice('語音轉字還沒準備好：先到聊天 app 按住麥克風一次，照提示準備好再回來'); return; }
+        const room = _activeHistory();
+        const h = _mic = { phase: 'starting', t0: 0, y0: (ev && ev.clientY) || 0, cancel: false, released: false, tick: null, text: '', room };
+        _micListen(true);
+        _micPaint();
+        try {
+            await VI.start({ onPartial: (s) => { if (_mic === h) { h.text = String(s || ''); _micPaint(); } } });
+        } catch (e) {
+            if (_mic === h) { _mic = null; _micListen(false); _micPaint(); }
+            _renderClaudeNotice('麥克風開不起來：' + _micWhy(e));
+            return;
+        }
+        if (_mic !== h || h.released) {
+            VI.cancel();
+            if (_mic === h) { _mic = null; _micListen(false); _micPaint(); _renderClaudeNotice('按住麥克風說話，說完放開'); }
+            return;
+        }
+        h.phase = 'recording';
+        h.t0 = Date.now();
+        h.tick = setInterval(() => {
+            if (_mic !== h) return;
+            if ((Date.now() - h.t0) / 1000 >= MIC_MAX_SEC) _micEnd(false); else _micPaint();
+        }, 150);
+        _micPaint();
+    }
+    async function _micEnd(cancel) {
+        const VI = window.OS_VOICE_INPUT;
+        const h = _mic;
+        if (!VI || !h || h.phase !== 'recording') return;
+        if (h.tick) clearInterval(h.tick);
+        _micListen(false);
+        if (cancel) { VI.cancel(); _mic = null; _micPaint(); return; }
+        h.phase = 'sending';
+        _micPaint();
+        try {
+            const rec = await VI.stop();
+            if (rec.durationSec < 0.8) { _renderClaudeNotice('說話時間太短'); return; }
+            const out = await VI.transcribe(rec.blob);
+            const said = String((out && out.text) || '').trim();
+            if (!said) { _renderClaudeNotice('沒聽清楚，再說一次'); return; }
+            if (_activeHistory() !== h.room) { _renderClaudeNotice('換了房間，這段沒放上去'); return; }
+            let extra = null;
+            if (window.OS_DB && typeof window.OS_DB.saveImage === 'function') {
+                const id = 'aud_room_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+                try {
+                    await window.OS_DB.saveImage(id, rec.blob);
+                    extra = { voiceAudio: id, voiceSec: Math.round(((out && out.durationSec) || rec.durationSec) * 10) / 10 };
+                } catch (_) { extra = null; }      // 存不了聲音就只放字
+            }
+            _holdMessage(HER_VOICE_PREFIX + said, extra);
+        } catch (e) {
+            _renderClaudeNotice('沒放上去：' + _micWhy(e));
+        } finally {
+            if (_mic === h) { _mic = null; _micPaint(); }
+        }
+    }
+
+    // 發送：有字先放上去，接著叫他回（ASK 按鈕、其他要馬上回的地方走這支）
     async function _sendClaudeMessage(text) {
+        if (text) _holdMessage(text);
+        return _replyNow();
+    }
+
+    // 叫他回：把放著的那幾條一起送（走 cc-bridge / OpenAI 兼容；持久化由 ClaudeTerminal 處理）
+    async function _replyNow() {
         if (!window.ClaudeTerminal) {
             _renderClaudeReply('⚠️ ClaudeTerminal 模組未載入。');
             return;
@@ -1179,20 +1481,14 @@
             _renderClaudeReply('⚠️ 還沒設定 cc-bridge URL / Key。\n\n去「寫作 → API 設置 → 🦀 Claude 的房間」填好。');
             return;
         }
-
-        // 快照當前附件（only paths from server，不送 _uploading placeholder），送出後清空
-        const attachmentsSnapshot = _pendingClaudeAttachments
-            .filter(a => a && a.path)
-            .map(a => ({ path: a.path, filename: a.filename, mime: a.mime, size: a.size }));
-        _pendingClaudeAttachments = [];
-        _renderClaudeAttachChips();
-
-        // 即時把 user message（含附件）push 進 history + 立刻 render 成右側橘氣泡
-        _activeHistory().push({
-            role: 'user', content: text, ts: Date.now(),
-            attachments: attachmentsSnapshot.length ? attachmentsSnapshot : undefined,
-        });
-        _renderClaudeBubble('user', text, { attachments: attachmentsSnapshot });
+        if (_claudeAbortCtrl) return;        // 他正在回，這時候放的等下一次
+        const held = _heldTail();
+        if (!held.length) { _renderClaudeNotice('先說點什麼，再按這顆讓他回'); return; }
+        const text = held.map(m => m.content).join('\n');
+        const attachmentsSnapshot = [].concat(...held.map(m => m.attachments || []));
+        // 放著的那幾條要先落到記錄裡，送的那支才認得出哪幾條是這輪的
+        if (_saveTimer) { clearTimeout(_saveTimer); _saveTimer = null; }
+        await window.ClaudeTerminal.saveHistory(_roomHistory);
 
         // 立繪切 thinking（effort=high/xhigh/max 用 ultrathink）
         const _cfgForState = window.ClaudeTerminal.getConfig();
@@ -1262,7 +1558,7 @@
                 let shown = (CT && typeof CT.stripBoardTags === 'function')
                     ? CT.stripBoardTags(raw, { streaming: streaming }) : raw;
                 if (!streaming && !shown && String(raw || '').trim()) shown = '（去留言板上動了一下）';
-                return _splitReplySegments(_widgetize(_parseAskMarkers(shown || '').stripped, streaming));
+                return _splitReplySegments(_voiceize(_widgetize(_parseAskMarkers(shown || '').stripped, streaming), streaming));
             };
             const _flushStreamingRender = () => {
                 _rerenderTimer = null;
@@ -1311,7 +1607,10 @@
             const result = await window.ClaudeTerminal.send(text, attachmentsSnapshot, onProgress, {
                 taskId: _claudeTaskId,
                 signal: _claudeAbortCtrl?.signal,
+                fromHeld: true,
             });
+            held.forEach(m => { delete m.held; });
+            _paintHeld();
             const reply = result.reply;
             const thinking = result.thinking || null;
             const usage = result.usage || null;
@@ -1374,10 +1673,8 @@
             }
         } catch (e) {
             const isAbort = e?.name === 'AbortError' || /abort/i.test(e?.message || '');
-            // 失敗：回滾剛 push 的 user message（無論主動停止 / 真錯誤都不該留半條對話）
-            if (_activeHistory().length > 0 && _activeHistory()[_activeHistory().length - 1].role === 'user') {
-                _activeHistory().pop();
-            }
+            // 失敗：她放著的那幾條留著、還是等著（送的那支也存回原樣），再按一次魔杖就好
+            _paintHeld();
 
             if (isAbort) {
                 // 主動停止：靜默顯示已停止氣泡，不噴錯誤
@@ -1446,6 +1743,10 @@
     VoidClaudeRoom.hydrateStream     = _hydrateClaudeStream;
     VoidClaudeRoom.handleFilePick    = _handleClaudeFilePick;
     VoidClaudeRoom.sendMessage       = _sendClaudeMessage;
+    VoidClaudeRoom.holdMessage       = _holdMessage;       // 🤚 只放上去、不叫他回
+    VoidClaudeRoom.replyNow          = _replyNow;          // 🤚 魔杖：把放著的一起送
+    VoidClaudeRoom.paintHeld         = _paintHeld;
+    VoidClaudeRoom.micStart          = _micStart;          // 🎙 按住說話
     VoidClaudeRoom.markdownToSafeHtml = _claudeMarkdownToSafeHtml;
     VoidClaudeRoom.splitReplySegments = _splitReplySegments;   // 群聊切泡泡用同一支
     VoidClaudeRoom.isStickerSegment = _isStickerSeg;

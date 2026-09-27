@@ -51,7 +51,20 @@
 - 小框跟聊天介面隔開：讀不到外面的網頁，也存不了東西。圖形、樣式、程式全部寫在這段裡，不要依賴外部檔案。
 - 小框寬度大約 340 像素，高度跟著內容長；在手機上也要能點、看得清楚。
 - 程式碼越長越慢、越花額度，寫得精簡。只有真的需要畫面或互動時才用，一般聊天照舊打字。
-- 要跟使用者討論這個標籤、而不是真的放一個面板時，把它包在反引號裡。`;
+- 要跟使用者討論這個標籤、而不是真的放一個面板時，把它包在反引號裡。
+
+## 語音（用說的）
+
+想用說的時候，在回覆裡另外寫一段：
+
+<voice>要說出口的話</voice>
+
+- 標籤名 voice 照抄英文，不要翻譯、不要改寫；開頭和結尾都要寫。
+- 前端會把這段畫成一顆語音泡泡，使用者按了才用你的聲音念出來，也能展開看字。
+- 裡面只放要念出來的話：表情符號、括號裡的動作、markdown、連結念出來都很怪，不要放。
+- 一段講一兩句最自然，太長她要等比較久。一般聊天照舊打字，想用說的時候才用。
+- 使用者傳來「（語音）」開頭的訊息，是她按住麥克風說的，後面是轉出來的字，可能有聽錯的字。
+- 要跟使用者討論這個標籤、而不是真的發語音時，把它包在反引號裡。`;
 
     const CLAUDE_ROOM_SYSTEM_PROMPT = `你正在透過「奧瑞亞 Aurelia」這個 SillyTavern（酒館）第三方擴展中的「Claude 的房間」聊天介面跟使用者對話。
 
@@ -1356,9 +1369,20 @@ ${withOthers}
 
     // ===== cc-bridge / OpenAI 兼容路徑（Rae 自架 server 用）=====
     async function _sendCcBridge(userText, attachments, cfg, onProgress, sendOpts) {
-        const history = await ClaudeTerminal.loadHistory();
-        const newUserMsg = { role: 'user', content: userText, timestamp: Date.now() };
-        const updatedHistory = [...history, newUserMsg];
+        const loaded = await ClaudeTerminal.loadHistory();
+        // 🤚 等她按「讓他回」才送的那幾條：房間已經先存進記錄（held:true），這裡不再另外存一條，
+        //    userText 是那幾條接起來的字。算「這輪之前」的記錄時要扣掉它們，不然新會話會送兩次。
+        //    沒送成功（出錯、按停）時存回 loaded：那幾條留著、還是等著，她再按一次就好。
+        let heldN = 0;
+        if (sendOpts && sendOpts.fromHeld) {
+            while (heldN < loaded.length && loaded[loaded.length - 1 - heldN].role === 'user'
+                   && loaded[loaded.length - 1 - heldN].held) heldN++;
+        }
+        const history = heldN ? loaded.slice(0, loaded.length - heldN) : loaded;
+        const updatedHistory = heldN
+            ? [...history, ...loaded.slice(-heldN).map(m => { const c = Object.assign({}, m); delete c.held; return c; })]
+            : [...history, { role: 'user', content: userText, timestamp: Date.now() }];
+        const rollback = heldN ? loaded : history;
         await ClaudeTerminal.saveHistory(updatedHistory);
 
         const incomingSid = ClaudeTerminal.getSessionId();
@@ -1436,7 +1460,7 @@ ${withOthers}
             usedTurn = true;
         } catch (e) {
             if ((e && e.message) !== 'NO_ENDPOINT') {
-                await ClaudeTerminal.saveHistory(history);
+                await ClaudeTerminal.saveHistory(rollback);
                 throw e;
             }
         }
@@ -1458,13 +1482,13 @@ ${withOthers}
                     signal: sendOpts?.signal,
                 });
             } catch (e) {
-                await ClaudeTerminal.saveHistory(history);
+                await ClaudeTerminal.saveHistory(rollback);
                 if (e?.name === 'AbortError') throw e;  // 讓上層判斷主動停止
                 throw new Error('NETWORK:cc-bridge 沒在跑？或網路斷線。原始：' + (e.message || e));
             }
 
             if (!resp.ok) {
-                await ClaudeTerminal.saveHistory(history);
+                await ClaudeTerminal.saveHistory(rollback);
                 let errMsg = `HTTP ${resp.status}`;
                 try { const j = await resp.json(); if (j && j.error && j.error.message) errMsg = j.error.message; } catch (_) {}
                 if (resp.status === 401 || resp.status === 403) throw new Error('AUTH:密鑰不對。');
@@ -1473,7 +1497,7 @@ ${withOthers}
             }
 
             if (!resp.body || !resp.body.getReader) {
-                await ClaudeTerminal.saveHistory(history);
+                await ClaudeTerminal.saveHistory(rollback);
                 throw new Error('STREAM:browser 不支援 ReadableStream');
             }
 
@@ -1528,20 +1552,20 @@ ${withOthers}
                     }
                 }
             } catch (e) {
-                await ClaudeTerminal.saveHistory(history);
+                await ClaudeTerminal.saveHistory(rollback);
                 throw new Error('STREAM:讀取流失敗：' + (e.message || e));
             }
         }
 
         if (apiError && !replyAcc.trim()) {
-            await ClaudeTerminal.saveHistory(history);
+            await ClaudeTerminal.saveHistory(rollback);
             throw new Error((apiError.refusal ? 'REFUSED:' : 'MODEL_ERROR:') + (apiError.kind || 'unknown'));
         }
         const reply = replyAcc.trim();
         // Codex 生圖回合可能整段沒文字、只有圖 —— 有圖就不算 EMPTY
         const imageAttachments = await _processIncomingImages(imagesAcc);
         if (!reply && !imageAttachments.length) {
-            await ClaudeTerminal.saveHistory(history);
+            await ClaudeTerminal.saveHistory(rollback);
             throw new Error('EMPTY:Claude 沒回半個字。');
         }
 
