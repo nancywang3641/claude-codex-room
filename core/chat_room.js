@@ -364,13 +364,13 @@
     function _swapPortraitImg(state) {
         // 切換立繪前先停掉 Codex spritesheet 的逐幀計時器
         if (_codexFrameTimer) { clearTimeout(_codexFrameTimer); _codexFrameTimer = null; }
+        // 程式畫的立繪（打扮過的小螃蟹、阿洛的洛德）也照這個狀態換動作；沒接手時只記著
+        if (window.ClawdPortrait) window.ClawdPortrait.setState(state);
         if (_provider() === 'codex') {
             _codexSpritePlay(state);
             _currentPortraitState = state;
             return;
         }
-        // 打扮過的住戶是程式畫的立繪（ClawdPortrait），它也照這個狀態換動作；沒接手時只記著
-        if (window.ClawdPortrait) window.ClawdPortrait.setState(state);
         const img = _el('claude-portrait-img');
         if (!img) return;
         const CT = window.ClaudeTerminal || {};

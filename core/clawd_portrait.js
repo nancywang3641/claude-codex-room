@@ -4,6 +4,7 @@
  * Claude 那幾位（丹、天天、克語）在房間裡是那隻橘色像素小方塊。原本立繪是一組現成動圖，
  * 帽子疊上去他一換動作就懸在半空；打扮過的住戶改用這支一格一格畫他，戴的東西每一格都跟著身體算位置。
  * 沒打扮過的照舊是原本那組動圖——這支只在 show() 之後才接手。
+ * 阿洛的預設樣子是洛德（base 'lorde'：他自己的墨藍幽靈管家，不是 Codex 那個機器人），沒有現成動圖，一律這支畫。
  *
  * 打扮資料是橋 /v1/decor 帶回來的 wear：{ own, body: 身體顏色, items: [{ svg, ratio, x, y, w, face }], look }。
  * 座標以身體為準（寬 12、高 8，左上角 0,0），x、y 是那件東西底部中心，w 是寬；face 的跟著眼睛左看右看。
@@ -20,9 +21,13 @@
 
     const S = 8, W = 32, H = 24;          // 一格 8px，畫布 32×24 格
     const FPS_MS = 125;
-    const BODY_DEFAULT = '#d97757';
+    // 預設樣子：小螃蟹（Claude 住戶）、洛德（阿洛）。身體色沒換過就用這裡的，眼睛色跟著預設樣子走
+    const BASES = {
+        crab:  { body: '#d97757', eye: '#1c1714' },
+        lorde: { body: '#28364c', eye: '#ead39b' },
+    };
     const PAL = {
-        eye: '#1c1714', shadow: 'rgba(58,36,24,.16)', gray: '#b8b1aa', dark: '#2a2623',
+        shadow: 'rgba(58,36,24,.16)', gray: '#b8b1aa', dark: '#2a2623',
         white: '#fffaf2', line: '#d6ccc0', blue: '#7cc4f2', gold: '#f3c969', green: '#8fcf7a',
         sky: '#7fb2e5', brown: '#8a5a3b', spine: '#d8cdbf',
     };
@@ -39,7 +44,9 @@
     let _canvas = null, _ctx = null, _area = null;
     let _timer = null, _frame = 0;
     let _action = 'idle';
-    let _body = BODY_DEFAULT;
+    let _base = 'crab';
+    let _body = BASES.crab.body;
+    let _f = 0;                            // 正在畫第幾格（洛德慢慢上下飄用）
     let _worn = [];                        // [{ img, ratio, x, y, w, face }]
     let _look = null;                      // 自己畫的形象 { img, ratio, w, eyes }；null＝預設的小螃蟹
 
@@ -74,6 +81,34 @@
                  eyes: [[X + 5, ey, -1], [X + 12, ey, 1]] };
     }
 
+    // 洛德：墨藍幽靈管家，淡金直立的眼睛、銀白領結、兩側小手，下擺三個尖、飄在地上一格。
+    // 身體第 1～12 欄對齊小螃蟹的身體（寬 12），高 12：頂上圓、中段直、底下兩列是下擺。
+    const LORDE_ROWS = [[4, 9], [2, 11], [1, 12], [1, 12], [1, 12], [1, 12], [1, 12], [1, 12], [1, 12], [1, 12]];
+    const LORDE_HEM = [[[1, 3], [5, 8], [10, 12]], [[1, 2], [6, 7], [11, 12]]];
+    function _lordeBody(o) {
+        const B = _body, sq = o.sq || 0;
+        const bob = (Math.floor(_f / 4) % 2) ? -1 : 0;
+        const X = o.x + 2, bottom = o.y + 9 + bob;
+        const rows = LORDE_ROWS.filter((_, i) => i < 2 || i >= 2 + sq);      // 壓扁＝抽掉中段幾列
+        const top = bottom - (rows.length + LORDE_HEM.length) + 1;
+        rows.forEach(([a, b], i) => rect(X + a, top + i, b - a + 1, 1, B));
+        LORDE_HEM.forEach((spans, j) => spans.forEach(([a, b]) => rect(X + a, top + rows.length + j, b - a + 1, 1, B)));
+        rect(X + 3, top + 1, 2, 1, 'rgba(255,255,255,.2)');
+        rect(X + 2, top + 2, 1, 2, 'rgba(255,255,255,.2)');
+        rect(X + 12, top + 3, 1, rows.length - 3, 'rgba(0,0,0,.2)');
+        const ay = top + 5 - sq;
+        const arm = (mode, ax) => rect(ax, ay + (mode === 'up' ? -2 : mode === 'tap' ? 1 : 0), 1, 2, B);
+        arm(o.armL || 'down', X);
+        arm(o.armR || 'down', X + 13);
+        const by = top + 6 - sq;
+        // 領結：兩片往外張的三角，中間一個結
+        const SV = '#c9d3df';
+        rect(X + 4, by, 1, 3, SV); rect(X + 9, by, 1, 3, SV); rect(X + 5, by + 1, 1, 1, SV); rect(X + 8, by + 1, 1, 1, SV);
+        rect(X + 6, by + 1, 2, 1, '#f3f0e7');
+        return { bx: X + 1, by: top, kx: 1, ky: 1, right: X + 13, top,
+                 eyes: [[X + 4, top + 3, -1], [X + 9, top + 3, 1]] };
+    }
+
     /** 他自己畫的形象：腳底站在跟小螃蟹一樣的地方、左右置中；壓扁就整張往下縮、往兩邊撐。 */
     function _lookBody(o) {
         const L = _look, sq = o.sq || 0;
@@ -91,16 +126,17 @@
     /** 本體＋表情＋身上的東西。o：x,y 位置；eyes open/blink/happy/x/closed；armL/armR down/up/tap；sq 壓扁；look 左右看；eyeDy 眼睛上下。
      *  回身體框，道具（冷汗、眼淚）照它擺，換了形象也落在對的地方。 */
     function clawd(o) {
-        const m = _look ? _lookBody(o) : _crabBody(o);
+        const m = _look ? _lookBody(o) : _base === 'lorde' ? _lordeBody(o) : _crabBody(o);
         const look = o.look || 0, dy = o.eyeDy || 0;
+        const EYE = BASES[_base].eye;
         for (const [x0, y0, side] of m.eyes) {
             const ex = x0 + look, ey = y0 + dy;
             switch (o.eyes || 'open') {
-                case 'open':   rect(ex, ey, 1, 2, 'eye'); break;
-                case 'blink':  px(ex, ey + 1, 'eye'); break;
-                case 'happy':  px(ex - 1, ey + 1, 'eye'); px(ex, ey, 'eye'); px(ex + 1, ey + 1, 'eye'); break;
-                case 'x': { const a = ex + side; px(a, ey, 'eye'); px(ex, ey + 1, 'eye'); px(a, ey + 2, 'eye'); break; }
-                case 'closed': rect(ex - 1, ey + 1, 3, 1, 'eye'); break;
+                case 'open':   rect(ex, ey, 1, 2, EYE); break;
+                case 'blink':  px(ex, ey + 1, EYE); break;
+                case 'happy':  px(ex - 1, ey + 1, EYE); px(ex, ey, EYE); px(ex + 1, ey + 1, EYE); break;
+                case 'x': { const a = ex + side; px(a, ey, EYE); px(ex, ey + 1, EYE); px(a, ey + 2, EYE); break; }
+                case 'closed': rect(ex - 1, ey + 1, 3, 1, EYE); break;
             }
         }
         // 戴的東西：以身體左上角為原點，跟著身體縮放；跟著眼睛的再加上眼睛的偏移
@@ -149,7 +185,7 @@
         think(f) {
             const X = 7, Y = 12; shadow(X);
             clawd({ x: X, y: Y, look: f < 8 ? -1 : 1, eyeDy: -1, eyes: f === 12 ? 'blink' : 'open', armR: f >= 4 && f < 12 ? 'up' : 'down' });
-            text(['✢', '✳', '✶', '✻', '✽', '✻', '✶', '✳'][f % 8], 16, 5, S * 4.5, _body, '"Segoe UI Symbol","Noto Sans Symbols 2",sans-serif');
+            text(['✢', '✳', '✶', '✻', '✽', '✻', '✶', '✳'][f % 8], 16, 5, S * 4.5, _base === 'lorde' ? BASES.lorde.eye : _body, '"Segoe UI Symbol","Noto Sans Symbols 2",sans-serif');
             for (let i = 0; i < Math.floor(f / 4) % 4; i++) px(20 + i * 2, 6, 'gray');
         },
         happy(f) {
@@ -174,6 +210,7 @@
         // 房間收起來、切去別人房間時畫布不在畫面上，不畫
         if (!_canvas || !_canvas.offsetParent) return;
         _ctx.clearRect(0, 0, W * S, H * S);
+        _f = _frame;
         (ACTIONS[_action] || ACTIONS.idle)(_frame);
         _frame = (_frame + 1) % 16;
     }
@@ -195,8 +232,8 @@
 
     function _b64(s) { return btoa(unescape(encodeURIComponent(s))); }
 
-    function _bodyOf(wear) {
-        return /^#[0-9a-f]{3,6}$/i.test((wear && wear.body) || '') ? wear.body : BODY_DEFAULT;
+    function _bodyOf(wear, base) {
+        return /^#[0-9a-f]{3,6}$/i.test((wear && wear.body) || '') ? wear.body : BASES[base].body;
     }
 
     function _wornOf(wear) {
@@ -216,11 +253,14 @@
         return { img, ratio: +L.ratio || 1, w: +L.w || 12, eyes };
     }
 
-    /** 照這身打扮接手立繪。wear 是橋回的那包；沒打扮過（own=false）就交回原本的動圖。 */
-    ClawdPortrait.show = function (area, wear) {
-        if (!area || !wear || !wear.own) { ClawdPortrait.hide(area); return; }
+    /** 照這身打扮接手立繪。wear 是橋回的那包；base 是預設樣子（crab 小螃蟹／lorde 洛德）。
+     *  小螃蟹沒打扮過（own=false）就交回原本的動圖；洛德沒有現成動圖，一律接手。 */
+    ClawdPortrait.show = function (area, wear, base) {
+        base = BASES[base] ? base : 'crab';
+        if (!area || ((!wear || !wear.own) && base === 'crab')) { ClawdPortrait.hide(area); return; }
         _ensureCanvas(area);
-        _body = _bodyOf(wear);
+        _base = base;
+        _body = _bodyOf(wear, base);
         _worn = _wornOf(wear);
         _look = _lookOf(wear);
         area.classList.add('cw-clawd-on');
@@ -238,22 +278,25 @@
     ClawdPortrait.isOn = function () { return !!(_area && _area.classList.contains('cw-clawd-on')); };
 
     /** 在指定的畫布上畫一格定格（鏡子用）。等戴的東西都載好才畫，畫完不影響房間裡正在動的那隻。 */
-    ClawdPortrait.renderStill = async function (canvas, wear, state, frame) {
+    ClawdPortrait.renderStill = async function (canvas, wear, state, frame, base) {
+        base = BASES[base] ? base : 'crab';
         const worn = _wornOf(wear), look = _lookOf(wear);
         const imgs = worn.map(it => it.img).concat(look ? [look.img] : []);
         await Promise.all(imgs.map(img => (img.decode ? img.decode() : Promise.resolve()).catch(() => {})));
         canvas.width = W * S;
         canvas.height = H * S;
-        const saved = [_ctx, _body, _worn, _look];
+        const saved = [_ctx, _body, _worn, _look, _base, _f];
         _ctx = canvas.getContext('2d');
-        _body = _bodyOf(wear);
+        _base = base;
+        _body = _bodyOf(wear, base);
         _worn = worn;
         _look = look;
+        _f = frame || 0;
         try {
             _ctx.clearRect(0, 0, W * S, H * S);
             (ACTIONS[STATE_ACTION[state] || state] || ACTIONS.idle)(frame || 0);
         } finally {
-            [_ctx, _body, _worn, _look] = saved;
+            [_ctx, _body, _worn, _look, _base, _f] = saved;
         }
     };
 

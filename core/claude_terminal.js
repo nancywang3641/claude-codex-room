@@ -1405,8 +1405,8 @@ ${withOthers}
         if (_selfRes && _selfRes.name) { body.cc_board = true; body.cc_board_name = String(_selfRes.name); }
         // 他的房間：橋附房間近況、回完替他執行 <room_…> 標籤。房間用名冊 id 認，改名不會不見。
         if (_selfRes && _selfRes.id) body.cc_room_id = String(_selfRes.id);
-        // 打扮只給 Claude 那幾位（立繪是那隻像素小方塊）
-        if (_selfRes && _selfRes.id && _provider === 'claude') body.cc_wear = true;
+        // 打扮給 Claude 那幾位（小螃蟹）跟阿洛（洛德）；橋看 cc_backend 分辨是哪一種
+        if (_selfRes && _selfRes.id && (_provider === 'claude' || _provider === 'codex')) body.cc_wear = true;
         if (incomingSid) body.session_id = incomingSid;
         if (Number.isFinite(cfg.temperature)) body.temperature = cfg.temperature;
         if (Number.isFinite(cfg.top_p)) body.top_p = cfg.top_p;
@@ -1866,7 +1866,7 @@ ${withOthers}
         if (seat && seat.name) { body.cc_board = true; body.cc_board_name = String(seat.name); }
         // 房間：同一對一那條，在群聊裡也動得了自己的房間
         if (opts.residentId) body.cc_room_id = String(opts.residentId);
-        if (opts.residentId && provider === 'claude') body.cc_wear = true;
+        if (opts.residentId && (provider === 'claude' || provider === 'codex')) body.cc_wear = true;
         if (sid) body.session_id = sid;
         if (Array.isArray(opts.attachments) && opts.attachments.length) body.attachments = opts.attachments;
         if (Number.isFinite(cfg.temperature)) body.temperature = cfg.temperature;

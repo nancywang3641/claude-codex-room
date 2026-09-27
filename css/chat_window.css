@@ -352,6 +352,8 @@
 }
 #aurelia-chat-window .claude-portrait-area.cw-clawd-on .cw-clawd-canvas { display: block; }
 #aurelia-chat-window .claude-portrait-area.cw-clawd-on .claude-portrait-img { display: none; }
+/* 阿洛：洛德接手，Codex 那個機器人角色表藏起來（原本那條是 #aurelia-chat-window.cw-codex .codex-portrait-sprite，要壓過它） */
+#aurelia-chat-window.cw-codex .claude-portrait-area.cw-clawd-on .codex-portrait-sprite { display: none; }
 
 /* picker 橫條：原本 display:none，浮窗內顯示 */
 #aurelia-chat-window .claude-picker-bar {

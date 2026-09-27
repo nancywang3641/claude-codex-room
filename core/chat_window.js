@@ -533,6 +533,8 @@
         area.classList.remove('cw-own-room');
         const CP = window.ClawdPortrait;
         if (CP) CP.hide(area);
+        // 阿洛的預設樣子是洛德（他自己的幽靈管家），沒有現成動圖——先畫出來，免得閃一下 Codex 機器人
+        if (CP && provider === 'codex') CP.show(area, null, 'lorde');
         const CT = window.ClaudeTerminal;
         const r = (CT && typeof CT.getActiveResident === 'function') ? CT.getActiveResident(provider) : null;
         const b = _decorBridge();
@@ -543,8 +545,9 @@
             if (!res.ok) return;          // 舊版橋沒有這條 → 照舊顯示原本那張圖
             const st = await res.json();
             if (seq !== _decorSeq || !st) return;
-            // 打扮只給 Claude 那幾位（阿洛是另一種角色圖，還沒接）；打扮過才接手立繪
-            if (CP && provider === 'claude' && st.wear && st.wear.own) CP.show(area, st.wear);
+            // 打扮給 Claude 那幾位（預設小螃蟹，打扮過才接手立繪）跟阿洛（預設洛德）
+            if (CP && provider === 'claude' && st.wear && st.wear.own) CP.show(area, st.wear, 'crab');
+            if (CP && provider === 'codex') CP.show(area, st.wear, 'lorde');
             if (!st.own) return;
             if (!window.RoomScene) return;
             img.src = window.RoomScene.dataUrl(st);
