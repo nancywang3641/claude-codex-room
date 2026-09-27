@@ -5,8 +5,10 @@
  * 帽子疊上去他一換動作就懸在半空；打扮過的住戶改用這支一格一格畫他，戴的東西每一格都跟著身體算位置。
  * 沒打扮過的照舊是原本那組動圖——這支只在 show() 之後才接手。
  *
- * 打扮資料是橋 /v1/decor 帶回來的 wear：{ own, body: 身體顏色, items: [{ svg, ratio, x, y, w, face }] }。
+ * 打扮資料是橋 /v1/decor 帶回來的 wear：{ own, body: 身體顏色, items: [{ svg, ratio, x, y, w, face }], look }。
  * 座標以身體為準（寬 12、高 8，左上角 0,0），x、y 是那件東西底部中心，w 是寬；face 的跟著眼睛左看右看。
+ * look 是他自己畫的形象 { svg, ratio, w, eyes: [[x,y]…] }（沒有＝預設的小螃蟹）：整張當身體畫，腳底站在小螃蟹的位置，
+ * 眼睛跟表情照 eyes 畫在他指定的格子；戴的東西改以那張圖的左上角為原點。手的姿勢只有小螃蟹有。
  * 橋念給住戶聽的是同一套（cc-bridge room_decor.brief_wear），改一邊要改另一邊。
  *
  * 動作沿用房間原本的立繪狀態（chat_room.js 的 _swapPortraitImg 每次換狀態都會叫 setState）。
@@ -39,6 +41,7 @@
     let _action = 'idle';
     let _body = BODY_DEFAULT;
     let _worn = [];                        // [{ img, ratio, x, y, w, face }]
+    let _look = null;                      // 自己畫的形象 { img, ratio, w, eyes }；null＝預設的小螃蟹
 
     function px(x, y, c) { _ctx.fillStyle = PAL[c] || c; _ctx.fillRect(x * S, y * S, S, S); }
     function rect(x, y, w, h, c) {
@@ -52,8 +55,8 @@
     const shadow = (X, small) => rect(X + 3 + (small ? 2 : 0), 22, 12 - (small ? 4 : 0), 1, 'shadow');
     const sparkle = (x, y) => { px(x, y, 'gold'); px(x - 1, y, 'gold'); px(x + 1, y, 'gold'); px(x, y - 1, 'gold'); px(x, y + 1, 'gold'); };
 
-    /** 本體＋身上的東西。o：x,y 位置；eyes open/blink/happy/x/closed；armL/armR down/up/tap；sq 壓扁；look 左右看；eyeDy 眼睛上下 */
-    function clawd(o) {
+    /** 預設的小螃蟹身體。回身體框（戴東西的原點與縮放）跟兩隻眼睛的位置。 */
+    function _crabBody(o) {
         const X = o.x, Y = o.y, sq = o.sq || 0, B = _body;
         const legs = o.legs || [2, 2, 2, 2];
         [4, 6, 11, 13].forEach((lx, i) => rect(X + lx, Y + 8, 1, legs[i], B));
@@ -66,8 +69,32 @@
         };
         arm(o.armL || 'down', X + 1 - wide);
         arm(o.armR || 'down', X + 15 + wide);
-        const ey = Y + 2 + sq + (o.eyeDy || 0), look = o.look || 0;
-        for (const [ex, side] of [[X + 5 + look, -1], [X + 12 + look, 1]]) {
+        const ey = Y + 2 + sq;
+        return { bx: X + 3, by: Y + sq, kx: 1, ky: 1, right: X + 15 + wide, top: Y + sq,
+                 eyes: [[X + 5, ey, -1], [X + 12, ey, 1]] };
+    }
+
+    /** 他自己畫的形象：腳底站在跟小螃蟹一樣的地方、左右置中；壓扁就整張往下縮、往兩邊撐。 */
+    function _lookBody(o) {
+        const L = _look, sq = o.sq || 0;
+        let w = L.w, h = L.w * L.ratio;
+        if (h > 20) { w = w * 20 / h; h = 20; }          // 太高的整張縮進畫布
+        const kx = (w / L.w) * (sq >= 2 ? 1.12 : 1), ky = (h / (L.w * L.ratio)) * (1 - sq / 10);
+        const dw = L.w * kx, dh = L.w * L.ratio * ky;
+        const left = o.x + 9 - dw / 2, top = o.y + 10 - dh;
+        if (L.img.complete && L.img.naturalWidth) _ctx.drawImage(L.img, left * S, top * S, dw * S, dh * S);
+        const mid = L.w / 2;
+        return { bx: left, by: top, kx, ky, right: left + dw, top,
+                 eyes: L.eyes.map(([ex, ey]) => [Math.round(left + ex * kx), Math.round(top + ey * ky), ex < mid ? -1 : 1]) };
+    }
+
+    /** 本體＋表情＋身上的東西。o：x,y 位置；eyes open/blink/happy/x/closed；armL/armR down/up/tap；sq 壓扁；look 左右看；eyeDy 眼睛上下。
+     *  回身體框，道具（冷汗、眼淚）照它擺，換了形象也落在對的地方。 */
+    function clawd(o) {
+        const m = _look ? _lookBody(o) : _crabBody(o);
+        const look = o.look || 0, dy = o.eyeDy || 0;
+        for (const [x0, y0, side] of m.eyes) {
+            const ex = x0 + look, ey = y0 + dy;
             switch (o.eyes || 'open') {
                 case 'open':   rect(ex, ey, 1, 2, 'eye'); break;
                 case 'blink':  px(ex, ey + 1, 'eye'); break;
@@ -76,14 +103,14 @@
                 case 'closed': rect(ex - 1, ey + 1, 3, 1, 'eye'); break;
             }
         }
-        // 戴的東西：以身體左上角為原點，壓扁時跟著身體頂一起往下；跟著眼睛的再加上眼睛的偏移
-        const bx = X + 3, by = Y + sq;
+        // 戴的東西：以身體左上角為原點，跟著身體縮放；跟著眼睛的再加上眼睛的偏移
         for (const it of _worn) {
             if (!it.img.complete || !it.img.naturalWidth) continue;
-            const fx = it.face ? look : 0, fy = it.face ? (o.eyeDy || 0) : 0;
-            const w = it.w, h = w * (it.ratio || 1);
-            _ctx.drawImage(it.img, (bx + it.x + fx - w / 2) * S, (by + it.y + fy - h) * S, w * S, h * S);
+            const fx = it.face ? look : 0, fy = it.face ? dy : 0;
+            const w = it.w * m.kx, h = it.w * (it.ratio || 1) * m.ky;
+            _ctx.drawImage(it.img, (m.bx + it.x * m.kx + fx - w / 2) * S, (m.by + it.y * m.ky + fy - h) * S, w * S, h * S);
         }
+        return m;
     }
 
     const ACTIONS = {
@@ -115,9 +142,9 @@
         oops(f) {
             const shake = [0, -1, 1, -1, 1, -1, 1, 0][f] || 0, sq = f >= 8 ? 2 : 0, X = 7 + shake, Y = 12;
             shadow(7);
-            clawd({ x: X, y: Y, sq, eyes: 'x', armL: f >= 8 ? 'tap' : 'up', armR: f >= 8 ? 'tap' : 'up' });
-            if (f >= 3) rect(X + 15, Y + sq - 2 + (f % 4 < 2 ? 0 : 1), 1, 2, 'blue');
-            if (f >= 9) { const n = Math.min(3, f - 8); rect(X + 4, Y + sq + 5, 1, n, 'blue'); rect(X + 13, Y + sq + 5, 1, n, 'blue'); }
+            const m = clawd({ x: X, y: Y, sq, eyes: 'x', armL: f >= 8 ? 'tap' : 'up', armR: f >= 8 ? 'tap' : 'up' });
+            if (f >= 3) rect(Math.round(m.right), Math.round(m.top) - 2 + (f % 4 < 2 ? 0 : 1), 1, 2, 'blue');
+            if (f >= 9) { const n = Math.min(3, f - 8); m.eyes.forEach(([ex, ey]) => rect(ex, ey + 3, 1, n, 'blue')); }
         },
         think(f) {
             const X = 7, Y = 12; shadow(X);
@@ -180,12 +207,22 @@
         });
     }
 
+    function _lookOf(wear) {
+        const L = wear && wear.look;
+        if (!L || !L.svg) return null;
+        const img = new Image();
+        img.src = 'data:image/svg+xml;base64,' + _b64(L.svg);
+        const eyes = (Array.isArray(L.eyes) ? L.eyes : []).filter(e => Array.isArray(e) && e.length >= 2).map(e => [+e[0] || 0, +e[1] || 0]);
+        return { img, ratio: +L.ratio || 1, w: +L.w || 12, eyes };
+    }
+
     /** 照這身打扮接手立繪。wear 是橋回的那包；沒打扮過（own=false）就交回原本的動圖。 */
     ClawdPortrait.show = function (area, wear) {
         if (!area || !wear || !wear.own) { ClawdPortrait.hide(area); return; }
         _ensureCanvas(area);
         _body = _bodyOf(wear);
         _worn = _wornOf(wear);
+        _look = _lookOf(wear);
         area.classList.add('cw-clawd-on');
         if (!_timer) _timer = setInterval(_tick, FPS_MS);
         _tick();
@@ -202,19 +239,21 @@
 
     /** 在指定的畫布上畫一格定格（鏡子用）。等戴的東西都載好才畫，畫完不影響房間裡正在動的那隻。 */
     ClawdPortrait.renderStill = async function (canvas, wear, state, frame) {
-        const worn = _wornOf(wear);
-        await Promise.all(worn.map(it => (it.img.decode ? it.img.decode() : Promise.resolve()).catch(() => {})));
+        const worn = _wornOf(wear), look = _lookOf(wear);
+        const imgs = worn.map(it => it.img).concat(look ? [look.img] : []);
+        await Promise.all(imgs.map(img => (img.decode ? img.decode() : Promise.resolve()).catch(() => {})));
         canvas.width = W * S;
         canvas.height = H * S;
-        const saved = [_ctx, _body, _worn];
+        const saved = [_ctx, _body, _worn, _look];
         _ctx = canvas.getContext('2d');
         _body = _bodyOf(wear);
         _worn = worn;
+        _look = look;
         try {
             _ctx.clearRect(0, 0, W * S, H * S);
             (ACTIONS[STATE_ACTION[state] || state] || ACTIONS.idle)(frame || 0);
         } finally {
-            [_ctx, _body, _worn] = saved;
+            [_ctx, _body, _worn, _look] = saved;
         }
     };
 

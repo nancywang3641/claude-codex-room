@@ -1323,14 +1323,14 @@ ${withOthers}
     // ===== 留言板標籤、房間布置標籤 =====
     // 小機在回覆裡寫 <board_post>／<board_like id="17"/>／<board_comment id>／<board_reply id to>／<board_proposal>，
     // 橋（board_social.py）收完回覆替他做完；畫面上要拿掉，逐字稿照存原文。
-    // 房間布置與打扮（橋的 room_decor.py）同一套：<room_place>／<wear_put> 裡是一整張 svg，其他是單個標籤
-    // （room_paint、room_move、room_remove、wear_color、wear_move、wear_remove）；整段 svg 程式碼串流中還沒寫到結尾也要先藏著。
+    // 房間布置、打扮與形象（橋的 room_decor.py）同一套：<room_place>／<wear_put>／<look_set> 裡是一整張 svg，其他是單個標籤
+    // （room_paint、room_move、room_remove、wear_color、wear_move、wear_remove、look_reset）；整段 svg 程式碼串流中還沒寫到結尾也要先藏著。
     // 容錯跟橋同一套：全形括號與引號、屬性不加引號、讚沒寫斜線；反引號與程式碼區塊裡的是他在講解，原樣留著。
     const _BOARD_CODE_RE = /```[\s\S]*?```|`[^`\n]*`/g;
-    const _BOARD_PAIR_RE = /[<＜]\s*(board_(?:post|comment|reply|like|proposal)|room_place|wear_put)\b[^>＞]*?(?:\/\s*[>＞]|[>＞][\s\S]*?[<＜]\s*\/\s*\1\s*[>＞])/gi;
-    const _BOARD_SINGLE_RE = /[<＜]\s*(?:board_like|room_(?:paint|move|remove)|wear_(?:color|move|remove))\b[^>＞]*?\/?\s*[>＞]/gi;
-    const _BOARD_OPEN_RE = /[<＜]\s*(?:board_(?:post|comment|reply|proposal)|room_place|wear_put)\b[\s\S]*$/i;
-    const _BOARD_TAIL_RE = /[<＜]\s*\/?\s*(?:b(?:o(?:a(?:r(?:d(?:_[^>＞]*)?)?)?)?)?|r(?:o(?:o(?:m(?:_[^>＞]*)?)?)?)?|w(?:e(?:a(?:r(?:_[^>＞]*)?)?)?)?)?$/i;
+    const _BOARD_PAIR_RE = /[<＜]\s*(board_(?:post|comment|reply|like|proposal)|room_place|wear_put|look_set)\b[^>＞]*?(?:\/\s*[>＞]|[>＞][\s\S]*?[<＜]\s*\/\s*\1\s*[>＞])/gi;
+    const _BOARD_SINGLE_RE = /[<＜]\s*(?:board_like|room_(?:paint|move|remove)|wear_(?:color|move|remove)|look_reset)\b[^>＞]*?\/?\s*[>＞]/gi;
+    const _BOARD_OPEN_RE = /[<＜]\s*(?:board_(?:post|comment|reply|proposal)|room_place|wear_put|look_set)\b[\s\S]*$/i;
+    const _BOARD_TAIL_RE = /[<＜]\s*\/?\s*(?:b(?:o(?:a(?:r(?:d(?:_[^>＞]*)?)?)?)?)?|r(?:o(?:o(?:m(?:_[^>＞]*)?)?)?)?|w(?:e(?:a(?:r(?:_[^>＞]*)?)?)?)?|l(?:o(?:o(?:k(?:_[^>＞]*)?)?)?)?)?$/i;
     function _boardInCode(s, pos) {
         let hit = false;
         s.replace(_BOARD_CODE_RE, function (m, off) { if (pos >= off && pos < off + m.length) hit = true; return m; });
@@ -1555,8 +1555,8 @@ ${withOthers}
         if (imageAttachments.length) assistantMsg.attachments = imageAttachments;
         await ClaudeTerminal.saveHistory([...updatedHistory, assistantMsg]);
 
-        // 他這輪動了房間或打扮：橋收完回覆才在背景替他做，晚一下再重畫上半部那塊
-        if (/[<＜]\s*(?:room_(?:place|paint|move|remove)|wear_(?:put|color|move|remove))\b/i.test(reply)
+        // 他這輪動了房間、打扮或形象：橋收完回覆才在背景替他做，晚一下再重畫上半部那塊
+        if (/[<＜]\s*(?:room_(?:place|paint|move|remove)|wear_(?:put|color|move|remove)|look_(?:set|reset))\b/i.test(reply)
             && window.ChatWindow && typeof window.ChatWindow.refreshDecor === 'function') {
             setTimeout(() => window.ChatWindow.refreshDecor(), 1500);
         }
