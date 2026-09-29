@@ -528,9 +528,10 @@
         return '拿不到紀錄：' + (_plainReason(msg) || msg);
     }
 
-    // ---- 等你同意的：住戶提的改世界書單子（aurelia_link.js 在頁面裡做成單子、橋存著） ----
+    // ---- 等你同意的：住戶提的改世界書、改預設單子（aurelia_link.js 在頁面裡做成單子、橋存著） ----
     //   點一張＝打開跟聊天 app 同一張單子（WX_TOOLS.openPropSheet），同意才寫、寫了能改回去。
-    //   🚨 酒館與手機的世界書是分開的：單子在哪邊提的就要在哪邊按（prop.where），另一邊只給看不給按。
+    //   那一行的字交給 OS_AURELIA_EDIT.text（改預設的單子它轉給 OS_AURELIA_PRESET）。
+    //   🚨 酒館與手機的世界書、預設是分開的：單子在哪邊提的就要在哪邊按（prop.where），另一邊只給看不給按。
     const PP_CHIP = { wait: '點開看', no: '沒同意', done: '寫進去了', undone: '改回去了', stale: '作廢了' };
     function _hereName() {
         try { const w = window.parent || window; return (w.OS_API && w.OS_API.isStandalone && w.OS_API.isStandalone()) ? '手機' : '酒館'; } catch (_) { return '酒館'; }
@@ -540,7 +541,7 @@
         const E = w.OS_AURELIA_EDIT || window.OS_AURELIA_EDIT;
         try { if (E && E.text) return E.text(x.prop, false); } catch (_) {}
         const p = x.prop || {};
-        return (p.by || x.name || x.rid || '住戶') + ' 想改世界書「' + (p.title || '') + '」';
+        return (p.by || x.name || x.rid || '住戶') + ' 想改' + (p.mod === 'preset' ? '預設' : '世界書') + '「' + (p.title || '') + '」';
     }
     function _propsHtml(props) {
         if (!props || !props.length) return '';
@@ -725,7 +726,7 @@
         const E = w.OS_AURELIA_EDIT || window.OS_AURELIA_EDIT;
         if (!T || !T.openPropSheet || !E) { say('要在酒館或手機裡打開留言板才能按'); return; }
         const where = (x.prop && x.prop.where) || '';
-        if (where && where !== _hereName()) { say('這張是在' + where + '提的，要在' + where + '的留言板按（兩邊的世界書是分開的）'); return; }
+        if (where && where !== _hereName()) { say('這張是在' + where + '提的，要在' + where + '的留言板按（兩邊的' + ((x.prop && x.prop.mod === 'preset') ? '預設' : '世界書') + '是分開的）'); return; }
         T.openPropSheet(x.prop, container.querySelector('.ob-container'), async p => {
             await _api('/v1/aurelia/props/update', { id: x.id, prop: p });
             await _propRefresh(container);

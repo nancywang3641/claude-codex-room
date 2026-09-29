@@ -3,9 +3,10 @@
 // 住戶（Claude Code／Codex）跑在橋上，奧瑞亞的資料（世界書、劇情、手機）在這個頁面裡（酒館或手機 PWA）。
 // 這支是頁面這一端（橋那端見 cc-bridge 的 aurelia_relay.py、aurelia_mcp.py）：
 //   ・一連上就把奧瑞亞現在有的工具送給橋（POST /v1/aurelia/tools），住戶的 CLI 才列得出來。
-//   ・一直長輪詢 GET /v1/aurelia/jobs：住戶叫了工具，就在這裡用 OS_AURELIA_TOOLS／OS_AURELIA_EDIT 跑，結果交回橋。
-//   ・改世界書只做成單子（prop）交給橋存著，她在留言板「等你同意的」按同意才寫（os_board.js）。
-//     單子記下是在酒館還是手機提的：兩邊的世界書是分開的，要在同一邊按同意。
+//   ・一直長輪詢 GET /v1/aurelia/jobs：住戶叫了工具，就在這裡用 OS_AURELIA_TOOLS／OS_AURELIA_EDIT／OS_AURELIA_PRESET 跑，結果交回橋。
+//   ・改世界書、改預設只做成單子（prop）交給橋存著，她在留言板「等你同意的」按同意才寫（os_board.js）。
+//     單子記下是在酒館還是手機提的：兩邊的世界書、預設是分開的，要在同一邊按同意。
+//     單子的同意、改回去、那一行的字都經 OS_AURELIA_EDIT（改預設的單子它轉給 OS_AURELIA_PRESET），留言板不用分兩條。
 // 頁面裡沒有奧瑞亞（只裝房間、或通知點進來的 board.html）就什麼都不做。
 // 酒館與手機同時開著：誰先拿到工作誰做。
 // ----------------------------------------------------------------
@@ -22,6 +23,7 @@
     const sleep = ms => new Promise(r => setTimeout(r, ms));
     function _A() { return win.OS_AURELIA_TOOLS || window.OS_AURELIA_TOOLS || null; }
     function _E() { return win.OS_AURELIA_EDIT || window.OS_AURELIA_EDIT || null; }
+    function _P() { return win.OS_AURELIA_PRESET || window.OS_AURELIA_PRESET || null; }
     function _where() {
         try { return (win.OS_API && win.OS_API.isStandalone && win.OS_API.isStandalone()) ? '手機' : '酒館'; } catch (e) { return '酒館'; }
     }
@@ -43,27 +45,30 @@
         return r.json();
     }
 
-    // 住戶看的工具：兩組合起來，同名的（查世界書）留改世界書那份——住戶不是故事裡的人，查世界書找所有的書
+    // 住戶看的工具：三組合起來，同名的（查世界書）留改世界書那份——住戶不是故事裡的人，查世界書找所有的書
     function _tools() {
-        const A = _A(), E = _E();
+        const A = _A(), E = _E(), P = _P();
         const out = [], seen = {};
         const add = t => { if (t && t.name && !seen[t.name]) { seen[t.name] = 1; out.push({ name: t.name, description: t.description || '', inputSchema: t.inputSchema || { type: 'object', properties: {} }, propose: !!t.propose }); } };
         ((E && E.tools) || []).forEach(add);
+        ((P && P.tools) || []).forEach(add);
         ((A && A.tools) || []).forEach(add);
         return out;
     }
     function _note() {
-        const A = _A(), E = _E();
-        return [(A && A.note) || '', (E && E.note) || ''].filter(Boolean).join(' ');
+        const A = _A(), E = _E(), P = _P();
+        return [(A && A.note) || '', (E && E.note) || '', (P && P.note) || ''].filter(Boolean).join(' ');
     }
 
     async function _run(job) {
-        const A = _A(), E = _E();
+        const A = _A(), E = _E(), P = _P();
         const name = String(job.name || ''), args = job.args || {};
-        const edit = ((E && E.tools) || []).find(t => t.name === name);
+        const pre = ((P && P.tools) || []).find(t => t.name === name);
+        const edit = pre ? null : ((E && E.tools) || []).find(t => t.name === name);
+        const M = pre ? P : E;   // 改預設的歸 OS_AURELIA_PRESET，其他會動手的歸 OS_AURELIA_EDIT
         try {
-            if (edit && edit.propose) {
-                const r = await E.propose(name, args);
+            if ((pre || edit) && (pre || edit).propose) {
+                const r = await M.propose(name, args);
                 if (r && r.ok && r.prop) {
                     r.prop.by = _residentName(job.rid);
                     r.prop.where = _where();
@@ -71,6 +76,7 @@
                 }
                 return { ok: false, text: (r && r.text) || '沒有成功' };
             }
+            if (pre) return { ok: true, text: String(await P.run(name, args)) + '（在她的' + _where() + '查的）' };
             if (edit && name !== 'aurelia_worldbook_search') return { ok: true, text: String(await E.run(name, args)) };
             if (!A) return { ok: false, text: '奧瑞亞還沒載好' };
             const text = await A.run(name, args, { wbAll: true });
