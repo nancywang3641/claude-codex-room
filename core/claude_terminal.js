@@ -585,6 +585,7 @@ ${withOthers}
     const SYNC_MIGRATED_KEY = 'ccr_room_synced_v1';
     let _pulledKey   = null;   // 已經拉過的 provider|rid|tab，換人換頁時清掉
     let _convTimers  = {};     // tab -> debounce timer
+    let _convSending = {};     // tab -> 最近一趟推清單的 Promise
     let _histTimer   = null;
     let _histPending = null;   // { convId, messages }
     ClaudeTerminal.bridgeDown = false;   // 給 UI 看的：橋連不到 = 唯讀
@@ -660,6 +661,10 @@ ${withOthers}
         if (_pulledKey === key) return;
         try {
             await _migrateOnce();
+            // 這台剛動過、還在 400ms 去抖裡的清單先送上去再拉。不然「新會話」與「點另一串」
+            // 都會栽在這：按鈕改完本機馬上重開房間，拉下來的是橋上的舊清單與舊 active，
+            // 新會話被蓋掉（連橋上都沒了）、畫面跳回原本那串。
+            await _flushConvs(tab);
             const res = await _api('/v1/room/state?rid=' + encodeURIComponent(rid) +
                                    '&tab=' + encodeURIComponent(tab));
             if (!res) return;
@@ -683,7 +688,10 @@ ${withOthers}
      *  會被叫很多次，每次都發一個請求太吵。 */
     function _pushConvs(tab) {
         clearTimeout(_convTimers[tab]);
-        _convTimers[tab] = setTimeout(async () => {
+        _convTimers[tab] = setTimeout(() => { _convTimers[tab] = null; _sendConvs(tab); }, 400);
+    }
+    function _sendConvs(tab) {
+        const p = (async () => {
             try {
                 await _api('/v1/room/convs', {
                     method: 'POST',
@@ -699,7 +707,19 @@ ${withOthers}
                 ClaudeTerminal.bridgeDown = true;
                 console.warn('[ClaudeTerminal] 會話清單推不上橋：', e);
             }
-        }, 400);
+        })();
+        _convSending[tab] = p;
+        return p;
+    }
+    /** 還在等去抖的那份立刻送；已經在路上的等它到。拉清單之前叫 */
+    async function _flushConvs(tab) {
+        if (_convTimers[tab]) {
+            clearTimeout(_convTimers[tab]);
+            _convTimers[tab] = null;
+            await _sendConvs(tab);
+        } else if (_convSending[tab]) {
+            await _convSending[tab];
+        }
     }
 
     /** 訊息去抖 1.2s。saveHistory 在串流中會被呼叫很多次（實測 8 處），
