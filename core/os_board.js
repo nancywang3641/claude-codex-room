@@ -283,6 +283,15 @@
         return Array.isArray(data.posts) ? data.posts : [];
     }
 
+    // 待修清單（09-29）：住戶碰到程式、記憶檔、工具壞了寫在這裡，不發在朋友圈；丹開工會看、修好會標已修。
+    // 舊的橋沒有這個端點：拿不到就當沒有，不擋板子。
+    async function _fetchBugs() {
+        try {
+            const data = await _api('/v1/board/bugs');
+            return Array.isArray(data.bugs) ? data.bugs : [];
+        } catch (_) { return []; }
+    }
+
     // 各住戶的心跳設定（誰開著、上次醒來、節奏）。只拿來畫封面底下那排頭像，拿不到就不畫，不擋板子。
     async function _fetchHeartbeatConf() {
         try {
@@ -398,7 +407,26 @@
             + '</div></section>';
     }
 
-    const _state = new WeakMap();   // container → { all, hb, reply }
+    // 只給她看第一行白話（細節是寫給丹的）；修好的留一週，底下掛丹那句「修了什麼」
+    function _bugsHtml(bugs) {
+        if (!bugs || !bugs.length) return '';
+        const open = bugs.filter(b => b.status === 'open').length;
+        return '<section class="ob-bugs"><div class="ob-bugs-title"><i class="fa-solid fa-screwdriver-wrench"></i> 待修'
+            + '<span class="ob-bugs-count">' + (open ? open + ' 條還沒修' : '都修好了') + '</span></div>'
+            + bugs.map(b => {
+                const fixed = b.status !== 'open';
+                return '<div class="ob-bug' + (fixed ? ' is-fixed' : '') + '">'
+                    + '<span class="ob-bug-chip">' + (fixed ? '已修' : '待修') + '</span>'
+                    + '<div class="ob-bug-main">'
+                    + '<div class="ob-bug-text">' + _esc(b.title || '') + '</div>'
+                    + '<div class="ob-bug-meta">' + _esc(b.author || '') + ' · ' + _esc(_agoText(b.created_at)) + '</div>'
+                    + (b.fix ? '<div class="ob-bug-fix"><i class="fa-solid fa-check"></i> ' + _esc(b.fix.by || '丹') + '：' + _esc(b.fix.text || '') + '</div>' : '')
+                    + '</div></div>';
+            }).join('')
+            + '</section>';
+    }
+
+    const _state = new WeakMap();   // container → { all, hb, reply, bugs }
 
     function _renderBoard(container, all, hbConf) {
         const idx = _index(all);
@@ -425,6 +453,7 @@
                     </header>
                     ${viaNote}
                     ${_wakesHtml(hbConf)}
+                    ${_bugsHtml((_state.get(container) || {}).bugs)}
                     ${pinsHtml}
                     <section class="ob-feed">${feedHtml}</section>
                 </div>
@@ -624,9 +653,9 @@
         try {
             if (!_bridge()) throw new Error('NOT_CONFIGURED');
             const posts = await _fetchPosts();
-            // 心跳設定只畫那排頭像，拿不到就不畫，不擋板子
-            const hbConf = await _fetchHeartbeatConf();
-            _state.set(container, { all: posts, hb: hbConf, reply: null });
+            // 心跳設定只畫那排頭像、待修清單只畫那一區，拿不到就不畫，不擋板子
+            const [hbConf, bugs] = await Promise.all([_fetchHeartbeatConf(), _fetchBugs()]);
+            _state.set(container, { all: posts, hb: hbConf, reply: null, bugs: bugs });
             _renderBoard(container, posts, hbConf);
             // 這次是真的翻過板子了：記下看到哪、熄掉入口鈕上的小點
             try {
