@@ -300,6 +300,17 @@
         } catch (_) { return null; }
     }
 
+    // 醒來紀錄（09-30）：每次醒來（心跳、顧田、整理留言板）橋都存一筆，這裡畫給她看。舊的橋沒有這個端點：回 null，不畫入口。
+    async function _fetchWakes(rid, before, limit) {
+        const q = ['limit=' + (limit || 40)];
+        if (rid) q.push('rid=' + encodeURIComponent(rid));
+        if (before) q.push('before=' + encodeURIComponent(before));
+        return _api('/v1/wakes?' + q.join('&'));
+    }
+    async function _fetchWakesQuiet() {
+        try { return await _fetchWakes(null, null, 30); } catch (_) { return null; }
+    }
+
     const _postNote = (content, tags) => _api('/v1/board/post', { author: ME, content: content, tags: tags });
     const _deleteNote = id => _api('/v1/board/delete', { id: Number(id) });
 
@@ -388,23 +399,128 @@
             </article>`;
     }
 
-    /** 封面底下那排：開著「自己醒來」的小機，各自上次什麼時候醒過 */
-    function _wakesHtml(hbConf) {
+    /** 封面底下那排：開著「自己醒來」的小機，各自上次什麼時候醒過。
+     *  標題右邊是「醒來紀錄」入口：沒看過的幾次、其中有跑到外面的就標紅。點頭像＝看那一位的紀錄。 */
+    function _wakesHtml(hbConf, wakes) {
         if (!hbConf) return '';
-        const list = Object.keys(hbConf).map(k => hbConf[k]).filter(c => c && c.enabled);
-        if (!list.length) return '';
-        return '<section class="ob-wakes"><div class="ob-wakes-cap">會自己醒來的</div><div class="ob-wakes-row">'
+        const list = Object.keys(hbConf).map(k => Object.assign({ rid: k }, hbConf[k])).filter(c => c && c.enabled);
+        const items = (wakes && Array.isArray(wakes.items)) ? wakes.items : null;
+        if (!list.length && !(items && items.length)) return '';
+        let open = '';
+        if (items) {
+            const seen = _wlSeen();
+            const fresh = items.filter(w => w.id > seen);
+            const out = fresh.some(w => w.outward && w.outward.length);
+            const n = fresh.length ? '<span class="ob-wl-badge' + (out ? ' is-out' : '') + '">'
+                + (out ? '<i class="fa-solid fa-arrow-up-right-from-square"></i>' : '') + (fresh.length >= 30 ? '30+' : fresh.length) + '</span>' : '';
+            open = '<button type="button" class="ob-wl-open">' + n + '醒來紀錄<i class="fa-solid fa-chevron-right"></i></button>';
+        }
+        return '<section class="ob-wakes"><div class="ob-wakes-head"><span class="ob-wakes-cap">會自己醒來的</span>' + open + '</div>'
+            + (list.length ? '<div class="ob-wakes-row">'
             + list.map(c => {
                 const h = (c.hours_since == null) ? null : Number(c.hours_since);
                 const look = h == null ? { tone: 'quiet', text: '剛打開，第一次要等滿一輪' } : _wakeOutlook(h, c.pace_hours);
                 const when = h == null ? '還沒醒過' : (look.tone === 'stopped' ? '心跳停了' : _ago(h));
-                return '<div class="ob-wake ob-wake-' + look.tone + '" title="' + _esc(c.name + '：' + look.text) + '">'
+                return '<div class="ob-wake ob-wake-' + look.tone + (items ? ' is-link' : '') + '" data-rid="' + _esc(c.rid) + '" title="' + _esc(c.name + '：' + look.text) + '">'
                     + _avatarHtml(c.name)
                     + '<span class="ob-wake-name">' + _esc(c.name) + '</span>'
                     + '<span class="ob-wake-when">' + _esc(when) + '</span>'
                     + '</div>';
             }).join('')
-            + '</div></section>';
+            + '</div>' : '')
+            + '</section>';
+    }
+
+    // ---- 醒來紀錄：清單 → 點一次換頁看經過（兩頁都蓋在板子上，各自有返回） ----
+    const WL_SEEN = 'ccr_wakes_seen';
+    const WL_KIND = { heartbeat: '醒來', farm: '顧田', compact: '整理留言板' };
+    function _wlSeen() { try { return Number(localStorage.getItem(WL_SEEN)) || 0; } catch (_) { return 0; } }
+    function _wlSetSeen(id) { try { if (id > _wlSeen()) localStorage.setItem(WL_SEEN, String(id)); } catch (_) {} }
+    function _wlClock(sec) {
+        const d = new Date(Number(sec) * 1000);
+        return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+    }
+    function _wlDay(sec) {
+        const d = new Date(Number(sec) * 1000), now = new Date();
+        const day0 = t => new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime();
+        const diff = Math.round((day0(now) - day0(d)) / 86400000);
+        if (diff === 0) return '今天';
+        if (diff === 1) return '昨天';
+        return (d.getFullYear() !== now.getFullYear() ? d.getFullYear() + '年' : '') + (d.getMonth() + 1) + '月' + d.getDate() + '日';
+    }
+    function _wlTook(w) {
+        const s = (Number(w.ended_at) || 0) - (Number(w.started_at) || 0);
+        if (!(s > 0)) return '';
+        return s < 60 ? '不到一分鐘' : '花了 ' + Math.round(s / 60) + ' 分鐘';
+    }
+    // 名字對到的住戶（頭像用）；橋只給 rid 與名字
+    function _wlItemHtml(w) {
+        const out = (w.outward || []).filter((x, i, a) => a.indexOf(x) === i);
+        // 摘要裡對外的那幾件另起一行標紅，這行只留其他的，不重複
+        const rest = w.ok ? String(w.summary || '').split('、').filter(x => out.indexOf(x.replace(/…$/, '')) === -1).join('、') : String(w.summary || '');
+        return '<div class="ob-wl-item' + (w.ok ? '' : ' is-fail') + (out.length ? ' is-out' : '') + '" data-wid="' + _esc(w.id) + '">'
+            + _avatarHtml(w.name)
+            + '<div class="ob-wl-main">'
+            + '<div class="ob-wl-top"><span class="ob-wl-name">' + _esc(w.name || w.rid) + '</span>'
+            + '<span class="ob-wl-kind">' + _esc(WL_KIND[w.kind] || w.kind) + '</span>'
+            + '<time class="ob-wl-time">' + _esc(_wlClock(w.started_at)) + '</time></div>'
+            + (out.length ? '<div class="ob-wl-out"><i class="fa-solid fa-arrow-up-right-from-square"></i>跑到外面：' + _esc(out.join('、')) + '</div>' : '')
+            + (rest ? '<div class="ob-wl-sum">' + (w.ok ? '' : '<i class="fa-solid fa-triangle-exclamation"></i>') + _esc(rest) + '</div>' : '')
+            + '</div><i class="fa-solid fa-chevron-right ob-wl-go"></i></div>';
+    }
+    function _wlListHtml(wl, hbConf) {
+        // 篩選：心跳名冊裡的人＋紀錄裡出現過的人
+        const who = {};
+        Object.keys(hbConf || {}).forEach(k => { who[k] = (hbConf[k] && hbConf[k].name) || k; });
+        (wl.items || []).forEach(w => { if (!who[w.rid]) who[w.rid] = w.name || w.rid; });
+        const chips = '<div class="ob-wl-chips">'
+            + '<button type="button" class="ob-wl-chip' + (!wl.rid ? ' is-on' : '') + '" data-rid="">全部</button>'
+            + Object.keys(who).map(k => '<button type="button" class="ob-wl-chip' + (wl.rid === k ? ' is-on' : '') + '" data-rid="' + _esc(k) + '">' + _esc(who[k]) + '</button>').join('')
+            + '</div>';
+        let body;
+        if (wl.error) {
+            body = '<div class="ob-wl-empty"><i class="fa-solid fa-plug-circle-xmark"></i><div>' + _esc(wl.error) + '</div></div>';
+        } else if (!wl.items) {
+            body = '<div class="ob-wl-empty">正在拿醒來紀錄…</div>';
+        } else if (!wl.items.length) {
+            body = '<div class="ob-wl-empty"><i class="fa-regular fa-moon"></i><div>還沒有醒來紀錄。</div>'
+                + '<div class="ob-wl-note">從這一版開始，每次醒來、顧田、整理留言板都會記在這裡；以前的沒有存下來。</div></div>';
+        } else {
+            let day = '';
+            body = wl.items.map(w => {
+                const d = _wlDay(w.started_at);
+                const head = d !== day ? '<div class="ob-wl-day">' + _esc(d) + '</div>' : '';
+                day = d;
+                return head + _wlItemHtml(w);
+            }).join('')
+                + (wl.more ? '<button type="button" class="ob-wl-more"' + (wl.loading ? ' disabled' : '') + '>' + (wl.loading ? '拿更早的…' : '看更早的') + '</button>' : '');
+        }
+        return '<div class="ob-wl-head"><button type="button" class="ob-wl-back" data-to="board" title="回留言板"><i class="fa-solid fa-chevron-left"></i></button>'
+            + '<div class="ob-wl-title">醒來紀錄</div><span class="ob-wl-headpad"></span></div>'
+            + chips + '<div class="ob-wl-scroll">' + body + '</div>';
+    }
+    function _wlDetailHtml(d) {
+        const out = (d.tools || []).filter(t => t.outward);
+        const sec = (title, icon, inner, cls) => '<section class="ob-wl-sec' + (cls ? ' ' + cls : '') + '"><div class="ob-wl-sec-title"><i class="fa-solid ' + icon + '"></i>' + title + '</div>' + inner + '</section>';
+        const toolRow = t => '<div class="ob-wl-tool' + (t.outward ? ' is-out' : '') + '"><div class="ob-wl-tool-label">' + _esc(t.label) + '</div>'
+            + (t.detail ? '<div class="ob-wl-tool-detail">' + _esc(t.detail) + '</div>' : '') + '</div>';
+        const parts = [];
+        parts.push('<div class="ob-wl-meta">' + _esc(_wlDay(d.started_at) + ' ' + _wlClock(d.started_at)) + (_wlTook(d) ? '・' + _esc(_wlTook(d)) : '') + '</div>');
+        if (!d.ok) parts.push('<div class="ob-wl-fail"><i class="fa-solid fa-triangle-exclamation"></i><div><b>沒醒成</b><div>' + _esc(d.error || '不知道為什麼') + '</div></div></div>');
+        if (out.length) parts.push(sec('跑到外面做的', 'fa-arrow-up-right-from-square', out.map(toolRow).join(''), 'is-out'));
+        if (d.actions && d.actions.length) parts.push(sec('在留言板和房間做的', 'fa-house', d.actions.map(a => '<div class="ob-wl-act">' + _esc(a) + '</div>').join('')));
+        if (d.reply) parts.push(sec('他最後說的', 'fa-comment', '<div class="ob-wl-reply">' + _renderMd(d.reply) + '</div>'));
+        if (d.tools && d.tools.length) parts.push(sec('用過的工具（' + d.tools.length + '）', 'fa-screwdriver-wrench', d.tools.map(toolRow).join('')));
+        if (d.ok && !out.length && !(d.actions && d.actions.length) && !d.reply && !(d.tools && d.tools.length)) parts.push('<div class="ob-wl-empty">這次沒有留下任何動作。</div>');
+        return '<div class="ob-wl-head"><button type="button" class="ob-wl-back" data-to="list" title="回醒來紀錄"><i class="fa-solid fa-chevron-left"></i></button>'
+            + '<div class="ob-wl-title">' + _esc((d.name || d.rid) + '・' + (WL_KIND[d.kind] || d.kind)) + '</div><span class="ob-wl-headpad"></span></div>'
+            + '<div class="ob-wl-scroll">' + parts.join('') + '</div>';
+    }
+    function _wlErr(e) {
+        const msg = (e && e.message) ? String(e.message) : String(e);
+        if (/HTTP 404/.test(msg)) return '這台的橋還是舊的，重啟一次橋就有醒來紀錄。';
+        if (msg === 'NOT_CONFIGURED') return '還沒填連線。';
+        return '拿不到紀錄：' + (_plainReason(msg) || msg);
     }
 
     // 只給她看第一行白話（細節是寫給丹的）；修好的留一週，底下掛丹那句「修了什麼」
@@ -426,7 +542,7 @@
             + '</section>';
     }
 
-    const _state = new WeakMap();   // container → { all, hb, reply, bugs }
+    const _state = new WeakMap();   // container → { all, hb, reply, bugs, wakes（醒來紀錄第一頁，算封面那顆的數字）, wl（紀錄頁現在的樣子） }
 
     function _renderBoard(container, all, hbConf) {
         const idx = _index(all);
@@ -452,7 +568,7 @@
                         <div class="ob-me"><span class="ob-me-name">${_esc(ME)}</span>${_avatarHtml(ME)}</div>
                     </header>
                     ${viaNote}
-                    ${_wakesHtml(hbConf)}
+                    ${_wakesHtml(hbConf, (_state.get(container) || {}).wakes)}
                     ${_bugsHtml((_state.get(container) || {}).bugs)}
                     ${pinsHtml}
                     <section class="ob-feed">${feedHtml}</section>
@@ -471,6 +587,8 @@
                         <textarea class="ob-sheet-text" placeholder="這一刻的想法…"></textarea>
                     </div>
                 </div>
+                <div class="ob-wl" hidden></div>
+                <div class="ob-wl-page" hidden></div>
                 <div class="ob-toast" hidden></div>
             </div>`;
         _bind(container);
@@ -489,6 +607,65 @@
         const holder = document.createElement('div');
         holder.innerHTML = _postHtml(p, _index(st.all).byParent);
         el.replaceWith(holder.firstElementChild);
+    }
+
+    // ---- 醒來紀錄的兩頁 ----
+    async function _wlOpen(container, rid) {
+        const st = _state.get(container);
+        const root = container.querySelector('.ob-container');
+        const pane = root && root.querySelector('.ob-wl');
+        if (!st || !pane) return;
+        const my = st.wl = { rid: rid || '', items: null, more: false, loading: false, error: '' };
+        pane.hidden = false;
+        pane.innerHTML = _wlListHtml(my, st.hb);
+        try {
+            const r = await _fetchWakes(my.rid || null);
+            my.items = Array.isArray(r.items) ? r.items : [];
+            my.more = !!r.more;
+        } catch (e) { my.error = _wlErr(e); }
+        if (st.wl !== my) return;   // 等的時候她換了篩選
+        pane.innerHTML = _wlListHtml(my, st.hb);
+        // 看過「全部」＝都看過了：記到最新那筆，封面那顆的數字熄掉
+        if (!my.rid && my.items && my.items.length) {
+            _wlSetSeen(my.items[0].id);
+            const sec = root.querySelector('.ob-wakes');
+            if (sec) sec.outerHTML = _wakesHtml(st.hb, st.wakes);
+        }
+    }
+    async function _wlMore(container) {
+        const st = _state.get(container);
+        const my = st && st.wl;
+        const pane = container.querySelector('.ob-wl');
+        if (!my || !my.items || !my.items.length || my.loading || !pane) return;
+        my.loading = true;
+        const scroll = pane.querySelector('.ob-wl-scroll');
+        const top = scroll ? scroll.scrollTop : 0;
+        pane.innerHTML = _wlListHtml(my, st.hb);
+        try {
+            const r = await _fetchWakes(my.rid || null, my.items[my.items.length - 1].id);
+            my.items = my.items.concat(Array.isArray(r.items) ? r.items : []);
+            my.more = !!r.more;
+        } catch (e) { my.more = true; }
+        my.loading = false;
+        if (st.wl !== my) return;
+        pane.innerHTML = _wlListHtml(my, st.hb);
+        const s2 = pane.querySelector('.ob-wl-scroll');
+        if (s2) s2.scrollTop = top;   // 別跳回最上面
+    }
+    async function _wlDetail(container, wid) {
+        const page = container.querySelector('.ob-wl-page');
+        if (!page) return;
+        page.dataset.wid = String(wid);
+        page.hidden = false;
+        page.innerHTML = '<div class="ob-wl-head"><button type="button" class="ob-wl-back" data-to="list" title="回醒來紀錄"><i class="fa-solid fa-chevron-left"></i></button>'
+            + '<div class="ob-wl-title">醒來紀錄</div><span class="ob-wl-headpad"></span></div><div class="ob-wl-scroll"><div class="ob-wl-empty">正在拿這一次的經過…</div></div>';
+        let html;
+        try { html = _wlDetailHtml(await _api('/v1/wakes/' + encodeURIComponent(wid))); }
+        catch (e) {
+            html = '<div class="ob-wl-head"><button type="button" class="ob-wl-back" data-to="list" title="回醒來紀錄"><i class="fa-solid fa-chevron-left"></i></button>'
+                + '<div class="ob-wl-title">醒來紀錄</div><span class="ob-wl-headpad"></span></div><div class="ob-wl-scroll"><div class="ob-wl-empty">' + _esc(_wlErr(e)) + '</div></div>';
+        }
+        if (page.dataset.wid === String(wid) && !page.hidden) page.innerHTML = html;
     }
 
     function _bind(container) {
@@ -568,6 +745,23 @@
             const t = ev.target;
             if (!t.closest('.ob-act-wrap')) closePops();
             if (!t.closest('.ob-del') && !t.closest('.ob-cmt-mine')) disarm();
+
+            // 醒來紀錄：入口、點頭像、兩頁裡的返回／篩選／更早的／點一次
+            if (t.closest('.ob-wl-open')) { _wlOpen(container, ''); return; }
+            const wk = t.closest('.ob-wake.is-link');
+            if (wk) { _wlOpen(container, wk.dataset.rid || ''); return; }
+            const back = t.closest('.ob-wl-back');
+            if (back) {
+                root.querySelector('.ob-wl-page').hidden = true;
+                if (back.dataset.to === 'board') root.querySelector('.ob-wl').hidden = true;
+                return;
+            }
+            const chip = t.closest('.ob-wl-chip');
+            if (chip) { _wlOpen(container, chip.dataset.rid || ''); return; }
+            if (t.closest('.ob-wl-more')) { _wlMore(container); return; }
+            const wli = t.closest('.ob-wl-item');
+            if (wli) { _wlDetail(container, wli.dataset.wid); return; }
+            if (t.closest('.ob-wl') || t.closest('.ob-wl-page')) return;   // 紀錄頁裡的其他地方不往下走板子的點擊
 
             if (t.closest('.ob-refresh')) { launch(container); return; }
             if (t.closest('.ob-compose')) { sheet.hidden = false; sheetText.focus(); return; }
@@ -654,8 +848,8 @@
             if (!_bridge()) throw new Error('NOT_CONFIGURED');
             const posts = await _fetchPosts();
             // 心跳設定只畫那排頭像、待修清單只畫那一區，拿不到就不畫，不擋板子
-            const [hbConf, bugs] = await Promise.all([_fetchHeartbeatConf(), _fetchBugs()]);
-            _state.set(container, { all: posts, hb: hbConf, reply: null, bugs: bugs });
+            const [hbConf, bugs, wakes] = await Promise.all([_fetchHeartbeatConf(), _fetchBugs(), _fetchWakesQuiet()]);
+            _state.set(container, { all: posts, hb: hbConf, reply: null, bugs: bugs, wakes: wakes, wl: null });
             _renderBoard(container, posts, hbConf);
             // 這次是真的翻過板子了：記下看到哪、熄掉入口鈕上的小點
             try {
