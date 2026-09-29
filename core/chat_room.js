@@ -613,8 +613,115 @@
         return segs.length ? segs : [src];
     }
 
+    // 🖼 住戶貼電腦上的圖：[看這張](D:/residents/aluo/mirror/aluo.png) 或 ![](file:///D:/…)。
+    //   酒館頁與手機都打不開這種路徑，DOMPurify 也會把 D: 開頭的連結拔掉，所以轉 markdown 之前先換成記號，
+    //   轉完再放回一張圖，圖本身經橋拿（ClaudeTerminal.fetchLocalImage）。程式碼裡的是他在講解，不動。
+    const _LOCAL_IMG_RE = /(!?)\[([^\]\n]*)\]\(\s*<?((?:file:\/\/\/?)?[A-Za-z]:[\\/][^)\n]*?\.(?:png|jpe?g|webp|gif))>?\s*\)/gi;
+    const _LOCAL_TOKEN_RE = /\uE000(\d+)\uE001/g;
+    const _localImgJobs = new Map();   // 路徑 → Promise<blob 網址|null>；串流中每次重畫不重拿
+    function _pullLocalImages(text) {
+        const src = String(text == null ? '' : text);
+        const found = [];
+        if (!/[A-Za-z]:[\\/]/.test(src)) return { text: src, found };
+        const codes = [];
+        src.replace(/```[\s\S]*?```|`[^`\n]*`/g, (m, off) => { codes.push([off, off + m.length]); return m; });
+        const out = src.replace(_LOCAL_IMG_RE, (m, bang, label, path, off) => {
+            if (codes.some(r => off >= r[0] && off < r[1])) return m;
+            found.push({ isImg: !!bang, label: label, path: path.replace(/^file:\/\/\/?/i, '').replace(/\\/g, '/') });
+            return '\uE000' + (found.length - 1) + '\uE001';
+        });
+        return { text: out, found };
+    }
+    function _putLocalImages(html, text, found) {
+        const box = document.createElement('div');
+        if (html === null || html === undefined) {
+            String(text).split('\n').forEach((line, i) => {
+                if (i) box.appendChild(document.createElement('br'));
+                if (line) box.appendChild(document.createTextNode(line));
+            });
+        } else {
+            box.innerHTML = html;
+        }
+        const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
+        const nodes = [];
+        while (walker.nextNode()) if (/\uE000\d+\uE001/.test(walker.currentNode.nodeValue)) nodes.push(walker.currentNode);
+        nodes.forEach(node => {
+            const frag = document.createDocumentFragment();
+            const after = [];
+            let last = 0, m;
+            const s = node.nodeValue;
+            _LOCAL_TOKEN_RE.lastIndex = 0;
+            while ((m = _LOCAL_TOKEN_RE.exec(s)) !== null) {
+                frag.appendChild(document.createTextNode(s.slice(last, m.index)));
+                const f = found[+m[1]];
+                const img = document.createElement('img');
+                img.className = 'cg-attach-img claude-local-img';
+                img.alt = '';
+                img.setAttribute('data-local-path', f.path);
+                // ![]：他就是要貼一張圖，放在原處；[字](路徑)：字留在句子裡，圖放在這一段後面
+                if (f.isImg) frag.appendChild(img);
+                else { frag.appendChild(document.createTextNode(f.label)); after.push(img); }
+                last = m.index + m[0].length;
+            }
+            frag.appendChild(document.createTextNode(s.slice(last)));
+            let block = node.parentNode;
+            while (block && block !== box && !/^(P|LI|BLOCKQUOTE|H[1-6]|TD)$/.test(block.nodeName)) block = block.parentNode;
+            node.parentNode.replaceChild(frag, node);
+            after.forEach(img => {
+                // 清單項目、表格格子裡的放進那一格的最後（放到外面會變成 ul 底下直接一張圖）
+                if (!block || block === box || /^(LI|TD)$/.test(block.nodeName)) (block || box).appendChild(img);
+                else block.parentNode.insertBefore(img, block.nextSibling);
+            });
+        });
+        setTimeout(_watchLocalImages, 0);
+        return box.innerHTML;
+    }
+    // 呼叫端拿到的是 html 字串，圖什麼時候掛上畫面不一定（泡泡一顆一顆冒、串流中重畫），
+    // 所以有這種圖的時候盯畫面一陣子，掛上去就拿；沒有就不盯。
+    let _localObs = null, _localObsTimer = null;
+    function _watchLocalImages() {
+        _hydrateLocalImages();
+        if (!_localObs && typeof MutationObserver === 'function') {
+            _localObs = new MutationObserver(_hydrateLocalImages);
+            _localObs.observe(document.body, { childList: true, subtree: true });
+        }
+        clearTimeout(_localObsTimer);
+        _localObsTimer = setTimeout(() => { if (_localObs) { _localObs.disconnect(); _localObs = null; } }, 15000);
+    }
+    function _hydrateLocalImages() {
+        const CT = window.ClaudeTerminal;
+        if (!CT || typeof CT.fetchLocalImage !== 'function') return;
+        document.querySelectorAll('img.claude-local-img[data-local-path]:not([data-local-state])').forEach(img => {
+            const path = img.getAttribute('data-local-path');
+            img.setAttribute('data-local-state', 'loading');
+            let job = _localImgJobs.get(path);
+            if (!job) {
+                job = CT.fetchLocalImage(path);
+                _localImgJobs.set(path, job);
+            }
+            job.then(url => {
+                if (url) {
+                    img.src = url;
+                    img.setAttribute('data-local-state', 'ok');
+                    img.addEventListener('click', () => _openClaudeImageOverlay(url));
+                    return;
+                }
+                _localImgJobs.delete(path);   // 橋晚點開了，下次重畫再拿
+                const miss = document.createElement('span');
+                miss.className = 'claude-local-miss';
+                miss.textContent = '（這張圖在電腦上，橋沒開時看不到）';
+                if (img.parentNode) img.parentNode.replaceChild(miss, img);
+            });
+        });
+    }
+
     let _claudeMdConverter = null;
     function _claudeMarkdownToSafeHtml(text) {
+        const loc = _pullLocalImages(text);
+        const html = _mdToSafeHtml(loc.text);
+        return loc.found.length ? _putLocalImages(html, loc.text, loc.found) : html;
+    }
+    function _mdToSafeHtml(text) {
         // 手機 PWA 沒載 showdown：借留言板那支小的 markdown（標題、粗體、清單、程式碼、表情包圖都認得），
         // 以前這裡只剩「圖片語法畫成圖、其他全是純文字」，## 跟 ** 原樣印在泡泡裡。
         if (!window.showdown || !window.DOMPurify) {

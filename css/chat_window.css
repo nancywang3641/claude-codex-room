@@ -1276,6 +1276,15 @@
     cursor: zoom-in;
     display: block;
 }
+/* 住戶回覆裡貼的電腦上的圖：經橋拿到之前不佔位，拿不到換成一行小字 */
+#aurelia-chat-window .claude-local-img { margin: 6px 0; }
+#aurelia-chat-window .claude-local-img:not([src]) { display: none; }
+#aurelia-chat-window .claude-local-miss {
+    display: block;
+    margin: 6px 0;
+    font-size: 12px;
+    opacity: 0.6;
+}
 #aurelia-chat-window .cg-attach-chip {
     display: inline-flex;
     align-items: center;

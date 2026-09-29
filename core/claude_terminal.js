@@ -743,6 +743,22 @@ ${withOthers}
         }, 1200);
     }
 
+    /** 住戶回覆裡貼的電腦上的圖（D:/residents/…）。酒館頁與手機都打不開那種路徑，經橋拿，
+     *  回 blob 網址；拿不到（橋沒開、舊橋沒這個端點、不在住戶家裡）回 null。 */
+    ClaudeTerminal.fetchLocalImage = async function(path) {
+        const c = _syncCfg();
+        if (!c || !path) return null;
+        try {
+            const r = await fetch(c.base + '/v1/local-image?path=' + encodeURIComponent(path), {
+                headers: { 'Authorization': 'Bearer ' + c.key },
+            });
+            if (!r.ok) return null;
+            return URL.createObjectURL(await r.blob());
+        } catch (_) {
+            return null;
+        }
+    };
+
     /** 還沒送出去的那筆立刻送 —— 換會話 / 關房間之前叫，免得最後幾句掉在半路 */
     ClaudeTerminal.flushSync = async function() {
         clearTimeout(_histTimer);
