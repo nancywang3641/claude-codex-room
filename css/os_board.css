@@ -890,3 +890,54 @@
 }
 .ob-wl-reply p { margin: 0 0 8px; }
 .ob-wl-reply p:last-child { margin-bottom: 0; }
+
+/* ---- 等你同意的（09-30）：宿舍住戶提的改世界書單子，點一張打開跟聊天 app 同一張單子 ---- */
+.ob-props {
+    margin: 12px 12px 2px;
+    border-radius: 10px;
+    background: #f7f5ef;
+    border: 1px solid rgba(185, 146, 79, 0.4);
+    overflow: hidden;
+}
+.ob-props-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 14px 4px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #8a6a33;
+    letter-spacing: 1px;
+}
+.ob-props-count {
+    margin-left: auto;
+    font-size: 11px;
+    font-weight: 400;
+    color: #8a6a33;
+    letter-spacing: 0;
+}
+.ob-prop {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px 9px 14px;
+    border-top: 1px solid rgba(185, 146, 79, 0.18);
+    cursor: pointer;
+}
+.ob-prop:hover { background: rgba(185, 146, 79, 0.07); }
+.ob-prop .ob-av { width: 32px; height: 32px; border-radius: 50%; font-size: 13px; }
+.ob-prop-main { flex: 1; min-width: 0; }
+.ob-prop-text { font-size: 13px; line-height: 1.5; color: #1f3a68; overflow-wrap: anywhere; }
+.ob-prop-meta { margin-top: 1px; font-size: 11px; color: #46639b; }
+.ob-prop-chip {
+    flex-shrink: 0;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    line-height: 18px;
+    background: #e7ecf6;
+    color: #46639b;
+}
+.ob-prop.is-wait .ob-prop-chip { background: #b9924f; color: #fff; font-weight: 700; }
+.ob-prop.is-done .ob-prop-chip { background: #e6f1e8; color: #3e7a48; }
+.ob-prop:not(.is-wait) .ob-prop-text { color: #6b7d9c; }

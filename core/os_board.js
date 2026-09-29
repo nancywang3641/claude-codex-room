@@ -311,6 +311,11 @@
         try { return await _fetchWakes(null, null, 30); } catch (_) { return null; }
     }
 
+    // 住戶提的改世界書單子（09-30，橋 /v1/aurelia/props）：舊的橋沒有 → null，不畫那一區
+    async function _fetchProps() {
+        try { const d = await _api('/v1/aurelia/props'); return Array.isArray(d.props) ? d.props : null; } catch (_) { return null; }
+    }
+
     const _postNote = (content, tags) => _api('/v1/board/post', { author: ME, content: content, tags: tags });
     const _deleteNote = id => _api('/v1/board/delete', { id: Number(id) });
 
@@ -523,6 +528,39 @@
         return '拿不到紀錄：' + (_plainReason(msg) || msg);
     }
 
+    // ---- 等你同意的：住戶提的改世界書單子（aurelia_link.js 在頁面裡做成單子、橋存著） ----
+    //   點一張＝打開跟聊天 app 同一張單子（WX_TOOLS.openPropSheet），同意才寫、寫了能改回去。
+    //   🚨 酒館與手機的世界書是分開的：單子在哪邊提的就要在哪邊按（prop.where），另一邊只給看不給按。
+    const PP_CHIP = { wait: '點開看', no: '沒同意', done: '寫進去了', undone: '改回去了', stale: '作廢了' };
+    function _hereName() {
+        try { const w = window.parent || window; return (w.OS_API && w.OS_API.isStandalone && w.OS_API.isStandalone()) ? '手機' : '酒館'; } catch (_) { return '酒館'; }
+    }
+    function _propText(x) {
+        const w = window.parent || window;
+        const E = w.OS_AURELIA_EDIT || window.OS_AURELIA_EDIT;
+        try { if (E && E.text) return E.text(x.prop, false); } catch (_) {}
+        const p = x.prop || {};
+        return (p.by || x.name || x.rid || '住戶') + ' 想改世界書「' + (p.title || '') + '」';
+    }
+    function _propsHtml(props) {
+        if (!props || !props.length) return '';
+        const order = { wait: 0, no: 1 };
+        const list = props.slice().sort((a, b) => ((order[a.state] ?? 2) - (order[b.state] ?? 2)) || (b.created - a.created));
+        const waiting = list.filter(x => x.state === 'wait').length;
+        return '<section class="ob-props"><div class="ob-props-title"><i class="fa-solid fa-pen-to-square"></i> 等你同意的'
+            + '<span class="ob-props-count">' + (waiting ? waiting + ' 張等你看' : '都處理好了') + '</span></div>'
+            + list.map(x => {
+                const where = (x.prop && x.prop.where) || '';
+                const ago = x.created ? _agoText(new Date(x.created * 1000).toISOString().slice(0, 19).replace('T', ' ')) : '';
+                return '<div class="ob-prop is-' + _esc(x.state) + '" data-ppid="' + _esc(x.id) + '">'
+                    + _avatarHtml(x.name || (x.prop && x.prop.by) || '?')
+                    + '<div class="ob-prop-main"><div class="ob-prop-text">' + _esc(_propText(x)) + '</div>'
+                    + '<div class="ob-prop-meta">' + _esc([where ? '在' + where + '提的' : '', ago].filter(Boolean).join(' · ')) + '</div></div>'
+                    + '<span class="ob-prop-chip">' + _esc(PP_CHIP[x.state] || x.state) + '</span></div>';
+            }).join('')
+            + '</section>';
+    }
+
     // 只給她看第一行白話（細節是寫給丹的）；修好的留一週，底下掛丹那句「修了什麼」
     function _bugsHtml(bugs) {
         if (!bugs || !bugs.length) return '';
@@ -569,6 +607,7 @@
                     </header>
                     ${viaNote}
                     ${_wakesHtml(hbConf, (_state.get(container) || {}).wakes)}
+                    ${_propsHtml((_state.get(container) || {}).props)}
                     ${_bugsHtml((_state.get(container) || {}).bugs)}
                     ${pinsHtml}
                     <section class="ob-feed">${feedHtml}</section>
@@ -668,6 +707,31 @@
         if (page.dataset.wid === String(wid) && !page.hidden) page.innerHTML = html;
     }
 
+    async function _propRefresh(container) {
+        const st = _state.get(container);
+        if (!st) return;
+        st.props = await _fetchProps();
+        const root = container.querySelector('.ob-container');
+        const sec = root && root.querySelector('.ob-props');
+        const html = _propsHtml(st.props);
+        if (sec) { if (html) sec.outerHTML = html; else sec.remove(); }
+    }
+    function _propOpen(container, id, say) {
+        const st = _state.get(container);
+        const x = st && (st.props || []).find(p => p.id === id);
+        if (!x) return;
+        const w = window.parent || window;
+        const T = w.WX_TOOLS || window.WX_TOOLS;
+        const E = w.OS_AURELIA_EDIT || window.OS_AURELIA_EDIT;
+        if (!T || !T.openPropSheet || !E) { say('要在酒館或手機裡打開留言板才能按'); return; }
+        const where = (x.prop && x.prop.where) || '';
+        if (where && where !== _hereName()) { say('這張是在' + where + '提的，要在' + where + '的留言板按（兩邊的世界書是分開的）'); return; }
+        T.openPropSheet(x.prop, container.querySelector('.ob-container'), async p => {
+            await _api('/v1/aurelia/props/update', { id: x.id, prop: p });
+            await _propRefresh(container);
+        });
+    }
+
     function _bind(container) {
         const root = container.querySelector('.ob-container');
         if (!root) return;
@@ -745,6 +809,10 @@
             const t = ev.target;
             if (!t.closest('.ob-act-wrap')) closePops();
             if (!t.closest('.ob-del') && !t.closest('.ob-cmt-mine')) disarm();
+
+            // 等你同意的：點一張打開單子
+            const ppRow = t.closest('.ob-prop');
+            if (ppRow) { _propOpen(container, ppRow.dataset.ppid, say); return; }
 
             // 醒來紀錄：入口、點頭像、兩頁裡的返回／篩選／更早的／點一次
             if (t.closest('.ob-wl-open')) { _wlOpen(container, ''); return; }
@@ -848,8 +916,8 @@
             if (!_bridge()) throw new Error('NOT_CONFIGURED');
             const posts = await _fetchPosts();
             // 心跳設定只畫那排頭像、待修清單只畫那一區，拿不到就不畫，不擋板子
-            const [hbConf, bugs, wakes] = await Promise.all([_fetchHeartbeatConf(), _fetchBugs(), _fetchWakesQuiet()]);
-            _state.set(container, { all: posts, hb: hbConf, reply: null, bugs: bugs, wakes: wakes, wl: null });
+            const [hbConf, bugs, wakes, props] = await Promise.all([_fetchHeartbeatConf(), _fetchBugs(), _fetchWakesQuiet(), _fetchProps()]);
+            _state.set(container, { all: posts, hb: hbConf, reply: null, bugs: bugs, wakes: wakes, wl: null, props: props });
             _renderBoard(container, posts, hbConf);
             // 這次是真的翻過板子了：記下看到哪、熄掉入口鈕上的小點
             try {
