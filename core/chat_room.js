@@ -90,8 +90,14 @@
         { id: 'gpt-5.6-sol',    label: 'GPT-5.6 Sol' },
         { id: 'gpt-5.6-terra',  label: 'GPT-5.6 Terra' },
         { id: 'gpt-5.6-luna',   label: 'GPT-5.6 Luna' },
-        { id: 'gpt-5.5',        label: 'GPT-5.5(10/14 退役)' },
+        { id: 'gpt-5.5',        label: 'GPT-5.5(10/14 退役)', until: '2026-10-14' },   // 到那天起選單不列；橋那邊同一天起改吃 config.toml 那顆
     ];
+    // 帶 until 的：那天（含）以後不列
+    function _stillOn(m) {
+        if (!m.until) return true;
+        const d = new Date(), p = n => (n < 10 ? '0' : '') + n;
+        return (d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())) < m.until;
+    }
     // DeepSeek V4 系列(2026 起,V3 chat/coder/reasoner 已下架)
     // `deepseek models` 列出來只有兩個:pro 是預設旗艦、flash 是便宜快版
     // 空 id = 不傳 --model,讓 CodeWhale 用預設(目前 = v4-pro)
@@ -102,7 +108,7 @@
     ];
     // helper:依當前 provider 取對應的 model 清單
     function _modelsForProvider(prov) {
-        if (prov === 'codex')    return CODEX_MODELS;
+        if (prov === 'codex')    return CODEX_MODELS.filter(_stillOn);
         if (prov === 'deepseek') return DEEPSEEK_MODELS;
         return CLAUDE_MODELS;
     }
