@@ -371,20 +371,40 @@
             });
             autoGrow();
         }
+        // 附檔：選的跟 Ctrl+V 貼上的走同一條（群聊交給 ChatGroup，其他交給房間）
+        const _pickFiles = async (files) => {
+            if (!files || !files.length) return;
+            if (_provider === 'group' && window.ChatGroup
+                && typeof window.ChatGroup.handleFilePick === 'function') {
+                await window.ChatGroup.handleFilePick(files);
+            } else if (window.VoidClaudeRoom) {
+                await window.VoidClaudeRoom.handleFilePick(files);
+            }
+        };
         if (attachBtn && fileInput) {
             attachBtn.onclick = () => fileInput.click();
             fileInput.onchange = async (e) => {
-                const files = e.target.files;
-                if (files && files.length) {
-                    if (_provider === 'group' && window.ChatGroup
-                        && typeof window.ChatGroup.handleFilePick === 'function') {
-                        await window.ChatGroup.handleFilePick(files);
-                    } else if (window.VoidClaudeRoom) {
-                        await window.VoidClaudeRoom.handleFilePick(files);
-                    }
-                }
+                await _pickFiles(e.target.files);
                 fileInput.value = '';
             };
+        }
+        // 📋 截完圖直接在輸入框 Ctrl+V 就附進去（跟創作室同一招）：只有剪貼簿裡真的是圖才攔，貼文字照舊。
+        //   截圖從剪貼簿來都叫 image.png，換成「截圖 月-日 時分秒.png」，不然好幾張都同一個名字
+        if (input) {
+            input.addEventListener('paste', (e) => {
+                const items = Array.from((e.clipboardData && e.clipboardData.items) || []);
+                const files = items.filter(it => it.kind === 'file' && /^image\//.test(it.type)).map(it => it.getAsFile()).filter(Boolean);
+                if (!files.length) return;
+                e.preventDefault();
+                const d = new Date(), p2 = n => String(n).padStart(2, '0');
+                const stamp = p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + ' ' + p2(d.getHours()) + p2(d.getMinutes()) + p2(d.getSeconds());
+                const named = files.map((f, i) => {
+                    if (f.name && !/^image\.(png|jpe?g|gif|webp)$/i.test(f.name)) return f;
+                    const ext = (f.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
+                    return new File([f], '截圖 ' + stamp + (files.length > 1 ? '-' + (i + 1) : '') + '.' + ext, { type: f.type });
+                });
+                _pickFiles(named);
+            });
         }
         // 😺 表情包框：按一下開、再按一下收
         const stkBtn = el.querySelector('#claude-stk-btn');

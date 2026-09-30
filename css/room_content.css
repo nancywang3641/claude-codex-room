@@ -413,6 +413,15 @@
     font-size: 12px;
     max-width: 220px;
 }
+.claude-attach-chip-thumb {
+    width: 28px;
+    height: 28px;
+    margin-left: -4px;
+    border-radius: 6px;
+    object-fit: cover;
+    flex-shrink: 0;
+}
+.claude-attach-chip.is-uploading { opacity: 0.7; }
 .claude-attach-chip-name {
     overflow: hidden;
     text-overflow: ellipsis;

@@ -1315,6 +1315,13 @@
         });
     }
 
+    // 以前傳的、只存了路徑的圖：經橋拿一次（整頁同一張只拿一次）
+    const _oldImgJobs = {};
+    function _oldImgUrl(path) {
+        if (!_oldImgJobs[path]) _oldImgJobs[path] = window.ClaudeTerminal.fetchLocalImage(path).catch(() => null);
+        return _oldImgJobs[path];
+    }
+
     function _renderClaudeBubble(role, content, opts = {}) {
         const stream = _el('claude-chat-stream');
         if (!stream) return;
@@ -1394,6 +1401,21 @@
                     im.src = a.thumb;
                     im.addEventListener('click', () => _openClaudeImageOverlay(a.thumb));
                     attachBox.appendChild(im);
+                } else if (a && a.path && a.mime && a.mime.indexOf('image/') === 0 && window.ClaudeTerminal
+                    && typeof window.ClaudeTerminal.fetchLocalImage === 'function') {
+                    // 以前傳的圖只存了路徑：先放檔名那顆，經橋拿到圖就換成小照片；拿不到就留著檔名
+                    const item = document.createElement('span');
+                    item.className = 'claude-bubble-attach-item';
+                    item.textContent = `${_attachIcon(a.mime, a.filename)} ${a.filename || 'file'}`;
+                    attachBox.appendChild(item);
+                    _oldImgUrl(a.path).then(url => {
+                        if (!url || !item.parentNode) return;
+                        const im = document.createElement('img');
+                        im.className = 'cg-attach-img';
+                        im.src = url;
+                        im.addEventListener('click', () => _openClaudeImageOverlay(url));
+                        item.replaceWith(im);
+                    });
                 } else {
                     const item = document.createElement('span');
                     item.className = 'claude-bubble-attach-item';
@@ -1459,19 +1481,30 @@
     }
 
     // ===== 附件 chip 預覽列（輸入框上方）=====
+    //   圖片（選的、Ctrl+V 貼上的截圖）做一張小縮圖：上傳中先用本機預覽，傳完存成縮圖跟著那則訊息走（泡泡裡畫小照片、點了放大）。
+    //   她（09-30）：「能不能學一下創作室，或者像你們的 gui 這樣可以看到卡片的小照片，然後我電腦截圖後，可以直接 ctrl+v 貼上?」
     function _renderClaudeAttachChips() {
         const row = _el('claude-attach-chips');
         if (!row) return;
         row.innerHTML = '';
         _pendingClaudeAttachments.forEach((a, idx) => {
             const chip = document.createElement('div');
-            chip.className = 'claude-attach-chip';
+            chip.className = 'claude-attach-chip' + (a._uploading ? ' is-uploading' : '');
             chip.title = a.path || a.filename;
-            const icon = document.createElement('span');
-            icon.textContent = _attachIcon(a.mime, a.filename);
+            const pic = a.thumb || a._preview;
+            let icon;
+            if (pic) {
+                icon = document.createElement('img');
+                icon.className = 'claude-attach-chip-thumb';
+                icon.src = pic;
+                icon.alt = '';
+            } else {
+                icon = document.createElement('span');
+                icon.textContent = _attachIcon(a.mime, a.filename);
+            }
             const name = document.createElement('span');
             name.className = 'claude-attach-chip-name';
-            name.textContent = a.filename || 'file';
+            name.textContent = a._uploading ? '上傳中…' : (a.filename || 'file');
             const x = document.createElement('span');
             x.className = 'claude-attach-chip-x';
             x.textContent = '×';
@@ -1486,39 +1519,67 @@
         });
     }
 
-    /** 觸發隱藏的 file input、上傳到 cc-bridge、push 進 _pendingClaudeAttachments */
+    // 圖檔縮到長邊 ≤ maxEdge、轉 JPEG data URL（跟群聊那支同一套、同一個尺寸）。失敗回 null
+    function _makeThumb(file, maxEdge) {
+        return new Promise(resolve => {
+            const url = URL.createObjectURL(file);
+            const img = new Image();
+            img.onload = () => {
+                URL.revokeObjectURL(url);
+                let w = img.naturalWidth || 1, h = img.naturalHeight || 1;
+                const scale = Math.min(1, maxEdge / Math.max(w, h));
+                w = Math.max(1, Math.round(w * scale));
+                h = Math.max(1, Math.round(h * scale));
+                try {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = w; canvas.height = h;
+                    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                    resolve(canvas.toDataURL('image/jpeg', 0.82));
+                } catch (e) { resolve(null); }
+            };
+            img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+            img.src = url;
+        });
+    }
+    const _isImg = f => !!(f && f.type && f.type.indexOf('image/') === 0);
+
+    /** 觸發隱藏的 file input（或 Ctrl+V 貼上）、上傳到 cc-bridge、push 進 _pendingClaudeAttachments */
     async function _handleClaudeFilePick(fileList) {
         if (!fileList || !fileList.length) return;
         if (!window.ClaudeTerminal || typeof window.ClaudeTerminal.uploadFiles !== 'function') {
             _renderClaudeBubble('assistant', '⚠️ ClaudeTerminal 未載入，無法上傳。');
             return;
         }
-        // 顯示「上傳中」chip
+        const files = Array.from(fileList);
+        // 顯示「上傳中」chip（圖片先放本機預覽）
         const placeholderIdx = _pendingClaudeAttachments.length;
-        Array.from(fileList).forEach(f => {
+        files.forEach(f => {
             _pendingClaudeAttachments.push({
                 _uploading: true,
+                _preview: _isImg(f) ? URL.createObjectURL(f) : '',
                 filename: f.name,
                 mime: f.type || '',
                 size: f.size,
             });
         });
         _renderClaudeAttachChips();
+        // 圖檔做縮圖（跟上傳並行）
+        const thumbsJob = Promise.all(files.map(f => _isImg(f) ? _makeThumb(f, 720) : Promise.resolve(null)));
 
         try {
-            const result = await window.ClaudeTerminal.uploadFiles(fileList);
+            const result = await window.ClaudeTerminal.uploadFiles(files);
+            const thumbs = await thumbsJob;
             // 用 server 回傳的真實路徑替換 placeholder
             (result.files || []).forEach((meta, i) => {
-                _pendingClaudeAttachments[placeholderIdx + i] = {
-                    path: meta.path,
-                    filename: meta.filename,
-                    mime: meta.mime,
-                    size: meta.size,
-                };
+                const ph = _pendingClaudeAttachments[placeholderIdx + i];
+                if (ph && ph._preview) URL.revokeObjectURL(ph._preview);
+                const a = { path: meta.path, filename: meta.filename, mime: meta.mime, size: meta.size };
+                if (thumbs[i]) a.thumb = thumbs[i];
+                _pendingClaudeAttachments[placeholderIdx + i] = a;
             });
         } catch (e) {
             // 上傳失敗：拔掉 placeholder
-            _pendingClaudeAttachments.splice(placeholderIdx, fileList.length);
+            _pendingClaudeAttachments.splice(placeholderIdx, files.length).forEach(a => { if (a && a._preview) URL.revokeObjectURL(a._preview); });
             const raw = (e && e.message) || '未知錯誤';
             _renderClaudeBubble('assistant', '⚠️ 上傳失敗：' + raw);
         }
@@ -1553,7 +1614,7 @@
     function _holdMessage(text, extra) {
         const attachmentsSnapshot = _pendingClaudeAttachments
             .filter(a => a && a.path)
-            .map(a => ({ path: a.path, filename: a.filename, mime: a.mime, size: a.size }));
+            .map(a => Object.assign({ path: a.path, filename: a.filename, mime: a.mime, size: a.size }, a.thumb ? { thumb: a.thumb } : {}));
         _pendingClaudeAttachments = [];
         _renderClaudeAttachChips();
         const msg = Object.assign({
@@ -1701,7 +1762,8 @@
         const held = _heldTail();
         if (!held.length) { _renderClaudeNotice('先說點什麼，再按這顆讓他回'); return; }
         const text = held.map(m => m.content).join('\n');
-        const attachmentsSnapshot = [].concat(...held.map(m => m.attachments || []));
+        const attachmentsSnapshot = [].concat(...held.map(m => m.attachments || []))
+            .map(a => ({ path: a.path, filename: a.filename, mime: a.mime, size: a.size }));
         // 放著的那幾條要先落到記錄裡，送的那支才認得出哪幾條是這輪的
         if (_saveTimer) { clearTimeout(_saveTimer); _saveTimer = null; }
         await window.ClaudeTerminal.saveHistory(_roomHistory);

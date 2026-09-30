@@ -373,6 +373,17 @@
     margin-bottom: 2px;
 }
 
+/* 一對一房間的待送附件：那排在深色窗框上，照群聊待送那排的淺字（原本深藍字壓深底看不清楚） */
+#aurelia-chat-window .claude-attach-chip {
+    padding: 3px 6px;
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    color: #cfd2e6;
+}
+#aurelia-chat-window .claude-attach-chip-thumb { margin-left: 0; border-radius: 4px; }
+#aurelia-chat-window .claude-attach-chip-x { background: rgba(255, 255, 255, 0.12); color: #f0a08a; }
+
 /* Codex 立繪 spritesheet：cw-codex 時取代 Claude 立繪 */
 #aurelia-chat-window.cw-codex .claude-portrait-img   { display: none; }
 #aurelia-chat-window.cw-codex .codex-portrait-sprite { display: block; }
