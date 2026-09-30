@@ -90,6 +90,11 @@
                     }
                     return { ok: false, text: (r && r.text) || '沒有成功' };
                 }
+                // 看看畫出來的樣子：截圖一起交回（橋轉成住戶看得到的圖片）
+                if (name === 'aurelia_vn_look' && V.look) {
+                    const r = await V.look(args);
+                    return { ok: true, text: r.text + '（在她的' + _where() + '畫的）', images: (r.images || []).slice(0, 3) };
+                }
                 return { ok: true, text: String(await V.run(name, args)) + '（在她的' + _where() + '查的）' };
             } catch (e) { return { ok: false, text: (e && e.message) || '失敗' }; }
         }
