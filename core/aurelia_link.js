@@ -17,8 +17,8 @@
     win.__AURELIA_LINK_ON = true;
 
     const REPUBLISH_MS = 30 * 60 * 1000;   // 奧瑞亞更新了工具也跟得上
-    const PROP_TEXT = '已經做成單子交給她了：她在留言板「等你同意的」按同意才會寫進去（寫了也能改回去）。'
-        + '你不會馬上知道結果，不要跟她說已經改好了。';
+    const PROP_TEXT = '已經做成單子交給她了：她按同意才會寫進去（寫了也能改回去）。'
+        + '結果你現在不會知道，她處理了之後，你下次跟她說話或醒來時會看到一行寫結果；不要跟她說已經改好了。';
 
     const sleep = ms => new Promise(r => setTimeout(r, ms));
     function _A() { return win.OS_AURELIA_TOOLS || window.OS_AURELIA_TOOLS || null; }
@@ -46,18 +46,29 @@
     }
 
     // 住戶看的工具：三組合起來，同名的（查世界書）留改世界書那份——住戶不是故事裡的人，查世界書找所有的書
+    //   每個工具帶 groups：出現在哪幾組（look 翻資料、wb 改世界書、preset 改預設）。宿舍門卡上每位住戶勾了哪幾組，
+    //   橋照這個只列給他勾了的（查世界書兩組都有、看修改紀錄改世界書與改預設都有，勾其中一組就有）。
     function _tools() {
         const A = _A(), E = _E(), P = _P();
         const out = [], seen = {};
-        const add = t => { if (t && t.name && !seen[t.name]) { seen[t.name] = 1; out.push({ name: t.name, description: t.description || '', inputSchema: t.inputSchema || { type: 'object', properties: {} }, propose: !!t.propose }); } };
-        ((E && E.tools) || []).forEach(add);
-        ((P && P.tools) || []).forEach(add);
-        ((A && A.tools) || []).forEach(add);
+        const add = g => t => {
+            if (!t || !t.name) return;
+            if (seen[t.name]) { if (seen[t.name].groups.indexOf(g) === -1) seen[t.name].groups.push(g); return; }
+            seen[t.name] = { name: t.name, description: t.description || '', inputSchema: t.inputSchema || { type: 'object', properties: {} }, propose: !!t.propose, groups: [g] };
+            out.push(seen[t.name]);
+        };
+        ((E && E.tools) || []).forEach(add('wb'));
+        ((P && P.tools) || []).forEach(add('preset'));
+        ((A && A.tools) || []).forEach(add('look'));
         return out;
     }
-    function _note() {
+    function _notes() {
         const A = _A(), E = _E(), P = _P();
-        return [(A && A.note) || '', (E && E.note) || '', (P && P.note) || ''].filter(Boolean).join(' ');
+        return { look: (A && A.note) || '', wb: (E && E.note) || '', preset: (P && P.note) || '' };
+    }
+    function _note() {
+        const n = _notes();
+        return [n.look, n.wb, n.preset].filter(Boolean).join(' ');
     }
 
     async function _run(job) {
@@ -72,6 +83,7 @@
                 if (r && r.ok && r.prop) {
                     r.prop.by = _residentName(job.rid);
                     r.prop.where = _where();
+                    r.prop.from = '宿舍';   // 修改紀錄寫在哪提的
                     return { ok: true, text: PROP_TEXT, prop: r.prop, rid: job.rid, tool: name };
                 }
                 return { ok: false, text: (r && r.text) || '沒有成功' };
@@ -94,7 +106,7 @@
             const key = b.base + '|' + b.key;
             if (pubKey !== key || Date.now() - pubAt > REPUBLISH_MS) {
                 try {
-                    await _post(b, '/v1/aurelia/tools', { tools: _tools(), note: _note(), where: _where() });
+                    await _post(b, '/v1/aurelia/tools', { tools: _tools(), note: _note(), notes: _notes(), where: _where() });
                     pubKey = key; pubAt = Date.now();
                 } catch (e) {
                     // 舊的橋沒有這個端點（404）：一小時後再看，不要一直敲

@@ -20,6 +20,14 @@
     // 為什麼做在橋而不是 Windows 排程器：瀏覽器叫不動 schtasks，那樣她就得去雙擊 .bat；
     // 橋本來就常駐、本來就在收 HTTP，開關做在這裡才點得動。
     let _hb = {};             // rid → { enabled, hours_since, ... }
+    // 奧瑞亞工具（09-30）：每位住戶勾哪幾組，存在橋上（/v1/aurelia/perm）。沒設過的＝三組全開（原本的樣子）。
+    //   三組跟聊天 app 勾工具的名字一樣；住戶的工具服務只列他勾了的，三組都不勾就整個不掛。
+    let _perm = {};           // rid → { look, wb, preset }
+    const PERM_GROUPS = [
+        { g: 'look', label: '翻資料', tip: '看她的故事、世界書、手機裡的東西' },
+        { g: 'wb', label: '改世界書', tip: '提改世界書的單子，你按同意才寫進去' },
+        { g: 'preset', label: '改預設', tip: '提改預設的單子，你按同意才寫進去' },
+    ];
 
     function _CT() { return window.ClaudeTerminal || null; }
 
@@ -45,6 +53,42 @@
             // 舊版橋沒有這條端點 → 當作沒人開著。不在這裡猜也不報錯：
             // 宿舍的主要功能跟心跳無關，不能因為它掛掉就打不開。
             _hb = {};
+        }
+    }
+
+    async function _permLoad() {
+        const b = _bridge();
+        if (!b) { _perm = {}; return; }
+        try {
+            const r = await fetch(b.base + '/v1/aurelia/perm', { headers: { 'Authorization': 'Bearer ' + b.key } });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const j = await r.json();
+            _perm = (j && j.perm) || {};
+        } catch (e) {
+            _perm = {};   // 舊的橋沒有這條：照全開畫，按了會跳「橋還沒重啟」
+        }
+    }
+    function _permOf(id) {
+        const p = _perm[id] || {};
+        const out = {};
+        PERM_GROUPS.forEach(x => { out[x.g] = p[x.g] !== false; });
+        return out;
+    }
+    async function _permSet(id, perm) {
+        const b = _bridge();
+        if (!b) return { ok: false, msg: '還沒設好連線（⚙️ 裡的網址與密鑰）' };
+        try {
+            const res = await fetch(b.base + '/v1/aurelia/perm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + b.key },
+                body: JSON.stringify(Object.assign({ rid: id }, perm)),
+            });
+            if (!res.ok) return { ok: false, msg: res.status === 404 ? '橋還沒重啟，重啟之後才改得了' : '橋回了 HTTP ' + res.status };
+            const j = await res.json();
+            _perm[id] = (j && j.perm) || perm;
+            return { ok: true };
+        } catch (e) {
+            return { ok: false, msg: '連不上橋' };
         }
     }
 
@@ -257,6 +301,16 @@
                + '<button type="button" class="dorm-mode-btn' + (chatOn ? ' active' : '') + '" data-mode="chat">只聊天</button>'
                + '</div>';
         }
+        // 奧瑞亞工具：只有會掛工具的（Claude、Codex 住戶）才有這排；按了當場存到橋上，不用等「改好了」
+        if (r && (r.provider === 'claude' || r.provider === 'codex')) {
+            const pm = _permOf(r.id);
+            h += '<div class="dorm-perm"><span class="dorm-perm-lab">奧瑞亞工具</span><div class="dorm-mode dorm-perm-set">';
+            PERM_GROUPS.forEach(x => {
+                h += '<button type="button" class="dorm-perm-btn' + (pm[x.g] ? ' active' : '') + '" data-g="' + x.g + '" title="' + _esc(x.tip) + '">'
+                   + _esc(x.label) + '</button>';
+            });
+            h += '</div></div>';
+        }
         // 心跳的開關不放這裡 —— 這一列要按鉛筆才展得開，等於把狀態摺起來。
         // 它跟入席一樣是「一眼要看得到」的狀態，所以做成門卡上的常駐鈕（見 _wakeBtnHtml）。
         h += '<div class="dorm-form-act">';
@@ -379,6 +433,25 @@
                 b.addEventListener('click', () => {
                     form.querySelectorAll('.dorm-mode-btn').forEach(x => x.classList.remove('active'));
                     b.classList.add('active');
+                });
+            });
+            form.querySelectorAll('.dorm-perm-btn').forEach(b => {
+                b.addEventListener('click', async () => {
+                    if (b.dataset.busy) return;
+                    // 先反應再送，失敗撥回來（跟心跳鈕同一招）
+                    const want = !b.classList.contains('active');
+                    b.dataset.busy = '1';
+                    b.classList.toggle('active', want);
+                    const perm = {};
+                    form.querySelectorAll('.dorm-perm-btn').forEach(x => { perm[x.dataset.g] = x.classList.contains('active'); });
+                    const res = await _permSet(id, perm);
+                    delete b.dataset.busy;
+                    if (!res.ok) {
+                        b.classList.toggle('active', !want);
+                        hint.textContent = res.msg || '沒改成';
+                        return;
+                    }
+                    hint.textContent = Object.values(perm).some(Boolean) ? '' : '三個都沒勾：他用不到奧瑞亞的工具';
                 });
             });
             nameIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') save.click(); });
@@ -522,7 +595,7 @@
         _render();
         // 心跳狀態在橋那邊，拉回來之後再畫一次。先畫是刻意的：宿舍不能等網路，
         // 拉不到就維持「全部關著」的樣子，而不是卡在空白。
-        _hbLoad().then(function () { if (_el === container) _render(); });
+        Promise.all([_hbLoad(), _permLoad()]).then(function () { if (_el === container) _render(); });
     };
 
     // 以下三支保留原本的名字（輸入列那顆鈕、手機浮球、斜線命令都在叫它們），
