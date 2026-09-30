@@ -92,6 +92,11 @@
                     }
                     return { ok: false, text: (r && r.text) || '沒有成功' };
                 }
+                // 看看主題畫出來的樣子：截圖一起交回（同 VN 組件）
+                if (name === 'aurelia_theme_look' && T.look) {
+                    const r = await T.look(args);
+                    return { ok: true, text: r.text + '（在她的' + _where() + '畫的）', images: (r.images || []).slice(0, 3) };
+                }
                 return { ok: true, text: String(await T.run(name, args)) + '（在她的' + _where() + '查的）' };
             } catch (e) { return { ok: false, text: (e && e.message) || '失敗' }; }
         }
