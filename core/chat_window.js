@@ -579,6 +579,8 @@
 
     /** 他在聊天裡動了房間：重畫目前開著的那間（群聊沒有上半部那塊，不畫） */
     ChatWindow.refreshDecor = function () {
+        // 他換了打扮：門卡、留言板、群成員格的頭像也重拿
+        if (window.DormPanel && typeof window.DormPanel.forgetLooks === 'function') { try { window.DormPanel.forgetLooks(); } catch (_) {} }
         if (_winEl && _isOpen && _view === 'room' && _provider !== 'group') _renderDecor(_provider);
     };
 
@@ -973,12 +975,17 @@
     /** 群成員那格的頭像。跟門卡同一套判斷，只是這裡不掛模型角標。 */
     function _memFaceHtml(r) {
         const CT = window.ClaudeTerminal;
-        if (r.provider === 'codex')    return '<span class="cw-mem-face cw-mem-face-codex"></span>';
+        // 打扮過的（阿洛是他的洛德）：跟門卡、留言板同一張小圖（dorm.js 的 lookSrc，拿到了會把 [data-look] 換掉）
+        const D = window.DormPanel;
+        const look = (D && typeof D.lookSrc === 'function' && r.provider !== 'deepseek') ? D.lookSrc(r) : '';
+        const dl = ' data-look="' + String(r.id || '').replace(/[^\w-]/g, '') + '"';
+        if (look) return '<span class="cw-mem-face"' + dl + '><img class="ccr-look" src="' + look + '" alt=""></span>';
+        if (r.provider === 'codex')    return '<span class="cw-mem-face cw-mem-face-codex"' + dl + '></span>';
         if (r.provider === 'deepseek') return '<span class="cw-mem-face cw-mem-icon"><i class="fa-solid fa-user-tie"></i></span>';
         const src = (CT && CT.ASSETS && (CT.ASSETS.idle || CT.ASSETS.mini)) || '';
         const onerr = (CT && CT.imgOnError) || '';
         return src
-            ? '<span class="cw-mem-face"><img src="' + src + '" alt="" onerror="' + onerr + '"></span>'
+            ? '<span class="cw-mem-face"' + dl + '><img src="' + src + '" alt="" onerror="' + onerr + '"></span>'
             : '<span class="cw-mem-face cw-mem-icon"><i class="fa-solid fa-user"></i></span>';
     }
 

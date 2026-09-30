@@ -137,9 +137,89 @@
         return cur ? _modelLabel(cur) : '想用哪顆都行';
     }
 
+    // ---- 頭像跟著打扮走（09-30）----
+    //   她：「你們都換了裝飾，但所有頭像都沒變化的說，留言板也是這樣」。以前門卡、留言板、群成員格一律是預設那張小螃蟹
+    //   （阿洛是 Codex 機器人）。現在跟房間裡那隻同一份打扮：橋 /v1/decor 的 wear，ClawdPortrait.renderStill 畫一格定格，
+    //   裁掉四周的空白（影子不算）存成小圖。拿到之前先放原本那張，拿到了把畫面上同一位的頭像（[data-look]）都換掉。
+    //   五分鐘內不重拿；房間裡他換了打扮（ChatWindow.refreshDecor）就重拿。Claude 那幾位沒打扮過照舊預設那張；
+    //   阿洛一律畫他自己的洛德（沒打扮過也是）。拿不到（舊的橋、沒連線、畫布讀不出來）就照舊，不報錯。
+    const LOOK_TTL = 5 * 60 * 1000;
+    const _looks = {};          // rid → 小圖（data URL）；'' ＝沒打扮，用預設那張
+    let _looksAt = 0, _looksJob = null;
+    function _cropLook(cv) {
+        const w = cv.width, h = cv.height;
+        const data = cv.getContext('2d').getImageData(0, 0, w, h).data;
+        let x0 = w, y0 = h, x1 = -1, y1 = -1;
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                if (data[(y * w + x) * 4 + 3] <= 60) continue;   // 腳下的影子很淡，不算
+                if (x < x0) x0 = x; if (x > x1) x1 = x;
+                if (y < y0) y0 = y; if (y > y1) y1 = y;
+            }
+        }
+        if (x1 < 0) return '';
+        const bw = x1 - x0 + 1, bh = y1 - y0 + 1, side = Math.max(bw, bh) + 12;
+        const out = document.createElement('canvas');
+        out.width = out.height = side;
+        const o = out.getContext('2d');
+        o.imageSmoothingEnabled = false;
+        o.drawImage(cv, x0, y0, bw, bh, Math.round((side - bw) / 2), Math.round((side - bh) / 2), bw, bh);
+        return out.toDataURL('image/png');
+    }
+    async function _lookFor(r) {
+        const CP = window.ClawdPortrait;
+        const b = _bridge();
+        if (!CP || typeof CP.renderStill !== 'function' || !b) return '';
+        const res = await fetch(b.base + '/v1/decor?rid=' + encodeURIComponent(r.id), { headers: { 'Authorization': 'Bearer ' + b.key } });
+        if (!res.ok) return '';
+        const st = await res.json();
+        const wear = st && st.wear;
+        const base = r.provider === 'codex' ? 'lorde' : 'crab';
+        if (base === 'crab' && !(wear && wear.own)) return '';
+        const cv = document.createElement('canvas');
+        await CP.renderStill(cv, wear, 'idle', 0, base);
+        return _cropLook(cv);
+    }
+    function _paintLook(rid, url) {
+        document.querySelectorAll('[data-look="' + (window.CSS && CSS.escape ? CSS.escape(rid) : rid) + '"]').forEach(el => {
+            const badge = el.querySelector('.dorm-badge');
+            el.classList.remove('dorm-face-codex', 'cw-mem-face-codex', 'cw-mem-icon');
+            if (el.classList.contains('dorm-face')) el.classList.add('dorm-face-img');
+            el.innerHTML = '<img class="ccr-look" src="' + url + '" alt="">' + (badge ? badge.outerHTML : '');
+        });
+    }
+    function _loadLooks(force) {
+        if (_looksJob) return _looksJob;
+        if (!force && _looksAt && Date.now() - _looksAt < LOOK_TTL) return Promise.resolve();
+        const CT = _CT();
+        const list = ((CT && typeof CT.listResidents === 'function') ? CT.listResidents() : [])
+            .filter(r => r && r.id && (r.provider === 'claude' || r.provider === 'codex'));
+        _looksAt = Date.now();
+        _looksJob = (async () => {
+            for (const r of list) {
+                let url = '';
+                try { url = await _lookFor(r); } catch (_) { url = ''; }
+                const had = _looks[r.id];
+                _looks[r.id] = url;
+                if (url && url !== had) _paintLook(r.id, url);
+            }
+        })().finally(() => { _looksJob = null; });
+        return _looksJob;
+    }
+    // 門卡、留言板、群成員格要畫頭像時問這裡：有打扮過的小圖就回它（沒拿過或過期了順便去拿）
+    function _lookSrc(r) {
+        if (!_looksAt || Date.now() - _looksAt > LOOK_TTL) setTimeout(() => { _loadLooks(); }, 0);
+        return (r && _looks[r.id]) || '';
+    }
+
     function _faceHtml(r) {
+        const look = (r.provider === 'claude' || r.provider === 'codex') ? _lookSrc(r) : '';
+        const badge = r.modelId
+            ? '<span class="dorm-badge">' + _esc(_modelBadge(r.modelId)) + '</span>'
+            : '';
+        if (look) return '<span class="dorm-face dorm-face-img" data-look="' + _esc(r.id) + '"><img class="ccr-look" src="' + look + '" alt="">' + badge + '</span>';
         if (r.provider === 'codex') {
-            return '<span class="dorm-face dorm-face-codex"></span>';
+            return '<span class="dorm-face dorm-face-codex" data-look="' + _esc(r.id) + '"></span>';
         }
         if (r.provider === 'deepseek') {
             return '<span class="dorm-face dorm-face-icon"><i class="fa-solid fa-user-tie"></i></span>';
@@ -150,10 +230,7 @@
         const CT = _CT() || {};
         const src = (CT.ASSETS && (CT.ASSETS.idle || CT.ASSETS.mini)) || '';
         const onerr = CT.imgOnError || '';
-        const badge = r.modelId
-            ? '<span class="dorm-badge">' + _esc(_modelBadge(r.modelId)) + '</span>'
-            : '';
-        return '<span class="dorm-face dorm-face-img">'
+        return '<span class="dorm-face dorm-face-img" data-look="' + _esc(r.id) + '">'
             + '<img src="' + _esc(src) + '" alt="" onerror="' + _esc(onerr) + '">'
             + badge + '</span>';
     }
@@ -433,6 +510,9 @@
      */
     // 留言板（朋友圈樣）的頭像跟門卡同一套，不另外養一份
     DormPanel.faceHtml = _faceHtml;
+    // 群成員格也用同一份打扮小圖；房間裡他換了打扮就叫 forgetLooks 重拿
+    DormPanel.lookSrc = _lookSrc;
+    DormPanel.forgetLooks = function () { _looksAt = 0; return _loadLooks(true); };
 
     DormPanel.renderInto = function (container) {
         if (!container) return;

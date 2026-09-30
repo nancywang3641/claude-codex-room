@@ -35,7 +35,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 10px 34px 10px 10px;
+    padding: 10px 12px 10px 10px;
     border: none;
     background: none;
     cursor: pointer;
@@ -65,6 +65,8 @@
     box-sizing: border-box;
     object-fit: contain;
 }
+/* 打扮過的頭像（像素畫，放大不要糊）：門卡、留言板、群成員格共用 */
+.ccr-look { image-rendering: pixelated; object-fit: contain; }
 .dorm-face-icon {
     color: var(--cl-text-deep, #1f3a68);
     font-size: 16px;
@@ -118,17 +120,19 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+/* 箭頭貼右邊；它跟名字中間留一段給「自己醒來」「鉛筆」兩顆鈕（兩顆都跟頭像垂直置中、排在箭頭左邊，不再疊在箭頭上） */
 .dorm-go {
     flex-shrink: 0;
+    margin-left: 72px;
     font-size: 11px;
     color: rgba(70, 99, 155, 0.55);
 }
 
-/* 鉛筆：桌機 hover 才出現，手機常駐 */
+/* 鉛筆：桌機 hover 才出現，手機常駐。top 18px＝門卡那一排（頭像 40＋上下 10）的正中間，展開編輯列時也不會跟著往下跑 */
 .dorm-pen {
     position: absolute;
-    right: 6px;
-    top: 6px;
+    right: 34px;
+    top: 18px;
     width: 24px;
     height: 24px;
     padding: 0;
@@ -151,8 +155,8 @@
    刻意做成門卡上的鈕、不是編輯列裡的一行 —— 編輯列要按鉛筆才展得開，那等於把狀態摺起來。 */
 .dorm-wake {
     position: absolute;
-    right: 34px;
-    top: 6px;
+    right: 64px;
+    top: 18px;
     width: 24px;
     height: 24px;
     padding: 0;
