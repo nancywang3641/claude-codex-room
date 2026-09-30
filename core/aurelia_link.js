@@ -25,6 +25,7 @@
     function _E() { return win.OS_AURELIA_EDIT || window.OS_AURELIA_EDIT || null; }
     function _P() { return win.OS_AURELIA_PRESET || window.OS_AURELIA_PRESET || null; }
     function _V() { return win.OS_AURELIA_VN || window.OS_AURELIA_VN || null; }
+    function _T() { return win.OS_AURELIA_THEME || window.OS_AURELIA_THEME || null; }
     function _where() {
         try { return (win.OS_API && win.OS_API.isStandalone && win.OS_API.isStandalone()) ? '手機' : '酒館'; } catch (e) { return '酒館'; }
     }
@@ -47,10 +48,10 @@
     }
 
     // 住戶看的工具：三組合起來，同名的（查世界書）留改世界書那份——住戶不是故事裡的人，查世界書找所有的書
-    //   每個工具帶 groups：出現在哪幾組（look 翻資料、wb 改世界書、preset 改預設、vn 改 VN 組件）。宿舍門卡上每位住戶勾了哪幾組，
+    //   每個工具帶 groups：出現在哪幾組（look 翻資料、wb 改世界書、preset 改預設、vn 改 VN 組件、theme 改主題）。宿舍門卡上每位住戶勾了哪幾組，
     //   橋照這個只列給他勾了的（查世界書兩組都有、看修改紀錄改世界書與改預設都有，勾其中一組就有）。
     function _tools() {
-        const A = _A(), E = _E(), P = _P(), V = _V();
+        const A = _A(), E = _E(), P = _P(), V = _V(), T = _T();
         const out = [], seen = {};
         const add = g => t => {
             if (!t || !t.name) return;
@@ -61,21 +62,39 @@
         ((E && E.tools) || []).forEach(add('wb'));
         ((P && P.tools) || []).forEach(add('preset'));
         ((V && V.tools) || []).forEach(add('vn'));
+        ((T && T.tools) || []).forEach(add('theme'));
         ((A && A.tools) || []).forEach(add('look'));
         return out;
     }
     function _notes() {
-        const A = _A(), E = _E(), P = _P(), V = _V();
-        return { look: (A && A.note) || '', wb: (E && E.note) || '', preset: (P && P.note) || '', vn: (V && V.note) || '' };
+        const A = _A(), E = _E(), P = _P(), V = _V(), T = _T();
+        return { look: (A && A.note) || '', wb: (E && E.note) || '', preset: (P && P.note) || '', vn: (V && V.note) || '', theme: (T && T.note) || '' };
     }
     function _note() {
         const n = _notes();
-        return [n.look, n.wb, n.preset, n.vn].filter(Boolean).join(' ');
+        return [n.look, n.wb, n.preset, n.vn, n.theme].filter(Boolean).join(' ');
     }
 
     async function _run(job) {
-        const A = _A(), E = _E(), P = _P(), V = _V();
+        const A = _A(), E = _E(), P = _P(), V = _V(), T = _T();
         const name = String(job.name || ''), args = job.args || {};
+        // 改主題那組自己的（跟改 VN 組件同一種走法）
+        const th = /^aurelia_theme_/.test(name) ? ((T && T.tools) || []).find(t => t.name === name) : null;
+        if (th) {
+            try {
+                if (th.propose) {
+                    const r = await T.propose(name, args);
+                    if (r && r.ok && r.prop) {
+                        r.prop.by = _residentName(job.rid);
+                        r.prop.where = _where();
+                        r.prop.from = '宿舍';
+                        return { ok: true, text: PROP_TEXT, prop: r.prop, rid: job.rid, tool: name };
+                    }
+                    return { ok: false, text: (r && r.text) || '沒有成功' };
+                }
+                return { ok: true, text: String(await T.run(name, args)) + '（在她的' + _where() + '查的）' };
+            } catch (e) { return { ok: false, text: (e && e.message) || '失敗' }; }
+        }
         // 改 VN 組件那組自己的（看修改紀錄兩邊都有，交給改世界書那組跑就好）
         const vn = /^aurelia_vn_/.test(name) ? ((V && V.tools) || []).find(t => t.name === name) : null;
         if (vn) {

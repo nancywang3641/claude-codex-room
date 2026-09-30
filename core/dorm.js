@@ -28,6 +28,7 @@
         { g: 'wb', label: '改世界書', tip: '提改世界書的單子，你按同意才寫進去' },
         { g: 'preset', label: '改預設', tip: '提改預設的單子，你按同意才寫進去' },
         { g: 'vn', label: '改組件', tip: '提改 VN 組件的單子（附預覽），你按同意才寫進去' },
+        { g: 'theme', label: '改主題', tip: '提改劇情／手機／聊天 app 主題的單子（附樣子），你按同意才換' },
     ];
 
     function _CT() { return window.ClaudeTerminal || null; }
