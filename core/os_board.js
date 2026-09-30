@@ -48,6 +48,18 @@
             out.push('<' + list.tag + '>' + list.items.map(i => '<li>' + inline(i) + '</li>').join('') + '</' + list.tag + '>');
             list = null;
         };
+        // 表格：| 開頭、| 結尾的連續幾行；|---| 那種分隔線不畫，分隔線上面那行當標題列
+        let table = null;
+        const flushTable = () => {
+            if (!table) return;
+            const cells = ln => ln.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+            const isSep = ln => /^\s*\|?[\s:|-]+\|?\s*$/.test(ln) && ln.indexOf('-') !== -1;
+            const head = table.length > 1 && isSep(table[1]) ? cells(table[0]) : null;
+            const rows = table.filter((ln, i) => !(head && i <= 1) && !isSep(ln)).map(cells);
+            out.push('<table>' + (head ? '<thead><tr>' + head.map(c => '<th>' + inline(c) + '</th>').join('') + '</tr></thead>' : '')
+                + '<tbody>' + rows.map(r => '<tr>' + r.map(c => '<td>' + inline(c) + '</td>').join('') + '</tr>').join('') + '</tbody></table>');
+            table = null;
+        };
         const toList = (tag, item) => {
             flushPara();
             if (!list || list.tag !== tag) { flushList(); list = { tag: tag, items: [] }; }
@@ -60,7 +72,9 @@
                 else fence.push(ln);
                 return;
             }
-            if (/^\s*```/.test(ln)) { flushPara(); flushList(); fence = []; return; }
+            if (/^\s*```/.test(ln)) { flushPara(); flushList(); flushTable(); fence = []; return; }
+            if (/^\s*\|.*\|\s*$/.test(ln)) { flushPara(); flushList(); (table = table || []).push(ln); return; }
+            flushTable();
             if (!ln.trim()) { flushPara(); flushList(); return; }
             if ((m = ln.match(/^\s*#{1,6}\s+(.*)$/))) { flushPara(); flushList(); out.push('<h3>' + inline(m[1]) + '</h3>'); return; }
             if ((m = ln.match(/^\s*>\s?(.*)$/))) { flushPara(); flushList(); out.push('<blockquote>' + inline(m[1]) + '</blockquote>'); return; }
@@ -73,6 +87,7 @@
         if (fence) out.push('<pre><code>' + _esc(fence.join('\n')) + '</code></pre>');
         flushPara();
         flushList();
+        flushTable();
         return out.join('');
     }
 
@@ -420,7 +435,9 @@
                 + (out ? '<i class="fa-solid fa-arrow-up-right-from-square"></i>' : '') + (fresh.length >= 30 ? '30+' : fresh.length) + '</span>' : '';
             open = '<button type="button" class="ob-wl-open">' + n + '醒來紀錄<i class="fa-solid fa-chevron-right"></i></button>';
         }
-        return '<section class="ob-wakes"><div class="ob-wakes-head"><span class="ob-wakes-cap">會自己醒來的</span>' + open + '</div>'
+        // 記憶（09-30）：大家各自的記憶，只能看；放在醒來紀錄旁邊
+        const mem = '<button type="button" class="ob-mem-open">記憶<i class="fa-solid fa-chevron-right"></i></button>';
+        return '<section class="ob-wakes"><div class="ob-wakes-head"><span class="ob-wakes-cap">會自己醒來的</span>' + mem + open + '</div>'
             + (list.length ? '<div class="ob-wakes-row">'
             + list.map(c => {
                 const h = (c.hours_since == null) ? null : Number(c.hours_since);
@@ -526,6 +543,103 @@
         if (/HTTP 404/.test(msg)) return '這台的橋還是舊的，重啟一次橋就有醒來紀錄。';
         if (msg === 'NOT_CONFIGURED') return '還沒填連線。';
         return '拿不到紀錄：' + (_plainReason(msg) || msg);
+    }
+
+    // ---- 記憶（09-30）：住戶們與寫奧瑞亞的丹，各自的記憶，只能看 ----
+    //   資料走橋 /v1/memory、/v1/memory/list、/v1/memory/read（克語 VPS 那本 Ombre 由橋經 relay 拿）。
+    //   入口在「醒來紀錄」旁邊；第一頁：上面一排人、有好幾本（記憶／筆記本／Ombre）就分頁、一格可以打字找、一則一列；
+    //   點一則換頁看全文。跟醒來紀錄共用那兩個蓋頁（.ob-wl／.ob-wl-page）與返回鍵。
+    const MEM_FOLDER = { permanent: '長期', dynamic: '最近', feel: '感受', archive: '封存' };
+    function _memName(p) {
+        if (p.name) return p.name;
+        try {
+            const CT = window.ClaudeTerminal;
+            const r = ((CT && typeof CT.listResidents === 'function' && CT.listResidents()) || []).find(x => x && x.id === p.rid);
+            if (r && r.name) return r.name;
+        } catch (_) {}
+        return p.rid;
+    }
+    function _memErr(e) {
+        const msg = (e && e.message) ? String(e.message) : String(e);
+        if (/HTTP 404/.test(msg)) return /沒有這/.test(msg) ? '找不到這一則了（可能剛被整理掉）。' : '這台的橋還是舊的，重啟一次橋就有記憶這頁。';
+        if (msg === 'NOT_CONFIGURED') return '還沒填連線。';
+        return '拿不到記憶：' + (_plainReason(msg) || msg);
+    }
+    function _memMeta(x) {
+        const bits = [];
+        if (x.updated) bits.push(_wlDay(x.updated));
+        if (x.folder) bits.push(MEM_FOLDER[x.folder] || x.folder);
+        const by = (x.by || []).filter(v => v && v !== '未定');
+        if (by.length) bits.push(by.join('、') + '寫的');
+        return bits.join('・');
+    }
+    // 清單上的標題、說明是一行字：markdown 的反引號、粗體星號、[[互指]] 拿掉，不露原始寫法
+    function _memPlain(v) {
+        return String(v || '').replace(/`([^`]*)`/g, '$1').replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\[\[([^\]\n]+)\]\]/g, '$1').replace(/^#+\s*/, '');
+    }
+    function _memMatch(x, q) {
+        if (!q) return true;
+        const s = (String(x.title || '') + ' ' + String(x.hook || '')).toLowerCase();
+        return q.toLowerCase().split(/\s+/).filter(Boolean).every(w => s.indexOf(w) !== -1);
+    }
+    function _memItemsHtml(m) {
+        if (m.error) return '<div class="ob-wl-empty"><i class="fa-solid fa-plug-circle-xmark"></i><div>' + _esc(m.error) + '</div></div>';
+        if (!m.items) return '<div class="ob-wl-empty">正在翻…</div>';
+        if (!m.items.length) return '<div class="ob-wl-empty"><i class="fa-regular fa-folder-open"></i><div>這一本是空的。</div></div>';
+        const list = m.items.filter(x => _memMatch(x, m.q));
+        if (!list.length) return '<div class="ob-wl-empty">找不到「' + _esc(m.q) + '」。</div>';
+        return list.map(x => {
+            const meta = _memMeta(x);
+            return '<div class="ob-mem-item" data-id="' + _esc(x.id) + '"><div class="ob-mem-main">'
+                + '<div class="ob-mem-t">' + _esc(_memPlain(x.title)) + '</div>'
+                + (x.hook ? '<div class="ob-mem-h">' + _esc(_memPlain(x.hook)) + '</div>' : '')
+                + (meta ? '<div class="ob-mem-meta">' + _esc(meta) + '</div>' : '')
+                + '</div><i class="fa-solid fa-chevron-right ob-wl-go"></i></div>';
+        }).join('');
+    }
+    function _memHead(title, to) {
+        return '<div class="ob-wl-head"><button type="button" class="ob-wl-back" data-to="' + to + '" title="' + (to === 'board' ? '回留言板' : '回記憶') + '"><i class="fa-solid fa-chevron-left"></i></button>'
+            + '<div class="ob-wl-title">' + _esc(title) + '</div><span class="ob-wl-headpad"></span></div>';
+    }
+    function _memListHtml(m) {
+        const head = _memHead('記憶', 'board');
+        const box = inner => head + '<div class="ob-wl-scroll">' + inner + '</div>';
+        if (m.peopleError) return box('<div class="ob-wl-empty"><i class="fa-solid fa-plug-circle-xmark"></i><div>' + _esc(m.peopleError) + '</div></div>');
+        if (!m.people) return box('<div class="ob-wl-empty">正在翻…</div>');
+        if (!m.people.length) return box('<div class="ob-wl-empty"><i class="fa-regular fa-folder-open"></i><div>還沒有人有記憶。</div></div>');
+        const p = m.people.find(x => x.rid === m.rid) || m.people[0];
+        const chips = '<div class="ob-wl-chips">' + m.people.map(x => '<button type="button" class="ob-wl-chip ob-mem-who' + (x.rid === p.rid ? ' is-on' : '') + '" data-rid="' + _esc(x.rid) + '">' + _esc(_memName(x)) + '</button>').join('') + '</div>';
+        const tabs = p.books.length > 1 ? '<div class="ob-mem-tabs">' + p.books.map(b => '<button type="button" class="ob-mem-tab' + (b.key === m.book ? ' is-on' : '') + '" data-book="' + _esc(b.key) + '">'
+            + _esc(b.label) + (b.count != null ? '<span class="ob-mem-n">' + b.count + '</span>' : '') + '</button>').join('') + '</div>' : '';
+        const find = '<label class="ob-mem-find"><i class="fa-solid fa-magnifying-glass"></i><input type="search" class="ob-mem-q" placeholder="找" value="' + _esc(m.q || '') + '"></label>';
+        return head + chips + tabs + find + '<div class="ob-wl-scroll ob-mem-scroll">' + _memItemsHtml(m) + '</div>';
+    }
+    // 本文裡記憶互指的 [[那一則]]：先換成記號、排好版之後再換成可以點的字（手機那支簡易排版不認這種連結，會原樣露出來）。
+    // 這一本裡找得到的畫成連結（點了開那一則），找不到的只留名字。
+    function _memBodyHtml(body, m) {
+        const links = [];
+        const marked = String(body || '').replace(/\[\[([^\]\n]{1,80})\]\]/g, (all, name) => {
+            links.push(name.trim());
+            return 'MEMLINKQ' + (links.length - 1) + 'QEND';
+        });
+        return _renderMd(marked).replace(/MEMLINKQ(\d+)QEND/g, (all, i) => {
+            const name = links[Number(i)] || '';
+            const hit = (m.items || []).find(x => x.id === name);
+            return hit ? '<a class="ob-mem-link" data-mem="' + _esc(name) + '">' + _esc(_memPlain(hit.title)) + '</a>' : _esc(name);
+        });
+    }
+    function _memDetailHtml(d, m) {
+        const p = (m.people || []).find(x => x.rid === m.rid);
+        const b = p && p.books.find(x => x.key === m.book);
+        const head = _memHead((p ? _memName(p) : '記憶') + (b && p.books.length > 1 ? '・' + b.label : ''), 'list');
+        if (!d) return head + '<div class="ob-wl-scroll"><div class="ob-wl-empty">正在翻…</div></div>';
+        if (d.error) return head + '<div class="ob-wl-scroll"><div class="ob-wl-empty"><i class="fa-solid fa-plug-circle-xmark"></i><div>' + _esc(d.error) + '</div></div></div>';
+        const meta = _memMeta(d);
+        return head + '<div class="ob-wl-scroll"><article class="ob-mem-doc">'
+            + '<h3 class="ob-mem-doc-t">' + _esc(_memPlain(d.title)) + '</h3>'
+            + (meta ? '<div class="ob-mem-doc-meta">' + _esc(meta) + '</div>' : '')
+            + '<div class="ob-mem-doc-body">' + (String(d.body || '').trim() ? _memBodyHtml(d.body, m) : '<p>（這一則沒有內容）</p>') + '</div>'
+            + '</article></div>';
     }
 
     // ---- 等你同意的：住戶提的改世界書、改預設單子（aurelia_link.js 在頁面裡做成單子、橋存著） ----
@@ -647,6 +761,74 @@
         const holder = document.createElement('div');
         holder.innerHTML = _postHtml(p, _index(st.all).byParent);
         el.replaceWith(holder.firstElementChild);
+    }
+
+    // ---- 記憶的兩頁 ----
+    async function _memOpen(container) {
+        const st = _state.get(container);
+        const root = container.querySelector('.ob-container');
+        const pane = root && root.querySelector('.ob-wl');
+        if (!st || !pane) return;
+        const m = st.mem = { people: null, peopleError: '', rid: '', book: '', items: null, error: '', q: '' };
+        st.wl = null;   // 醒來紀錄那頁等到一半的，回來別蓋掉這頁
+        root.querySelector('.ob-wl-page').hidden = true;
+        pane.hidden = false;
+        pane.innerHTML = _memListHtml(m);
+        try { const r = await _api('/v1/memory'); m.people = Array.isArray(r.people) ? r.people : []; }
+        catch (e) { m.peopleError = _memErr(e); }
+        if (st.mem !== m) return;
+        if (m.people && m.people.length) _memPick(container, m.people[0].rid, '');
+        else pane.innerHTML = _memListHtml(m);
+    }
+    async function _memPick(container, rid, book) {
+        const st = _state.get(container);
+        const m = st && st.mem;
+        const pane = container.querySelector('.ob-wl');
+        if (!m || !m.people || !m.people.length || !pane) return;
+        const p = m.people.find(x => x.rid === rid) || m.people[0];
+        m.rid = p.rid;
+        m.book = book || (p.books[0] && p.books[0].key) || '';
+        m.items = null; m.error = ''; m.q = '';
+        const my = m.req = {};
+        pane.innerHTML = _memListHtml(m);
+        try {
+            const r = await _api('/v1/memory/list?rid=' + encodeURIComponent(m.rid) + '&book=' + encodeURIComponent(m.book));
+            if (m.req !== my) return;
+            m.items = Array.isArray(r.items) ? r.items : [];
+            if (r.error) m.error = 'VPS 那本現在拿不到：' + r.error;
+            // VPS 那本打開才知道幾則：補上分頁的數字
+            const bk = p.books.find(x => x.key === m.book);
+            if (bk && bk.count == null && !r.error) bk.count = m.items.length;
+        } catch (e) {
+            if (m.req !== my) return;
+            m.error = _memErr(e);
+        }
+        if (st.mem === m) pane.innerHTML = _memListHtml(m);
+    }
+    // 打字找：只換清單那一段，輸入框不重畫（不然每打一個字就失焦）
+    function _memFilter(container, q) {
+        const st = _state.get(container);
+        const m = st && st.mem;
+        if (!m) return;
+        m.q = q;
+        const sc = container.querySelector('.ob-mem-scroll');
+        if (sc) { sc.innerHTML = _memItemsHtml(m); sc.scrollTop = 0; }
+    }
+    async function _memDetail(container, id) {
+        const st = _state.get(container);
+        const m = st && st.mem;
+        const page = container.querySelector('.ob-wl-page');
+        if (!m || !page || !id) return;
+        const key = m.rid + '|' + m.book + '|' + id;
+        page.dataset.mid = key;
+        page.dataset.wid = '';
+        page.hidden = false;
+        page.innerHTML = _memDetailHtml(null, m);
+        let d;
+        try { d = await _api('/v1/memory/read?rid=' + encodeURIComponent(m.rid) + '&book=' + encodeURIComponent(m.book) + '&id=' + encodeURIComponent(id)); }
+        catch (e) { d = { error: _memErr(e) }; }
+        if (page.dataset.mid !== key || page.hidden) return;
+        page.innerHTML = _memDetailHtml(d, m);
     }
 
     // ---- 醒來紀錄的兩頁 ----
@@ -805,6 +987,10 @@
             else if (ev.key === 'Escape') closeBar();
         });
         sheetText.addEventListener('input', () => { sheetSend.disabled = !sheetText.value.trim(); });
+        // 記憶那頁的「找」
+        root.addEventListener('input', ev => {
+            if (ev.target && ev.target.classList && ev.target.classList.contains('ob-mem-q')) _memFilter(container, ev.target.value.trim());
+        });
 
         root.addEventListener('click', ev => {
             const t = ev.target;
@@ -814,6 +1000,17 @@
             // 等你同意的：點一張打開單子
             const ppRow = t.closest('.ob-prop');
             if (ppRow) { _propOpen(container, ppRow.dataset.ppid, say); return; }
+
+            // 記憶：入口、換人、換本、點一則、全文裡互指的那一則（要排在醒來紀錄前面：人那排也用 .ob-wl-chip 的樣子）
+            if (t.closest('.ob-mem-open')) { _memOpen(container); return; }
+            const mw = t.closest('.ob-mem-who');
+            if (mw) { _memPick(container, mw.dataset.rid || '', ''); return; }
+            const mtab = t.closest('.ob-mem-tab');
+            if (mtab) { if (st.mem) _memPick(container, st.mem.rid, mtab.dataset.book || ''); return; }
+            const mitem = t.closest('.ob-mem-item');
+            if (mitem) { _memDetail(container, mitem.dataset.id); return; }
+            const mlink = t.closest('.ob-mem-link');
+            if (mlink) { _memDetail(container, mlink.dataset.mem); return; }
 
             // 醒來紀錄：入口、點頭像、兩頁裡的返回／篩選／更早的／點一次
             if (t.closest('.ob-wl-open')) { _wlOpen(container, ''); return; }
