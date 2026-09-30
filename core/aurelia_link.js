@@ -28,6 +28,7 @@
     function _T() { return win.OS_AURELIA_THEME || window.OS_AURELIA_THEME || null; }
     function _X() { return win.OS_AURELIA_FX || window.OS_AURELIA_FX || null; }
     function _Q() { return win.OS_AURELIA_VNRULE || window.OS_AURELIA_VNRULE || null; }
+    function _U() { return win.OS_AURELIA_BUBBLE || window.OS_AURELIA_BUBBLE || null; }
     function _where() {
         try { return (win.OS_API && win.OS_API.isStandalone && win.OS_API.isStandalone()) ? '手機' : '酒館'; } catch (e) { return '酒館'; }
     }
@@ -50,10 +51,10 @@
     }
 
     // 住戶看的工具：三組合起來，同名的（查世界書）留改世界書那份——住戶不是故事裡的人，查世界書找所有的書
-    //   每個工具帶 groups：出現在哪幾組（look 翻資料、wb 改世界書、preset 改預設、vn 改 VN 組件、theme 改主題、fx 改特效、rule 改指令）。宿舍門卡上每位住戶勾了哪幾組，
+    //   每個工具帶 groups：出現在哪幾組（look 翻資料、wb 改世界書、preset 改預設、vn 改 VN 組件、theme 改主題、fx 改特效、rule 改指令、bubble 改泡泡）。宿舍門卡上每位住戶勾了哪幾組，
     //   橋照這個只列給他勾了的（查世界書兩組都有、看修改紀錄改世界書與改預設都有，勾其中一組就有）。
     function _tools() {
-        const A = _A(), E = _E(), P = _P(), V = _V(), T = _T(), X = _X(), Q = _Q();
+        const A = _A(), E = _E(), P = _P(), V = _V(), T = _T(), X = _X(), Q = _Q(), U = _U();
         const out = [], seen = {};
         const add = g => t => {
             if (!t || !t.name) return;
@@ -67,21 +68,44 @@
         ((T && T.tools) || []).forEach(add('theme'));
         ((X && X.tools) || []).forEach(add('fx'));
         ((Q && Q.tools) || []).forEach(add('rule'));
+        ((U && U.tools) || []).forEach(add('bubble'));
         ((A && A.tools) || []).forEach(add('look'));
         return out;
     }
     function _notes() {
-        const A = _A(), E = _E(), P = _P(), V = _V(), T = _T(), X = _X(), Q = _Q();
-        return { look: (A && A.note) || '', wb: (E && E.note) || '', preset: (P && P.note) || '', vn: (V && V.note) || '', theme: (T && T.note) || '', fx: (X && X.note) || '', rule: (Q && Q.note) || '' };
+        const A = _A(), E = _E(), P = _P(), V = _V(), T = _T(), X = _X(), Q = _Q(), U = _U();
+        return { look: (A && A.note) || '', wb: (E && E.note) || '', preset: (P && P.note) || '', vn: (V && V.note) || '', theme: (T && T.note) || '', fx: (X && X.note) || '', rule: (Q && Q.note) || '', bubble: (U && U.note) || '' };
     }
     function _note() {
         const n = _notes();
-        return [n.look, n.wb, n.preset, n.vn, n.theme, n.fx, n.rule].filter(Boolean).join(' ');
+        return [n.look, n.wb, n.preset, n.vn, n.theme, n.fx, n.rule, n.bubble].filter(Boolean).join(' ');
     }
 
     async function _run(job) {
-        const A = _A(), E = _E(), P = _P(), V = _V(), T = _T(), X = _X(), Q = _Q();
+        const A = _A(), E = _E(), P = _P(), V = _V(), T = _T(), X = _X(), Q = _Q(), U = _U();
         const name = String(job.name || ''), args = job.args || {};
+        // 改泡泡那組自己的（同改主題；住戶不在任何一間聊天室裡，rooms 寫聊天室名字）
+        const bu = /^aurelia_bubble_/.test(name) ? ((U && U.tools) || []).find(t => t.name === name) : null;
+        if (bu) {
+            try {
+                if (bu.propose) {
+                    const r = await U.propose(name, args);
+                    if (r && r.ok && r.prop) {
+                        r.prop.by = _residentName(job.rid);
+                        r.prop.where = _where();
+                        r.prop.from = '宿舍';
+                        return { ok: true, text: PROP_TEXT, prop: r.prop, rid: job.rid, tool: name };
+                    }
+                    return { ok: false, text: (r && r.text) || '沒有成功' };
+                }
+                // 看看泡泡畫出來的樣子：截圖一起交回（同改主題）
+                if (name === 'aurelia_bubble_look' && U.look) {
+                    const r = await U.look(args);
+                    return { ok: true, text: r.text + '（在她的' + _where() + '畫的）', images: (r.images || []).slice(0, 3) };
+                }
+                return { ok: true, text: String(await U.run(name, args)) + '（在她的' + _where() + '查的）' };
+            } catch (e) { return { ok: false, text: (e && e.message) || '失敗' }; }
+        }
         // 改指令那組自己的（同改特效，沒有截圖）
         const rq = /^aurelia_vnrule_/.test(name) ? ((Q && Q.tools) || []).find(t => t.name === name) : null;
         if (rq) {

@@ -1223,7 +1223,7 @@
     //   對話記錄整則存上橋，重開還在）。點一張打開跟聊天 app 同一張單子（WX_TOOLS.openPropSheet），她按了什麼回報橋、卡片跟著換字。
     //   🚨 酒館與手機的世界書、預設是分開的：在哪邊提的就要在哪邊按（prop.where）。
     const PROP_CHIP = { wait: '點開看', no: '沒同意', done: '寫進去了', undone: '改回去了', stale: '作廢了' };
-    const PROP_TOOL_RE = /aurelia_(worldbook|preset|vn|theme|fx)_(add|edit|use)|aurelia_vnrule_(list_edit|switch|bgm_theme)/;
+    const PROP_TOOL_RE = /aurelia_(worldbook|preset|vn|theme|fx|bubble)_(add|edit|use)|aurelia_vnrule_(list_edit|switch|bgm_theme)/;
     function _bridgeCfg() {
         let c = null;
         try { c = window.ClaudeTerminal && window.ClaudeTerminal.getConfig && window.ClaudeTerminal.getConfig(); } catch (_) {}

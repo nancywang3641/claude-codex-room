@@ -31,6 +31,7 @@
         { g: 'theme', label: '改主題', tip: '提改劇情／手機／聊天 app 主題的單子（附樣子），你按同意才換' },
         { g: 'fx', label: '改特效', tip: '提改畫面特效的單子（可以試播），你按同意才存' },
         { g: 'rule', label: '改指令', tip: '提改 BGM／音效清單、內建格式開關、BGM 主題的單子，你按同意才改（VN 指令內容不給改）' },
+        { g: 'bubble', label: '改泡泡', tip: '提改聊天 app 泡泡的單子（附樣子），你按同意才換' },
     ];
 
     function _CT() { return window.ClaudeTerminal || null; }
