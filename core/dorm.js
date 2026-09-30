@@ -27,6 +27,7 @@
         { g: 'look', label: '翻資料', tip: '看她的故事、世界書、手機裡的東西' },
         { g: 'wb', label: '改世界書', tip: '提改世界書的單子，你按同意才寫進去' },
         { g: 'preset', label: '改預設', tip: '提改預設的單子，你按同意才寫進去' },
+        { g: 'vn', label: '改組件', tip: '提改 VN 組件的單子（附預覽），你按同意才寫進去' },
     ];
 
     function _CT() { return window.ClaudeTerminal || null; }
