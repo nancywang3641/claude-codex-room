@@ -274,6 +274,25 @@
     .claude-stream-doing { animation: none; opacity: 0.85; }
 }
 
+/* 📝 住戶這一輪提的單子（改世界書、改預設）：掛在回覆底下，一張一行，點了開單子 */
+.claude-prop-cards { align-self: flex-start; display: flex; flex-direction: column; gap: 6px; max-width: 100%; }
+.claude-prop-card {
+    display: flex; align-items: center; gap: 8px;
+    max-width: 100%; padding: 9px 12px;
+    border: 1px solid rgba(185, 146, 79, 0.55); border-radius: 10px;
+    background: #fbf6ea; color: #5b4521;
+    font-family: inherit; font-size: 13px; line-height: 1.45; text-align: left;
+    cursor: pointer;
+}
+.claude-prop-card:hover { background: #f7eed8; }
+.claude-prop-card > i { flex-shrink: 0; color: #b9924f; }
+.claude-prop-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.claude-prop-chip { flex-shrink: 0; font-size: 12px; font-weight: 700; color: #a8782a; }
+.claude-prop-card:not(.is-wait) { border-color: rgba(42, 74, 128, 0.2); background: rgba(42, 74, 128, 0.05); color: #46639b; }
+.claude-prop-card:not(.is-wait) > i,
+.claude-prop-card:not(.is-wait) .claude-prop-chip { color: #46639b; font-weight: 400; }
+.claude-prop-card.is-stale .claude-prop-chip { color: #b5563f; }
+
 .claude-tool-summary {
     align-self: flex-start; max-width: 100%;
     background: rgba(42, 74, 128, 0.06);
