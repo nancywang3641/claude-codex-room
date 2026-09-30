@@ -323,32 +323,40 @@
     font-weight: 700;
 }
 
-/* ---- 奧瑞亞工具：三顆各自開關（不是二選一），長得跟上面那排一樣 ---- */
+/* ---- 奧瑞亞工具：每顆各自開關（不是二選一）----
+   10-01 變成七顆，一排擠不下（窄一點的畫面最後幾顆直接被切掉）：名字自己一行，
+   按鈕一排四顆、多的換到下一排；格線用 1px 的空隙透出底色畫。 */
 .dorm-perm {
     display: flex;
-    align-items: center;
-    gap: 8px;
+    flex-direction: column;
+    gap: 4px;
     width: 100%;
 }
 .dorm-perm-lab {
-    flex-shrink: 0;
     font-size: 12px;
     color: var(--cl-cafe-latte, #46639b);
 }
-.dorm-perm-set { flex: 1; }
+.dorm-perm-set {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: rgba(70, 99, 155, 0.28);
+}
 .dorm-perm-btn {
-    flex: 1;
-    padding: 6px 8px;
+    padding: 6px 4px;
     border: none;
-    background: transparent;
+    background: #fdfdfc;
     color: var(--cl-cafe-latte, #46639b);
     font-size: 12px;
     line-height: 1.2;
     cursor: pointer;
     white-space: nowrap;
 }
-.dorm-perm-btn + .dorm-perm-btn { border-left: 1px solid rgba(70, 99, 155, 0.28); }
-.dorm-perm-btn:hover { background: rgba(42, 74, 128, 0.1); }
+.dorm-perm-btn:hover { background: #eef1f7; }
+/* 最後一排沒排滿：最後一顆拉長補滿，不留一塊灰色空格 */
+.dorm-perm-btn:last-child:nth-child(4n+3) { grid-column: span 2; }
+.dorm-perm-btn:last-child:nth-child(4n+2) { grid-column: span 3; }
+.dorm-perm-btn:last-child:nth-child(4n+1) { grid-column: span 4; }
 .dorm-perm-btn.active {
     background: var(--cl-grenadine, #2a4a80);
     color: #fff;
