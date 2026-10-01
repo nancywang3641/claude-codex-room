@@ -259,6 +259,7 @@ ${withOthers}
     }
 
     ClaudeTerminal.isConfigured = function() {
+        if (_provider === 'xiaoji') return true;   // 小機直接打奧瑞亞的接口，不看橋
         const c = ClaudeTerminal.getConfig();
         return !!(c && c.url && c.key);
     };
@@ -268,7 +269,7 @@ ${withOthers}
     // codex / deepseek 走完全獨立的 namespace。
     let _provider = 'claude';
     ClaudeTerminal.setProvider = function(p) {
-        const next = (p === 'codex' || p === 'deepseek') ? p : 'claude';
+        const next = (p === 'codex' || p === 'deepseek' || p === 'xiaoji') ? p : 'claude';
         if (next !== _provider) ClaudeTerminal._invalidateSync();
         _provider = next;
     };
@@ -295,7 +296,8 @@ ${withOthers}
         { id: 'sujingming', name: '蘇景明', provider: 'deepseek', modelId: '', builtin: true },
         { id: 'group',      name: '群聊區', provider: 'group',    modelId: '', builtin: true },
     ];
-    const RESIDENT_PROVIDERS = ['claude', 'codex', 'deepseek', 'group'];
+    // xiaoji＝API 小機（奧瑞亞 os_xiaoji.js）：不經橋、沒有內建住戶，箱子領養才有
+    const RESIDENT_PROVIDERS = ['claude', 'codex', 'deepseek', 'group', 'xiaoji'];
     /** provider → 該 provider 的內建住戶 id（沒指定住戶時東西歸誰） */
     const BUILTIN_OF_PROVIDER = { claude: 'dan', codex: 'aluo', deepseek: 'sujingming', group: 'group' };
     ClaudeTerminal.BUILTIN_OF_PROVIDER = BUILTIN_OF_PROVIDER;
@@ -497,7 +499,7 @@ ${withOthers}
     ClaudeTerminal.setGroupSeat = function(id, seated) {
         if (!id) return false;
         const r = ClaudeTerminal.getResident(id);
-        if (seated && (!r || r.provider === 'group')) return false;
+        if (seated && (!r || r.provider === 'group' || r.provider === 'xiaoji')) return false;
         const list = _rawSeats();
         const idx = list.indexOf(String(id));
         if (seated) {
@@ -526,6 +528,8 @@ ${withOthers}
         codexActive:   'codex_active',
         deepseekConvs:  'deepseek_convs',
         deepseekActive: 'deepseek_active',
+        xiaojiConvs:    'xiaoji_convs',
+        xiaojiActive:   'xiaoji_active',
         activeResident: 'claude_active_resident',
         groupCarry:     'ccr_group_carry',
     };
@@ -534,6 +538,7 @@ ${withOthers}
     const CONV_IDB_PREFIX     = 'claude_conv_';
     const CODEX_IDB_PREFIX    = 'codex_conv_';
     const DEEPSEEK_IDB_PREFIX = 'deepseek_conv_';
+    const XIAOJI_IDB_PREFIX   = 'xiaoji_conv_';
     const LEGACY_IDB_KEY  = 'claude_room_main';
     const LEGACY_SID_KEY  = 'claude_room_session_id';
 
@@ -541,12 +546,14 @@ ${withOthers}
     function _validTabs() {
         if (_provider === 'codex')    return ['codex'];
         if (_provider === 'deepseek') return ['deepseek'];
+        if (_provider === 'xiaoji')   return ['xiaoji'];
         return TABS;
     }
     /** 當前 provider 的 IndexedDB conv key 前綴 */
     function _idbPrefix() {
         if (_provider === 'codex')    return CODEX_IDB_PREFIX;
         if (_provider === 'deepseek') return DEEPSEEK_IDB_PREFIX;
+        if (_provider === 'xiaoji')   return XIAOJI_IDB_PREFIX;
         return CONV_IDB_PREFIX;
     }
 
@@ -778,12 +785,14 @@ ${withOthers}
     function _convsKey(tab)  {
         if (tab === 'codex')    return LS_KEYS.codexConvs;
         if (tab === 'deepseek') return LS_KEYS.deepseekConvs;
+        if (tab === 'xiaoji')   return LS_KEYS.xiaojiConvs;
         if (tab === 'api')      return LS_KEYS.apiConvs;
         return LS_KEYS.maxConvs;
     }
     function _activeKeyBase(tab) {
         if (tab === 'codex')    return LS_KEYS.codexActive;
         if (tab === 'deepseek') return LS_KEYS.deepseekActive;
+        if (tab === 'xiaoji')   return LS_KEYS.xiaojiActive;
         if (tab === 'api')      return LS_KEYS.apiActive;
         return LS_KEYS.maxActive;
     }
@@ -909,12 +918,13 @@ ${withOthers}
     ClaudeTerminal.getActiveTab = function() {
         if (_provider === 'codex')    return 'codex';
         if (_provider === 'deepseek') return 'deepseek';
+        if (_provider === 'xiaoji')   return 'xiaoji';
         const t = _lsGetRaw(LS_KEYS.activeTab);
         return TABS.includes(t) ? t : 'max';
     };
 
     ClaudeTerminal.setActiveTab = function(tab) {
-        if (_provider === 'codex' || _provider === 'deepseek') return;  // 單 tab，沒得切
+        if (_provider === 'codex' || _provider === 'deepseek' || _provider === 'xiaoji') return;  // 單 tab，沒得切
         const next = TABS.includes(tab) ? tab : 'max';
         if (next !== _lsGetRaw(LS_KEYS.activeTab)) ClaudeTerminal._invalidateSync();
         _lsSetRaw(LS_KEYS.activeTab, next);
@@ -1271,7 +1281,47 @@ ${withOthers}
      *   2. 新對話模式（active conv 沒 sid）：送整個 history，cc-bridge 開新 session
      *      → 第一次或剛 startNewConversation 後走此路
      */
+    // ===== API 小機：一句話交給奧瑞亞的 OS_XIAOJI.turn（頁面裡直接打接口，不碰橋）=====
+    //   記錄的存法照 _sendCcBridge：先存她這句（放著的那幾條去掉 held），失敗撤回；他的回覆由房間 push。
+    async function _sendXiaoji(userText, onProgress, sendOpts) {
+        const X = window.OS_XIAOJI || (window.parent && window.parent.OS_XIAOJI);
+        if (!X || typeof X.turn !== 'function') throw new Error('XIAOJI:小機要在酒館或手機的奧瑞亞裡才動得了');
+        const me = ClaudeTerminal.getActiveResident('xiaoji');
+        if (!me || me.provider !== 'xiaoji') throw new Error('XIAOJI:這裡還沒有小機，先到宿舍開箱');
+        const loaded = await ClaudeTerminal.loadHistory();
+        let heldN = 0;
+        if (sendOpts && sendOpts.fromHeld) {
+            while (heldN < loaded.length && loaded[loaded.length - 1 - heldN].role === 'user'
+                   && loaded[loaded.length - 1 - heldN].held) heldN++;
+        }
+        const history = heldN ? loaded.slice(0, loaded.length - heldN) : loaded;
+        const updated = heldN
+            ? [...history, ...loaded.slice(-heldN).map(m => { const c = Object.assign({}, m); delete c.held; return c; })]
+            : [...history, { role: 'user', content: userText, timestamp: Date.now() }];
+        const rollback = heldN ? loaded : history;
+        await ClaudeTerminal.saveHistory(updated);
+        try {
+            const t = await X.turn({
+                rid: me.id, history, userText, signal: sendOpts && sendOpts.signal,
+                onProgress: ev => {
+                    if (typeof onProgress !== 'function' || !ev) return;
+                    try {
+                        if (ev.type === 'text') onProgress({ type: 'text', accumulated: ev.accumulated });
+                        else if (ev.type === 'tool') onProgress({ type: 'tool_use', tool: { name: ev.label, xj: true } });
+                        else if (ev.type === 'call') onProgress({ type: 'xj_call', n: ev.n, cap: ev.cap });
+                    } catch (_) {}
+                },
+            });
+            return { reply: t.reply, thinking: null, usage: null, toolsUsed: [],
+                xiaoji: { calls: t.calls, props: t.props || [], log: t.log || [], stopped: !!t.stopped } };
+        } catch (e) {
+            await ClaudeTerminal.saveHistory(rollback);
+            throw e;
+        }
+    }
+
     ClaudeTerminal.send = async function(userText, attachments, onProgress, sendOpts) {
+        if (_provider === 'xiaoji') return _sendXiaoji(userText, onProgress, sendOpts);   // 不經橋、不看橋的設定
         const cfg = ClaudeTerminal.getConfig();
         if (!cfg) throw new Error('SETTINGS_MISSING:OS_SETTINGS 未載入');
         if (!cfg.url || !cfg.key) throw new Error('NOT_CONFIGURED:還沒填 URL 跟 密鑰，去設定 → 🦀 Claude 的房間');
