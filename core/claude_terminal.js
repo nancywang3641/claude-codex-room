@@ -1288,7 +1288,10 @@ ${withOthers}
         if (!X || typeof X.turn !== 'function') throw new Error('XIAOJI:小機要在酒館或手機的奧瑞亞裡才動得了');
         const me = ClaudeTerminal.getActiveResident('xiaoji');
         if (!me || me.provider !== 'xiaoji') throw new Error('XIAOJI:這裡還沒有小機，先到宿舍開箱');
-        const loaded = await ClaudeTerminal.loadHistory();
+        // 只讀本機那份（房間送出前剛存過）：有填橋時也不等橋，橋關著不會卡到逾時；推上橋照舊在 saveHistory 去抖
+        const convId = ClaudeTerminal.ensureActiveConv(ClaudeTerminal.getActiveTab());
+        let loaded = [];
+        try { loaded = (window.OS_DB && window.OS_DB.getStudioChat) ? ((await window.OS_DB.getStudioChat(_idbPrefix() + convId)) || []) : []; } catch (_) { loaded = []; }
         let heldN = 0;
         if (sendOpts && sendOpts.fromHeld) {
             while (heldN < loaded.length && loaded[loaded.length - 1 - heldN].role === 'user'

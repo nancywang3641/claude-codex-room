@@ -1824,7 +1824,8 @@
             sendBtn.innerHTML = '<i class="fa-solid fa-stop"></i>';
             sendBtn.onclick = async () => {
                 // 先 server-side kill（cc-bridge 訂閱版才生效），再 client-side abort fetch
-                if (_claudeTaskId) {
+                // 小機不經橋：直接停，不先等橋
+                if (_claudeTaskId && !(window.ClaudeTerminal.getProvider && window.ClaudeTerminal.getProvider() === 'xiaoji')) {
                     try { await window.ClaudeTerminal.cancelTask?.(_claudeTaskId); } catch (_) {}
                 }
                 if (_claudeAbortCtrl) _claudeAbortCtrl.abort();
@@ -1980,7 +1981,7 @@
             if (props) assistantRecord.props = props;
             if (xj) {
                 assistantRecord.calls = xj.calls;
-                if (xj.log && xj.log.length) assistantRecord.xjlog = xj.log.map(x => ({ label: x.label, ok: x.ok, text: String(x.text || '').slice(0, 3000) }));   // 下一句才改的時候要抄得到原文（OS_XIAOJI 只把最近那則留長）
+                if (xj.log && xj.log.length) assistantRecord.xjlog = xj.log.map(x => ({ label: x.label, ok: x.ok, text: String(x.text || '').slice(0, 12000) }));   // 下一句才改的時候要抄得到原文（OS_XIAOJI 只把最近那則留長）
             }
             _activeHistory().push(assistantRecord);
 
