@@ -15,20 +15,20 @@
     let _subPanel = null;            // 當前開啟的子面板名（null = 沒開）
 
     const IDENTITY_ICON = {
-        claude: '🦀', codex: '🔷', deepseek: '🟢', group: '👥',
+        claude: '🦀', codex: '🔷', deepseek: '🟢', group: '👥', xiaoji: '',
     };
 
     /** 標題列文字：進的是誰的房就寫誰的名字（住戶可以改名） */
     function _identityText(provider) {
-        const icon = IDENTITY_ICON[provider] || IDENTITY_ICON.claude;
+        const icon = Object.prototype.hasOwnProperty.call(IDENTITY_ICON, provider) ? IDENTITY_ICON[provider] : IDENTITY_ICON.claude;
         const CT = window.ClaudeTerminal;
         let name = '';
         if (CT && typeof CT.getActiveResident === 'function') {
             const r = CT.getActiveResident(provider);
             if (r && r.name) name = r.name;
         }
-        if (provider === 'group') return icon + ' ' + (name || '群聊區');
-        return icon + ' ' + (name || 'Claude') + ' 的房間';
+        if (provider === 'group') return (icon ? icon + ' ' : '') + (name || '群聊區');
+        return (icon ? icon + ' ' : '') + (name || 'Claude') + ' 的房間';
     }
 
     /** 住戶改了名字，房間開著就順手換掉標題 */
@@ -575,6 +575,7 @@
         area.classList.remove('cw-own-room');
         const CP = window.ClawdPortrait;
         if (CP) CP.hide(area);
+        if (provider === 'xiaoji') return;   // 小機沒有打扮、沒有房間布置（那些在橋上）
         // 阿洛的預設樣子是洛德（他自己的幽靈管家），沒有現成動圖——先畫出來，免得閃一下 Codex 機器人
         if (CP && provider === 'codex') CP.show(area, null, 'lorde');
         const CT = window.ClaudeTerminal;
@@ -654,6 +655,8 @@
         if ((!hist || !hist.length) && typeof room.renderBubble === 'function') {
             room.renderBubble('assistant', provider === 'codex'
                 ? '這裡是 Codex 的房間，跟外面是分開的線。說吧。'
+                : provider === 'xiaoji'
+                ? '要做什麼直接說。還沒學會的事，它會說要去找誰上課。'
                 : '在這裡，我跟妳的對話跟外面是兩條線。妳說什麼吧。');
         }
         _updateChip();
@@ -832,7 +835,7 @@
         const isCodex = _provider === 'codex';
         const curTab = CT.getActiveTab ? CT.getActiveTab() : (isCodex ? 'codex' : 'max');
 
-        if (!isCodex) {
+        if (!isCodex && _provider !== 'xiaoji') {
             const tabBar = document.createElement('div');
             tabBar.className = 'cw-rec-tabs';
             [['max', '<i class="fa-solid fa-house"></i> 訂閱 Max'], ['api', '<i class="fa-solid fa-globe"></i> API']].forEach(pair => {
@@ -1017,7 +1020,7 @@
     function _renderSeatGrid(wrap) {
         const CT = window.ClaudeTerminal;
         if (!CT || typeof CT.listResidents !== 'function') return;
-        const all = CT.listResidents().filter(r => r && r.provider !== 'group');
+        const all = CT.listResidents().filter(r => r && r.provider !== 'group' && r.provider !== 'xiaoji');
         if (!all.length) return;
         const grid = document.createElement('div');
         grid.className = 'cw-mem-grid';
@@ -1080,13 +1083,14 @@
 
     // 共用：套用 provider（identity/class/display/靜音/載房間）—— open(浮窗) 與 mountInside(嵌入) 都走這
     async function _applyProvider(provider) {
-        provider = (provider === 'codex' || provider === 'deepseek' || provider === 'group') ? provider : 'claude';
+        provider = (provider === 'codex' || provider === 'deepseek' || provider === 'group' || provider === 'xiaoji') ? provider : 'claude';
         _provider = provider;
         const idEl = _winEl.querySelector('#cw-identity');
         if (idEl) idEl.textContent = _identityText(provider);
         _winEl.classList.toggle('cw-codex',    provider === 'codex');
         _winEl.classList.toggle('cw-deepseek', provider === 'deepseek');
         _winEl.classList.toggle('cw-group',    provider === 'group');
+        _winEl.classList.toggle('cw-xiaoji',   provider === 'xiaoji');
         _winEl.style.display = 'flex';
         _isOpen = true;
         _winEl.classList.remove('cw-view-dorm');   // 進房間就離開宿舍頁
@@ -1226,6 +1230,7 @@
     const _SUBPANEL_TITLES = {
         settings: '設置',
         spend: '額度', board: '留言板', recents: '會話',
+        xiaoji_train: '培養室', xiaoji_box: '404 寄來的箱子',
     };
 
     ChatWindow.openSubPanel = function (name) {
@@ -1249,6 +1254,11 @@
             } else {
                 body.innerHTML = '<div class="cw-sub-missing">留言板模組未載入</div>';
             }
+        } else if (name === 'xiaoji_train' || name === 'xiaoji_box') {
+            const XT = window.XiaojiTrain;
+            const fn = name === 'xiaoji_box' ? 'box' : 'launch';
+            if (XT && typeof XT[fn] === 'function') XT[fn](body);
+            else body.innerHTML = '<div class="cw-sub-missing">培養室模組未載入</div>';
         } else if (name === 'settings') {
             _renderSettingsPanel(body);
         } else if (name === 'recents') {

@@ -494,6 +494,7 @@
      *  而她要的是知道「他現在在幹嘛」。先看工具名，Bash 有中文說明就照念，
      *  沒有才往指令內容猜。 */
     function _toolDoingLabel(tool) {
+        if (tool && tool.xj) return '正在' + (tool.name || '動手') + '…';   // 小機：工具自己的中文名（看有哪些主題、做 VN 組件…）
         const name = String((tool && tool.name) || '');
         const cmd  = String((tool && tool.input && tool.input.command) || '').toLowerCase();
         if (/^(Edit|Write|MultiEdit|NotebookEdit)$/.test(name)) return '正在改檔案…';
@@ -1271,6 +1272,29 @@
         if (x) card.querySelector('.claude-prop-text').textContent = _propLine(x);
         card.querySelector('.claude-prop-chip').textContent = PROP_CHIP[state] || state;
     }
+    // 小機的單子：整張存在那則回覆上（不經橋，朋友沒有橋也按得了）；她按了什麼就改那張、存回對話記錄
+    function _xjProps(list) {
+        if (!Array.isArray(list) || !list.length) return null;
+        return list.map(p => ({ id: p.id, text: _propLine({ prop: p }), prop: p }));
+    }
+    function _openLocalProp(card) {
+        const w = window.parent || window;
+        const T = w.WX_TOOLS || window.WX_TOOLS;
+        const E = w.OS_AURELIA_EDIT || window.OS_AURELIA_EDIT;
+        if (!T || !T.openPropSheet || !E) { _renderClaudeNotice('要在酒館或手機的奧瑞亞裡才按得了這張單子'); return; }
+        const rec = card._xj, prop = rec.prop;
+        const where = prop.where || '';
+        if (where && where !== _hereName()) { _renderClaudeNotice('這張是在' + where + '提的，要在' + where + '按（兩邊的資料是分開的）'); return; }
+        const stream = _el('claude-chat-stream');
+        const host = stream && (stream.closest('.cw-body') || stream.parentElement);
+        if (!host) return;
+        T.openPropSheet(prop, host, p => {
+            rec.prop = p;
+            rec.text = _propLine({ prop: p });
+            _paintPropCard(card, { prop: p, state: p.state });
+            _scheduleSave();
+        });
+    }
     function _buildPropCards(list) {
         const box = document.createElement('div');
         box.className = 'claude-prop-cards';
@@ -1283,12 +1307,14 @@
             card.innerHTML = '<i class="fa-solid fa-pen-to-square"></i><span class="claude-prop-text"></span><span class="claude-prop-chip"></span>';
             card.querySelector('.claude-prop-text').textContent = p.text || '一張單子';
             card.querySelector('.claude-prop-chip').textContent = PROP_CHIP.wait;
-            card.addEventListener('click', ev => { ev.stopPropagation(); _openPropCard(card); });
+            if (p.prop) { card._xj = p; _paintPropCard(card, { prop: p.prop, state: p.prop.state }); }
+            card.addEventListener('click', ev => { ev.stopPropagation(); if (card._xj) _openLocalProp(card); else _openPropCard(card); });
             box.appendChild(card);
         });
         // 現在的狀態（她可能已經在留言板或另一台按過）：拿一次橋上的補上；處理完超過一週的橋上沒有了，照記下的字、寫處理過了
-        _fetchPropRows().then(all => {
+        if (list.some(p => p && p.id && !p.prop)) _fetchPropRows().then(all => {
             box.querySelectorAll('.claude-prop-card').forEach(card => {
+                if (card._xj) return;
                 const x = all.find(r => r.id === card.dataset.ppid);
                 if (x) _paintPropCard(card, x);
                 else { card.className = 'claude-prop-card is-gone'; card.querySelector('.claude-prop-chip').textContent = '處理過了'; }
@@ -1432,7 +1458,8 @@
             bubble.appendChild(attachBox);
         }
 
-        wrap.appendChild(bubble);
+        // 小機只交了單子沒說話：不畫空泡泡，只掛單子
+        if (isUser || String(content || '').trim() || !(opts.props && opts.props.length)) wrap.appendChild(bubble);
 
         // ASK marker UI：附在氣泡下方、用量 footer 上方
         askMatches.forEach(ask => {
@@ -1441,6 +1468,13 @@
 
         // 📝 他這一輪提的單子（改世界書、改預設）：一張一張掛在回覆底下，點了開單子
         if (!isUser && Array.isArray(opts.props) && opts.props.length) wrap.appendChild(_buildPropCards(opts.props));
+        // 小機：這一句叫了幾次模型（她付的錢，一眼看得到）
+        if (!isUser && opts.calls) {
+            const c = document.createElement('div');
+            c.className = 'claude-bubble-calls';
+            c.textContent = '這次叫了 ' + opts.calls + ' 通' + (opts.stopped ? '（中途停下）' : '');
+            wrap.appendChild(c);
+        }
 
         // 用量 footer：只在 Claude 氣泡 + 有 usage 時顯示
         if (!isUser && opts.usage && (opts.usage.input_tokens || opts.usage.output_tokens)) {
@@ -1479,6 +1513,7 @@
                     toolsUsed: (Array.isArray(m.tools_used) && m.tools_used.length) ? m.tools_used : null,
                     voice: m.voiceAudio ? { audioId: m.voiceAudio, sec: m.voiceSec } : null,
                     props: (Array.isArray(m.props) && m.props.length) ? m.props : null,
+                    calls: m.calls || 0,
                 }
             );
         });
@@ -1862,7 +1897,7 @@
                     }
                     const last = acc.tools[acc.tools.length - 1];
                     const more = acc.tools.length > 1 ? `（第 ${acc.tools.length} 個）` : '';
-                    _streamToolEl.textContent = `🔧 ${_toolDoingLabel(last)}${more}`;
+                    _streamToolEl.textContent = `🔧 ${_toolDoingLabel(last)}${more}` + (acc.callN > 1 ? '・第 ' + acc.callN + ' 通' : '');
                 }
                 // 自動黏底:streaming 中持續滾到最新
                 if (stream) stream.scrollTop = stream.scrollHeight;
@@ -1885,6 +1920,9 @@
                 } else if (ev.type === 'tool_use' && ev.tool) {
                     acc.tools.push(ev.tool);
                     rerenderStreaming();
+                } else if (ev.type === 'xj_call') {
+                    acc.callN = ev.n;
+                    rerenderStreaming();
                 }
             };
 
@@ -1904,7 +1942,8 @@
             const usage = result.usage || null;
             const toolsUsed = (Array.isArray(result.toolsUsed) && result.toolsUsed.length) ? result.toolsUsed : null;
             const images = (Array.isArray(result.images) && result.images.length) ? result.images : null;
-            const props = await _turnProps(_turnRid, _turnAt, toolsUsed);
+            const xj = result.xiaoji || null;   // API 小機：單子整張回來了，不去橋上拿
+            const props = xj ? _xjProps(xj.props) : await _turnProps(_turnRid, _turnAt, toolsUsed);
 
             // 累計到額度面板（💰 app）
             if (usage && window.OS_SPEND_PANEL && typeof window.OS_SPEND_PANEL.record === 'function') {
@@ -1939,6 +1978,10 @@
             if (toolsUsed) assistantRecord.tools_used = toolsUsed;
             if (images) assistantRecord.attachments = images;
             if (props) assistantRecord.props = props;
+            if (xj) {
+                assistantRecord.calls = xj.calls;
+                if (xj.log && xj.log.length) assistantRecord.xjlog = xj.log.map(x => ({ label: x.label, ok: x.ok, text: String(x.text || '').slice(0, 400) }));
+            }
             _activeHistory().push(assistantRecord);
 
             // session_id resume 失敗：cc-bridge 退回新 session、Claude 不記得前文
@@ -1952,7 +1995,7 @@
                 _setClaudePortraitState('happy');
                 setTimeout(() => _setClaudePortraitState('living'), 600);
             } else {
-                _renderClaudeBubble('assistant', reply, { thinking, usage, toolsUsed, attachments: images, props, still: true });
+                _renderClaudeBubble('assistant', reply, { thinking, usage, toolsUsed, attachments: images, props, still: true, calls: xj ? xj.calls : 0, stopped: !!(xj && xj.stopped) });
                 _setClaudePortraitState('happy');
                 setTimeout(() => _setClaudePortraitState('living'), 600);
             }
@@ -1981,6 +2024,7 @@
                 const detail = rest.join(':') || raw;
                 let userMsg;
                 switch (code) {
+                    case 'XIAOJI':         userMsg = '⚠️ ' + detail; break;
                     case 'NOT_CONFIGURED': userMsg = '⚠️ 還沒設定 cc-bridge URL / Key。\n\n去「寫作 → API 設置 → 🦀 Claude 的房間」填好。'; break;
                     case 'AUTH':           userMsg = '🔒 ' + detail; break;
                     case 'NETWORK':        userMsg = '🌐 ' + detail; break;

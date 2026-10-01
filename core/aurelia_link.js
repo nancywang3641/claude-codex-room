@@ -246,5 +246,5 @@
     }
 
     setTimeout(_loop, 3000);
-    window.AureliaLink = { tools: _tools, run: _run, where: _where };
+    window.AureliaLink = { tools: _tools, run: _run, where: _where, notes: _notes };
 })();

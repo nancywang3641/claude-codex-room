@@ -1,0 +1,19 @@
+/* ============================================================
+ * css/xiaoji.css — API 小機（引擎在奧瑞亞 os_xiaoji.js）
+ * 小機的房間、宿舍門卡上的小機、開箱與培養室（主窗子頁）。
+ * ============================================================ */
+
+/* 小機的房間：沒有模型選單（門卡上選連線）、沒有小螃蟹、不能傳檔（傳檔走橋） */
+.cw-xiaoji #claude-picker-bar,
+.cw-xiaoji #claude-portrait-img,
+.cw-xiaoji #codex-portrait-sprite,
+.cw-xiaoji #claude-attach-btn { display: none; }
+.cw-xiaoji .claude-portrait-area::after {
+    content: '\f2db';                       /* fa-microchip */
+    font-family: 'Font Awesome 6 Free'; font-weight: 900;
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    font-size: 64px; opacity: .55; color: var(--cl-grenadine, #2a4a80);
+    pointer-events: none;
+}
+/* 這次叫了幾通（字色照用量那行 .claude-bubble-usage；不吃外層那個米白字色） */
+.claude-bubble-calls { align-self: flex-start; font-size: 11px; color: rgba(70, 99, 155, 0.8); padding: 0 4px; margin-top: 2px; }
