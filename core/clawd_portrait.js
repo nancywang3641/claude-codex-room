@@ -23,9 +23,13 @@
     const S = 8, W = 32, H = 24;          // 一格 8px，畫布 32×24 格
     const FPS_MS = 125;
     // 預設樣子：小螃蟹（Claude 住戶）、洛德（阿洛）。身體色沒換過就用這裡的，眼睛色跟著預設樣子走
+    // 倉鼠、小貓、企鵝是 API 小機的樣子（領養時挑，存在小機存檔的 body；小樣在奧瑞亞 參考資料/xiaoji_body_LAB.html）
     const BASES = {
         crab:  { body: '#d97757', eye: '#1c1714' },
         lorde: { body: '#28364c', eye: '#ead39b' },
+        hamster: { body: '#e3a867', eye: '#2a1a12', belly: '#fff1dc', ear: '#f4b3a8', nose: '#e88a8a', feet: '#f0b49a' },
+        cat:     { body: '#9a78c9', eye: '#ffd54a', stripe: '#7a59ab', ear: '#f2a7c3', mouth: '#3b2754', teeth: '#fff6e8' },
+        penguin: { body: '#5d7fb0', eye: '#1b2230', belly: '#fffaf2', beak: '#f2a03d', blush: '#f4a6a0' },
     };
     const PAL = {
         shadow: 'rgba(58,36,24,.16)', gray: '#b8b1aa', dark: '#2a2623',
@@ -110,6 +114,82 @@
                  eyes: [[X + 4, top + 3, -1], [X + 9, top + 3, 1]] };
     }
 
+    // ── API 小機的三種樣子 ──
+    // 身體第 1～12 欄對齊小螃蟹（L＝o.x+2），腳在 o.y+9 那列；壓扁＝從中段抽掉幾列（同洛德）。
+    // 三隻身上都有一顆會亮的碎片（柴郡用 LUNA 碎片拼的），四格一輪變亮。
+    const _rows = (L, top, list, c) => list.forEach((spans, i) => spans.forEach(([a, b]) => rect(L + a, top + i, b - a + 1, 1, c)));
+    const _squash = (list, keepHead, sq) => list.filter((_, i) => i < keepHead || i >= keepHead + sq);
+    const _sideArm = (mode, ax, ay, len, c) => rect(ax, ay + (mode === 'up' ? -2 : mode === 'tap' ? 1 : 0), 1, len, c);
+    function _shard(x, y) {
+        const bright = (Math.floor(_f / 4) % 2) === 0;
+        if (bright) rect(x - 1, y - 1, 4, 4, 'rgba(255, 222, 130, 0.35)');
+        rect(x, y, 2, 2, bright ? '#fff0b3' : '#f3c969');
+        px(x, y, bright ? '#ffffff' : '#fff0b3');
+    }
+
+    // 倉鼠：圓耳、頰袋、淺色肚子、粉紅鼻子；肚子前抱著碎片
+    const HAM_ROWS = [[[2, 3], [10, 11]], [[2, 11]], [[1, 12]], [[1, 12]], [[1, 12]], [[1, 12]], [[1, 12]], [[1, 12]], [[1, 12]], [[2, 11]]];
+    function _hamsterBody(o) {
+        const C = BASES.hamster, sq = o.sq || 0, L = o.x + 2, bottom = o.y + 9;
+        const list = _squash(HAM_ROWS, 5, sq), n = list.length, top = bottom - n;
+        _rows(L, top, list, _body);
+        rect(L + 3, bottom, 2, 1, C.feet); rect(L + 9, bottom, 2, 1, C.feet);
+        px(L + 3, top, C.ear); px(L + 10, top, C.ear);
+        rect(L + 4, top + 5, 6, n - 6, C.belly); rect(L + 3, top + 6, 8, n - 8, C.belly);
+        rect(L + 1, top + 5, 2, 2, C.belly); rect(L + 11, top + 5, 2, 2, C.belly);
+        px(L + 2, top + 5, C.ear); px(L + 11, top + 5, C.ear);
+        rect(L + 6, top + 4 + (_f % 6 === 0 ? -1 : 0), 2, 1, C.nose);      // 鼻子偶爾動一下
+        rect(L + 2, top + 1, 2, 1, 'rgba(255,255,255,.22)');
+        const ay = top + 6 - sq;
+        _sideArm(o.armL || 'tap', L, ay, 2, _body);
+        _sideArm(o.armR || 'tap', L + 13, ay, 2, _body);
+        _shard(L + 6, top + n - 3);
+        return { bx: L + 1, by: top, kx: 1, ky: 1, right: L + 13, top, eyes: [[L + 4, top + 3, -1], [L + 9, top + 3, 1]] };
+    }
+
+    // 小貓：柴郡拼的，帶他的紫條紋跟咧嘴笑，右邊一條會甩的尾巴；碎片在額頭
+    const CAT_ROWS = [[[2, 3], [10, 11]], [[1, 4], [9, 12]], [[1, 12]], [[1, 12]], [[1, 12]], [[1, 12]], [[1, 12]], [[1, 12]], [[1, 12]], [[1, 12]]];
+    function _catBody(o) {
+        const C = BASES.cat, sq = o.sq || 0, L = o.x + 2, bottom = o.y + 9;
+        const list = _squash(CAT_ROWS, 4, sq), n = list.length, top = bottom - n;
+        _rows(L, top, list, _body);
+        rect(L + 2, bottom, 3, 1, _body); rect(L + 9, bottom, 3, 1, _body);
+        px(L + 3, top + 1, C.ear); px(L + 10, top + 1, C.ear);
+        rect(L + 4, top + 2, 1, 2, C.stripe); rect(L + 9, top + 2, 1, 2, C.stripe);
+        const sb = top + n - 4;
+        rect(L + 1, sb, 2, 1, C.stripe); rect(L + 11, sb, 2, 1, C.stripe);
+        rect(L + 1, sb + 2, 2, 1, C.stripe); rect(L + 11, sb + 2, 2, 1, C.stripe);
+        const gy = top + 6 - Math.min(sq, 1);
+        px(L + 4, gy, C.mouth); rect(L + 5, gy, 4, 1, C.teeth); px(L + 9, gy, C.mouth); rect(L + 5, gy + 1, 4, 1, C.mouth);
+        rect(L + 1, top + 2, 1, 1, 'rgba(255,255,255,.18)');
+        [[13, -1], [14, -1], [15, -2], [15, -3], [15, -4]].forEach(([dx, dy], i) => px(L + dx, bottom + dy, i % 2 ? C.stripe : _body));
+        px(L + 14 + ((Math.floor(_f / 4) % 2) ? 2 : 0), bottom - 5, _body);      // 尾巴尖左右甩
+        const ay = top + 5 - sq;
+        _sideArm(o.armL || 'down', L, ay, 2, _body);
+        _sideArm(o.armR || 'down', L + 13, ay, 2, _body);
+        _shard(L + 6, top + 2);
+        return { bx: L + 1, by: top, kx: 1, ky: 1, right: L + 13, top, eyes: [[L + 4, top + 4, -1], [L + 9, top + 4, 1]] };
+    }
+
+    // 企鵝：蛋形、白臉白肚、橘嘴橘腳、兩片鰭；碎片在胸口
+    const PEN_ROWS = [[[4, 9]], [[3, 10]], [[2, 11]], [[2, 11]], [[2, 11]], [[2, 11]], [[2, 11]], [[2, 11]], [[2, 11]], [[2, 11]], [[3, 10]]];
+    function _penguinBody(o) {
+        const C = BASES.penguin, sq = o.sq || 0, L = o.x + 2, bottom = o.y + 9;
+        const list = _squash(PEN_ROWS, 5, sq), n = list.length, top = bottom - n;
+        _rows(L, top, list, _body);
+        rect(L + 3, bottom, 3, 1, C.beak); rect(L + 8, bottom, 3, 1, C.beak);
+        rect(L + 3, top + 2, 3, 3, C.belly); rect(L + 8, top + 2, 3, 3, C.belly);
+        rect(L + 5, top + 5, 4, 1, C.belly); rect(L + 4, top + 6, 6, n - 7, C.belly); rect(L + 5, top + n - 1, 4, 1, C.belly);
+        rect(L + 6, top + 5, 2, 1, C.beak);
+        px(L + 3, top + 5, C.blush); px(L + 10, top + 5, C.blush);
+        rect(L + 4, top, 2, 1, 'rgba(255,255,255,.22)');
+        const ay = top + 5 - sq;
+        _sideArm(o.armL || 'down', L + 1, ay, 3, _body);
+        _sideArm(o.armR || 'down', L + 12, ay, 3, _body);
+        _shard(L + 6, top + 7 - Math.min(sq, 1));
+        return { bx: L + 2, by: top, kx: 1, ky: 1, right: L + 12, top, eyes: [[L + 4, top + 3, -1], [L + 9, top + 3, 1]] };
+    }
+
     /** 他自己畫的形象：腳底站在跟小螃蟹一樣的地方、左右置中；壓扁就整張往下縮、往兩邊撐。 */
     function _lookBody(o) {
         const L = _look, sq = o.sq || 0;
@@ -127,7 +207,8 @@
     /** 本體＋表情＋身上的東西。o：x,y 位置；eyes open/blink/happy/x/closed；armL/armR down/up/tap；sq 壓扁；look 左右看；eyeDy 眼睛上下。
      *  回身體框，道具（冷汗、眼淚）照它擺，換了形象也落在對的地方。 */
     function clawd(o) {
-        const m = _look ? _lookBody(o) : _base === 'lorde' ? _lordeBody(o) : _crabBody(o);
+        const BODY = { lorde: _lordeBody, hamster: _hamsterBody, cat: _catBody, penguin: _penguinBody }[_base] || _crabBody;
+        const m = _look ? _lookBody(o) : BODY(o);
         const look = o.look || 0, dy = o.eyeDy || 0;
         const EYE = BASES[_base].eye;
         // 程式有畫眼睛、而且這一格不是睜著的（眨眼、瞇眼笑、皺成一團、閉眼）：只在睜眼時畫的那幾件這格不畫
@@ -258,8 +339,8 @@
         return { img, ratio: +L.ratio || 1, w: +L.w || 12, eyes };
     }
 
-    /** 照這身打扮接手立繪。wear 是橋回的那包；base 是預設樣子（crab 小螃蟹／lorde 洛德）。
-     *  小螃蟹沒打扮過（own=false）就交回原本的動圖；洛德沒有現成動圖，一律接手。 */
+    /** 照這身打扮接手立繪。wear 是橋回的那包；base 是預設樣子（crab 小螃蟹／lorde 洛德／小機的 hamster、cat、penguin）。
+     *  小螃蟹沒打扮過（own=false）就交回原本的動圖；其他的沒有現成動圖，一律接手。 */
     ClawdPortrait.show = function (area, wear, base) {
         base = BASES[base] ? base : 'crab';
         if (!area || ((!wear || !wear.own) && base === 'crab')) { ClawdPortrait.hide(area); return; }
@@ -303,6 +384,42 @@
         } finally {
             [_ctx, _body, _worn, _look, _base, _f] = saved;
         }
+    };
+
+    /** 裁掉四周的空白（腳下的影子很淡，不算），置中放進正方形。門卡頭像用 */
+    ClawdPortrait.crop = function (cv) {
+        const w = cv.width, h = cv.height;
+        const data = cv.getContext('2d').getImageData(0, 0, w, h).data;
+        let x0 = w, y0 = h, x1 = -1, y1 = -1;
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                if (data[(y * w + x) * 4 + 3] <= 60) continue;
+                if (x < x0) x0 = x; if (x > x1) x1 = x;
+                if (y < y0) y0 = y; if (y > y1) y1 = y;
+            }
+        }
+        if (x1 < 0) return '';
+        const bw = x1 - x0 + 1, bh = y1 - y0 + 1, side = Math.max(bw, bh) + 12;
+        const out = document.createElement('canvas');
+        out.width = out.height = side;
+        const o = out.getContext('2d');
+        o.imageSmoothingEnabled = false;
+        o.drawImage(cv, x0, y0, bw, bh, Math.round((side - bw) / 2), Math.round((side - bh) / 2), bw, bh);
+        return out.toDataURL('image/png');
+    };
+
+    /** 沒打扮的預設樣子的頭像（小機門卡、領養時挑樣子用）。每種只畫一次；拿不到回空字串 */
+    const _faces = {};
+    ClawdPortrait.faceOf = function (base) {
+        if (!BASES[base]) return Promise.resolve('');
+        if (!_faces[base]) {
+            _faces[base] = (async () => {
+                const cv = document.createElement('canvas');
+                await ClawdPortrait.renderStill(cv, null, 'idle', 1, base);
+                return ClawdPortrait.crop(cv);
+            })().catch(() => '');
+        }
+        return _faces[base];
     };
 
     /** 房間換立繪狀態時叫（沒接手時也記著，接手那一刻就用對的動作） */

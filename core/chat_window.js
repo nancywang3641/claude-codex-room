@@ -575,7 +575,17 @@
         area.classList.remove('cw-own-room');
         const CP = window.ClawdPortrait;
         if (CP) CP.hide(area);
-        if (provider === 'xiaoji') return;   // 小機沒有打扮、沒有房間布置（那些在橋上）
+        // 小機沒有打扮、沒有房間布置（那些在橋上）；樣子是領養時挑的那隻（存在小機存檔，不經橋）
+        if (provider === 'xiaoji') {
+            const X = window.OS_XIAOJI, CT = window.ClaudeTerminal;
+            const r = (CT && typeof CT.getActiveResident === 'function') ? CT.getActiveResident('xiaoji') : null;
+            if (!CP || !X || !r || !r.id) return;
+            try {
+                const rec = await X.get(r.id);
+                if (seq === _decorSeq) CP.show(area, null, X.bodyOf(rec));
+            } catch (_) {}
+            return;
+        }
         // 阿洛的預設樣子是洛德（他自己的幽靈管家），沒有現成動圖——先畫出來，免得閃一下 Codex 機器人
         if (CP && provider === 'codex') CP.show(area, null, 'lorde');
         const CT = window.ClaudeTerminal;

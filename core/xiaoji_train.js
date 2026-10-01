@@ -55,14 +55,18 @@
     function _boxForm(stage, adopt) {
         const X = _X(), L = _L();
         const opts = (X.connList() || []).map(c => '<option value="' + _esc(c.id) + '">' + _esc(c.label) + '</option>').join('');
+        const DP = window.DormPanel;
+        const picker = (DP && DP.xjBodyPicker && X.BODIES) ? DP.xjBodyPicker(X.BODIES[0].id) : '';
         stage.innerHTML = '<div class="xj-form">'
             + '<label class="xj-lab">名字</label><input type="text" class="xj-in xj-in-name" maxlength="20">'
+            + (picker ? '<label class="xj-lab">樣子（之後在門卡上能換）</label>' + picker : '')
             + '<label class="xj-lab">它說話走哪個接口</label><select class="xj-in xj-in-conn">' + opts + '</select>'
             + '<label class="xj-lab">它是什麼樣的（可以不寫）</label><textarea class="xj-in xj-in-about" rows="2" maxlength="300"></textarea>'
             + '<div class="xj-cost">' + (adopt ? '要付 ' + L.ADOPT_PRICE + ' 碎片' : '箱子裡附了 ' + L.BOX_GIFT + ' 碎片') + '</div>'
             + '<div class="xj-hint"></div>'
             + '<button type="button" class="xj-btn xj-take">' + (adopt ? '付碎片帶走' : '收下') + '</button></div>';
         const hint = stage.querySelector('.xj-hint'), take = stage.querySelector('.xj-take');
+        if (picker) DP.xjBindPicker(stage);
         take.addEventListener('click', async () => {
             if (take.disabled) return;
             const name = stage.querySelector('.xj-in-name').value.trim();
@@ -70,7 +74,9 @@
             take.disabled = true;
             const S = _g('OS_404_STORE');
             if (adopt && !(S && S.spendShards && S.spendShards(L.ADOPT_PRICE))) { hint.textContent = '碎片不夠（要 ' + L.ADOPT_PRICE + '）'; take.disabled = false; return; }
-            const r = await X.adopt({ name: name, conn: stage.querySelector('.xj-in-conn').value, about: stage.querySelector('.xj-in-about').value, gift: !adopt });
+            const bodyBtn = stage.querySelector('.dorm-xj-body.active');
+            const r = await X.adopt({ name: name, conn: stage.querySelector('.xj-in-conn').value, about: stage.querySelector('.xj-in-about').value, gift: !adopt,
+                body: bodyBtn ? bodyBtn.dataset.body : undefined });
             if (!r.ok) {
                 if (adopt && S && S.addShards) S.addShards(L.ADOPT_PRICE);   // 沒住進去：碎片退回
                 hint.textContent = r.why || '沒成功'; take.disabled = false; return;

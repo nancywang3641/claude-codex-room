@@ -19,12 +19,37 @@
         const list = (CT.listResidents() || []).filter(r => r && r.provider === 'xiaoji');
         for (const r of list) { try { _xj[r.id] = await X.get(r.id); } catch (e) {} }
     }
+    // 挑樣子：一排三顆，每顆是那隻的頭像＋名字（門卡編輯列、領養時的箱子共用）
+    function _xjBodyPicker(cur) {
+        const X = _XJ(), CP = window.ClawdPortrait;
+        if (!X || !X.BODIES) return '';
+        let h = '<div class="dorm-xj-bodies">';
+        X.BODIES.forEach(b => {
+            h += '<button type="button" class="dorm-xj-body' + (b.id === cur ? ' active' : '') + '" data-body="' + _esc(b.id) + '">'
+               + '<span class="dorm-xj-bface" data-xjpick="' + _esc(b.id) + '"></span><span>' + _esc(b.name) + '</span></button>';
+            if (CP && typeof CP.faceOf === 'function') {
+                CP.faceOf(b.id).then(url => {
+                    if (!url) return;
+                    document.querySelectorAll('[data-xjpick="' + b.id + '"]').forEach(el => { el.innerHTML = '<img src="' + url + '" alt="">'; });
+                });
+            }
+        });
+        return h + '</div>';
+    }
+    function _xjBindPicker(root) {
+        root.querySelectorAll('.dorm-xj-body').forEach(b => b.addEventListener('click', () => {
+            root.querySelectorAll('.dorm-xj-body').forEach(x => x.classList.toggle('active', x === b));
+        }));
+    }
+    DormPanel.xjBodyPicker = _xjBodyPicker;
+    DormPanel.xjBindPicker = _xjBindPicker;
     function _xjSub(r) { const rec = _xj[r.id]; const n = rec ? Object.keys(rec.skills || {}).length : 0; return n ? '小機・學會 ' + n + ' 門' : '小機'; }
     function _xjFormHtml(r) {
         const X = _XJ();
         if (!X) return '';
         const rec = _xj[r.id] || {};
-        let h = '<label class="dorm-xj-lab">走哪個接口</label><select class="dorm-input dorm-in-conn">';
+        let h = '<label class="dorm-xj-lab">樣子</label>' + _xjBodyPicker(X.bodyOf(rec));
+        h += '<label class="dorm-xj-lab">走哪個接口</label><select class="dorm-input dorm-in-conn">';
         X.connList().forEach(c => { h += '<option value="' + _esc(c.id) + '"' + (c.id === (rec.conn || 'route') ? ' selected' : '') + '>' + _esc(c.label) + '</option>'; });
         h += '</select>';
         if (rec.skills && rec.skills.chain) {
@@ -225,26 +250,8 @@
     const LOOK_TTL = 5 * 60 * 1000;
     const _looks = {};          // rid → 小圖（data URL）；'' ＝沒打扮，用預設那張
     let _looksAt = 0, _looksJob = null;
-    function _cropLook(cv) {
-        const w = cv.width, h = cv.height;
-        const data = cv.getContext('2d').getImageData(0, 0, w, h).data;
-        let x0 = w, y0 = h, x1 = -1, y1 = -1;
-        for (let y = 0; y < h; y++) {
-            for (let x = 0; x < w; x++) {
-                if (data[(y * w + x) * 4 + 3] <= 60) continue;   // 腳下的影子很淡，不算
-                if (x < x0) x0 = x; if (x > x1) x1 = x;
-                if (y < y0) y0 = y; if (y > y1) y1 = y;
-            }
-        }
-        if (x1 < 0) return '';
-        const bw = x1 - x0 + 1, bh = y1 - y0 + 1, side = Math.max(bw, bh) + 12;
-        const out = document.createElement('canvas');
-        out.width = out.height = side;
-        const o = out.getContext('2d');
-        o.imageSmoothingEnabled = false;
-        o.drawImage(cv, x0, y0, bw, bh, Math.round((side - bw) / 2), Math.round((side - bh) / 2), bw, bh);
-        return out.toDataURL('image/png');
-    }
+    // 裁空白那段搬到 ClawdPortrait.crop（小機的頭像也用同一支）
+    function _cropLook(cv) { return window.ClawdPortrait.crop(cv); }
     async function _lookFor(r) {
         const CP = window.ClawdPortrait;
         const b = _bridge();
@@ -291,8 +298,28 @@
         return (r && _looks[r.id]) || '';
     }
 
+    // 小機的頭像＝領養時挑的那隻（ClawdPortrait.faceOf 每種畫一次）。存檔還沒讀到、或奧瑞亞沒載入時先放晶片
+    const _xjFaces = {};      // body → 小圖
+    function _xjFaceHtml(r) {
+        const X = _XJ(), CP = window.ClawdPortrait, rec = _xj[r.id];
+        const body = (X && rec) ? X.bodyOf(rec) : '';
+        if (body && _xjFaces[body]) return '<span class="dorm-face dorm-face-img"><img class="ccr-look" src="' + _xjFaces[body] + '" alt=""></span>';
+        if (body && CP && typeof CP.faceOf === 'function') {
+            CP.faceOf(body).then(url => {
+                if (!url) return;
+                _xjFaces[body] = url;
+                document.querySelectorAll('[data-xjbody="' + body + '"]').forEach(el => {
+                    el.classList.remove('dorm-face-icon', 'dorm-face-xj');
+                    el.classList.add('dorm-face-img');
+                    el.innerHTML = '<img class="ccr-look" src="' + url + '" alt="">';
+                });
+            });
+        }
+        return '<span class="dorm-face dorm-face-icon dorm-face-xj"' + (body ? ' data-xjbody="' + body + '"' : '') + '><i class="fa-solid fa-microchip"></i></span>';
+    }
+
     function _faceHtml(r) {
-        if (r.provider === 'xiaoji') return '<span class="dorm-face dorm-face-icon dorm-face-xj"><i class="fa-solid fa-microchip"></i></span>';
+        if (r.provider === 'xiaoji') return _xjFaceHtml(r);
         const look = (r.provider === 'claude' || r.provider === 'codex') ? _lookSrc(r) : '';
         const badge = r.modelId
             ? '<span class="dorm-badge">' + _esc(_modelBadge(r.modelId)) + '</span>'
@@ -499,6 +526,7 @@
                 form.querySelectorAll('.dorm-xj-th').forEach(x => x.classList.remove('active'));
                 b.classList.add('active');
             }));
+            _xjBindPicker(form);
             form.querySelectorAll('.dorm-perm-btn').forEach(b => {
                 b.addEventListener('click', async () => {
                     if (b.dataset.busy) return;
@@ -552,11 +580,16 @@
                     }
                     if (before && before.provider === 'xiaoji' && _XJ()) {
                         const conn = form.querySelector('.dorm-in-conn'), cap = form.querySelector('.dorm-in-cap'), th = form.querySelector('.dorm-xj-th.active');
+                        const body = form.querySelector('.dorm-xj-body.active');
                         const patch = {};
                         if (conn) patch.conn = conn.value;
                         if (cap) patch.cap = parseInt(cap.value, 10);
                         if (th) patch.theater = th.dataset.th === '1';
-                        _XJ().save(id, patch).then(_xjLoad).then(_render).catch(() => {});
+                        if (body) patch.body = body.dataset.body;
+                        // 換了樣子：開著的那間房間跟著換
+                        _XJ().save(id, patch).then(_xjLoad).then(_render).then(() => {
+                            if (window.ChatWindow && typeof window.ChatWindow.refreshDecor === 'function') window.ChatWindow.refreshDecor();
+                        }).catch(() => {});
                     }
                     _syncOpenRoom(id);
                 }
