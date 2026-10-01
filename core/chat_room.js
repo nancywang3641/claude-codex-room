@@ -1980,7 +1980,7 @@
             if (props) assistantRecord.props = props;
             if (xj) {
                 assistantRecord.calls = xj.calls;
-                if (xj.log && xj.log.length) assistantRecord.xjlog = xj.log.map(x => ({ label: x.label, ok: x.ok, text: String(x.text || '').slice(0, 400) }));
+                if (xj.log && xj.log.length) assistantRecord.xjlog = xj.log.map(x => ({ label: x.label, ok: x.ok, text: String(x.text || '').slice(0, 3000) }));   // 下一句才改的時候要抄得到原文（OS_XIAOJI 只把最近那則留長）
             }
             _activeHistory().push(assistantRecord);
 

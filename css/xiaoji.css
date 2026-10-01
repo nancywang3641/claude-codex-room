@@ -17,3 +17,58 @@
 }
 /* 這次叫了幾通（字色照用量那行 .claude-bubble-usage；不吃外層那個米白字色） */
 .claude-bubble-calls { align-self: flex-start; font-size: 11px; color: rgba(70, 99, 155, 0.8); padding: 0 4px; margin-top: 2px; }
+
+/* ---- 宿舍門卡：小機 ---- */
+.dorm-face-xj, .dorm-face-box { background: rgba(42, 74, 128, 0.13); color: var(--cl-grenadine, #2a4a80); }
+.dorm-card.dorm-box { border-style: dashed; }
+.dorm-train {
+    position: absolute; right: 64px; top: 18px; width: 24px; height: 24px; padding: 0;
+    border: none; border-radius: 6px; background: rgba(42, 74, 128, 0.11);
+    color: var(--cl-cafe-latte, #46639b); font-size: 11px; line-height: 1; cursor: pointer;
+}
+.dorm-train:hover { background: rgba(42, 74, 128, 0.23); color: var(--cl-text-deep, #1f3a68); }
+.dorm-xj-lab { font-size: 11px; color: var(--cl-cafe-latte, #46639b); }
+.dorm-xj-theater { display: flex; gap: 6px; }
+.dorm-xj-th { flex: 1; padding: 5px 8px; border: 1px solid rgba(42, 74, 128, 0.27); border-radius: 6px; background: none; color: var(--cl-cafe-latte, #46639b); cursor: pointer; font-size: 12px; }
+.dorm-xj-th.active { background: var(--cl-grenadine, #2a4a80); color: #fff; border-color: transparent; }
+
+/* ---- 開箱、培養室（主窗子頁）---- */
+.xj-page { padding: 12px; display: flex; flex-direction: column; gap: 10px; background: var(--cl-cream, #f4f6fb); min-height: 100%; box-sizing: border-box; }
+.xj-top { display: flex; align-items: center; gap: 8px; }
+.xj-me { font-weight: 600; color: var(--cl-text-deep, #1f3a68); }
+.xj-money { margin-left: auto; font-size: 12px; color: var(--cl-cafe-latte, #46639b); }
+.xj-top .aui-help { color: var(--cl-cafe-latte, #46639b); opacity: 1; }
+.xj-born { font-size: 12px; color: var(--cl-cafe-latte, #46639b); }
+.xj-tree { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.xj-last .xj-col { max-width: 50%; margin: 0 auto; }
+.xj-col { display: flex; flex-direction: column; gap: 6px; padding: 8px; background: #fdfdfc; border: 1px solid rgba(42, 74, 128, 0.2); border-radius: 10px; }
+.xj-col-hd { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--cl-text-deep, #1f3a68); }
+.xj-col-hd .xj-face { width: 28px; height: 28px; }
+/* 老師的圖是大廳的全身立繪（有的頭頂上方是透明的），整張縮進圓框，不裁 */
+.xj-face { width: 56px; height: 56px; border-radius: 50%; object-fit: contain; object-position: center bottom; background: rgba(42, 74, 128, 0.08); flex-shrink: 0; }
+.xj-face-none { display: inline-flex; align-items: center; justify-content: center; background: rgba(42, 74, 128, 0.13); }
+.xj-node { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 6px 8px; border: 1px solid rgba(42, 74, 128, 0.27); border-radius: 8px; background: none; cursor: pointer; text-align: left; position: relative; }
+.xj-node:hover { background: rgba(42, 74, 128, 0.07); }
+.xj-node-name { font-size: 13px; color: var(--cl-text-deep, #1f3a68); }
+.xj-node-sub { font-size: 11px; color: var(--cl-cafe-latte, #46639b); }
+.xj-node.xj-done { border-color: transparent; background: rgba(42, 74, 128, 0.1); cursor: default; }
+.xj-node.xj-done i { position: absolute; right: 8px; top: 8px; color: var(--cl-grenadine, #2a4a80); }
+.xj-back { align-self: flex-start; border: none; background: none; color: var(--cl-cafe-latte, #46639b); cursor: pointer; padding: 0; }
+.xj-stage { display: flex; flex-direction: column; gap: 10px; }
+.xj-talk { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px 12px; background: #fdfdfc; border-radius: 10px; border: 1px solid rgba(42, 74, 128, 0.2); }
+.xj-talk-who { font-size: 12px; color: var(--cl-cafe-latte, #46639b); }
+.xj-talk-line { font-size: 14px; line-height: 1.6; color: var(--cl-text-deep, #1f3a68); text-align: center; min-height: 3.2em; }
+.xj-form { display: flex; flex-direction: column; gap: 6px; padding: 12px; background: #fdfdfc; border-radius: 10px; border: 1px solid rgba(42, 74, 128, 0.2); }
+.xj-lab { font-size: 12px; color: var(--cl-cafe-latte, #46639b); }
+.xj-in { padding: 6px 8px; border: 1px solid rgba(42, 74, 128, 0.27); border-radius: 6px; font: inherit; font-size: 14px; background: #fff; color: var(--cl-text-deep, #1f3a68); }
+.xj-what { font-size: 14px; font-weight: 600; color: var(--cl-text-deep, #1f3a68); }
+.xj-cost { font-size: 13px; color: var(--cl-text-deep, #1f3a68); }
+.xj-hint { font-size: 12px; color: #b04a3a; min-height: 1em; }
+.xj-doing { font-size: 13px; color: var(--cl-text-deep, #1f3a68); }
+.xj-note { font-size: 13px; line-height: 1.6; color: var(--cl-text-deep, #1f3a68); }
+.xj-btn { align-self: center; padding: 7px 18px; border: none; border-radius: 8px; background: var(--cl-grenadine, #2a4a80); color: #fff; cursor: pointer; font-size: 13px; }
+.xj-btn:disabled { opacity: .5; cursor: default; }
+@media (max-width: 480px) {
+    .xj-tree { grid-template-columns: minmax(0, 1fr); }
+    .xj-last .xj-col { max-width: none; }
+}

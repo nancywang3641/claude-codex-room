@@ -10,6 +10,35 @@
     'use strict';
     const NAME_MAX = 20;
 
+    // ---- API 小機（provider xiaoji，引擎在奧瑞亞 OS_XIAOJI）：門卡副標、編輯列要讀它的存檔 ----
+    const _xj = {};
+    function _XJ() { return window.OS_XIAOJI || (window.parent && window.parent.OS_XIAOJI) || null; }
+    async function _xjLoad() {
+        const X = _XJ(), CT = _CT();
+        if (!X || !CT) return;
+        const list = (CT.listResidents() || []).filter(r => r && r.provider === 'xiaoji');
+        for (const r of list) { try { _xj[r.id] = await X.get(r.id); } catch (e) {} }
+    }
+    function _xjSub(r) { const rec = _xj[r.id]; const n = rec ? Object.keys(rec.skills || {}).length : 0; return n ? '小機・學會 ' + n + ' 門' : '小機'; }
+    function _xjFormHtml(r) {
+        const X = _XJ();
+        if (!X) return '';
+        const rec = _xj[r.id] || {};
+        let h = '<label class="dorm-xj-lab">走哪個接口</label><select class="dorm-input dorm-in-conn">';
+        X.connList().forEach(c => { h += '<option value="' + _esc(c.id) + '"' + (c.id === (rec.conn || 'route') ? ' selected' : '') + '>' + _esc(c.label) + '</option>'; });
+        h += '</select>';
+        if (rec.skills && rec.skills.chain) {
+            h += '<label class="dorm-xj-lab">一句話最多叫幾次模型</label><select class="dorm-input dorm-in-cap">';
+            for (let n = X.LIMITS.CAP_MIN; n <= X.LIMITS.CAP_MAX; n++) h += '<option value="' + n + '"' + (n === rec.cap ? ' selected' : '') + '>' + n + ' 次</option>';
+            h += '</select>';
+        }
+        const th = rec.theater !== false;
+        h += '<div class="dorm-mode dorm-xj-theater">'
+           + '<button type="button" class="dorm-xj-th' + (th ? ' active' : '') + '" data-th="1">考過演小劇場</button>'
+           + '<button type="button" class="dorm-xj-th' + (th ? '' : ' active') + '" data-th="0">不演（省一次）</button></div>';
+        return h;
+    }
+
     let _el = null;
     let _editing = null;      // 展開編輯列的住戶 id；'__new__' = 底下那張新住戶卡
     let _delArmed = null;     // 兩段確認：已經按過第一下的住戶 id
@@ -170,6 +199,7 @@
 
     /** 門卡上名字底下那行小字 */
     function _subtitle(r, all) {
+        if (r.provider === 'xiaoji') return _xjSub(r);
         if (r.provider === 'codex')    return 'Codex';
         if (r.provider === 'deepseek') return 'DeepSeek';
         if (r.provider === 'group') {
@@ -262,6 +292,7 @@
     }
 
     function _faceHtml(r) {
+        if (r.provider === 'xiaoji') return '<span class="dorm-face dorm-face-icon dorm-face-xj"><i class="fa-solid fa-microchip"></i></span>';
         const look = (r.provider === 'claude' || r.provider === 'codex') ? _lookSrc(r) : '';
         const badge = r.modelId
             ? '<span class="dorm-badge">' + _esc(_modelBadge(r.modelId)) + '</span>'
@@ -291,6 +322,7 @@
         let h = '<div class="dorm-form">';
         h += '<input type="text" class="dorm-input dorm-in-name" maxlength="' + NAME_MAX
            + '" placeholder="名字" value="' + (r ? _esc(r.name) : '') + '">';
+        if (r && r.provider === 'xiaoji') h += _xjFormHtml(r);
         if (withModel) {
             h += '<select class="dorm-input dorm-in-model">';
             _models().forEach(m => {
@@ -330,7 +362,7 @@
     /** 門卡上的「自己醒來」鈕。跟入席鈕一樣是狀態，開著的常駐顯示、不必 hover 也不必展開。
      *  群聊區沒有 —— 那是桌子不是人。 */
     function _wakeBtnHtml(r) {
-        if (r.provider === 'group') return '';
+        if (r.provider === 'group' || r.provider === 'xiaoji') return '';
         const info = _hb[r.id];
         const on = !!(info && info.enabled);
         const when = on ? ('，' + _hbWhen(info)) : '';
@@ -350,7 +382,7 @@
             + '</span>'
             + '<i class="fa-solid fa-chevron-right dorm-go"></i>'
             + '</button>'
-            + _wakeBtnHtml(r)
+            + (r.provider === 'xiaoji' ? '<button type="button" class="dorm-train" title="培養室"><i class="fa-solid fa-graduation-cap"></i></button>' : _wakeBtnHtml(r))
             + '<button type="button" class="dorm-pen" title="改這位住戶"><i class="fa-solid fa-pen"></i></button>'
             + (_editing === r.id ? _formHtml(r) : '')
             + '</div>';
@@ -362,6 +394,14 @@
         const all = (CT && typeof CT.listResidents === 'function') ? CT.listResidents() : [];
         const newOpen = _editing === '__new__' ? ' dorm-editing' : '';
         let h = '<div class="dorm-list">';
+        let boxOpened = false;
+        try { boxOpened = localStorage.getItem('xiaoji_box_opened') === '1'; } catch (e) {}
+        if (_XJ() && !boxOpened && !all.some(r => r && r.provider === 'xiaoji')) {
+            h += '<div class="dorm-card dorm-box" data-id="__box__"><button type="button" class="dorm-door dorm-door-box">'
+               + '<span class="dorm-face dorm-face-icon dorm-face-box"><i class="fa-solid fa-box"></i></span>'
+               + '<span class="dorm-who"><span class="dorm-name">404 寄來的箱子</span><span class="dorm-sub">裡面有東西在動</span></span>'
+               + '<i class="fa-solid fa-chevron-right dorm-go"></i></button></div>';
+        }
         all.forEach(r => { h += _cardHtml(r, all); });
         h += '<div class="dorm-card dorm-new' + newOpen + '" data-id="__new__">'
             + '<button type="button" class="dorm-door dorm-door-new">'
@@ -394,6 +434,21 @@
             const door = card.querySelector('.dorm-door');
             const pen = card.querySelector('.dorm-pen');
             const wake = card.querySelector('.dorm-wake');
+            if (id === '__box__') {
+                door.addEventListener('click', () => {
+                    if (window.XiaojiTrain) window.XiaojiTrain.mode = 'box';
+                    const CW = window.ChatWindow;
+                    if (CW && CW.openSubPanel) CW.openSubPanel('xiaoji_box');
+                });
+                return;
+            }
+            const train = card.querySelector('.dorm-train');
+            if (train) train.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (window.XiaojiTrain) window.XiaojiTrain.target = id;
+                const CW = window.ChatWindow;
+                if (CW && CW.openSubPanel) CW.openSubPanel('xiaoji_train');
+            });
 
             if (wake) {
                 wake.addEventListener('click', async (e) => {
@@ -440,6 +495,10 @@
                     b.classList.add('active');
                 });
             });
+            form.querySelectorAll('.dorm-xj-th').forEach(b => b.addEventListener('click', () => {
+                form.querySelectorAll('.dorm-xj-th').forEach(x => x.classList.remove('active'));
+                b.classList.add('active');
+            }));
             form.querySelectorAll('.dorm-perm-btn').forEach(b => {
                 b.addEventListener('click', async () => {
                     if (b.dataset.busy) return;
@@ -491,6 +550,14 @@
                         && window.ChatGroup && typeof window.ChatGroup.announceRename === 'function') {
                         window.ChatGroup.announceRename(oldName, name, true);   // 她改的
                     }
+                    if (before && before.provider === 'xiaoji' && _XJ()) {
+                        const conn = form.querySelector('.dorm-in-conn'), cap = form.querySelector('.dorm-in-cap'), th = form.querySelector('.dorm-xj-th.active');
+                        const patch = {};
+                        if (conn) patch.conn = conn.value;
+                        if (cap) patch.cap = parseInt(cap.value, 10);
+                        if (th) patch.theater = th.dataset.th === '1';
+                        _XJ().save(id, patch).then(_xjLoad).then(_render).catch(() => {});
+                    }
                     _syncOpenRoom(id);
                 }
                 _editing = null;
@@ -519,7 +586,9 @@
                     // 名字跟在席狀態要在刪之前抓 —— 刪完就查不到了
                     const gone = CT.getResident(id);
                     const wasSeated = typeof CT.isGroupSeated === 'function' && CT.isGroupSeated(id);
-                    if (CT.deleteResident(id) && window.ChatGroup
+                    const removed = CT.deleteResident(id);
+                    if (removed && gone && gone.provider === 'xiaoji' && _XJ()) _XJ().remove(id).catch(() => {});
+                    if (removed && window.ChatGroup
                         && typeof window.ChatGroup.noteResidentRemoved === 'function') {
                         window.ChatGroup.noteResidentRemoved(id, gone ? gone.name : '', wasSeated);
                     }
@@ -600,7 +669,7 @@
         _render();
         // 心跳狀態在橋那邊，拉回來之後再畫一次。先畫是刻意的：宿舍不能等網路，
         // 拉不到就維持「全部關著」的樣子，而不是卡在空白。
-        Promise.all([_hbLoad(), _permLoad()]).then(function () { if (_el === container) _render(); });
+        Promise.all([_hbLoad(), _permLoad(), _xjLoad()]).then(function () { if (_el === container) _render(); });
     };
 
     // 以下三支保留原本的名字（輸入列那顆鈕、手機浮球、斜線命令都在叫它們），
@@ -637,6 +706,9 @@
     DormPanel.refresh = function () {
         if (DormPanel.isOpen() && _el) _render();
     };
+
+    /** 小機學了新的課、剛領養：重讀它的存檔再畫 */
+    DormPanel.refreshXiaoji = function () { return _xjLoad().then(() => DormPanel.refresh()); };
 
     console.log('[DormPanel] 宿舍面板已載入');
 
