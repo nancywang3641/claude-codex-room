@@ -1488,8 +1488,9 @@
             const modelStr = u.model ? ` · ${u.model}` : '';
             const footer = document.createElement('div');
             footer.className = 'claude-bubble-usage';
-            footer.title = `model: ${u.model || '?'}\ninput: ${u.input_tokens || 0}\noutput: ${u.output_tokens || 0}\ncache write: ${u.cache_creation_input_tokens || 0}\ncache read: ${u.cache_read_input_tokens || 0}\ncost: ${cost}`;
-            footer.textContent = `💰 ${cost} · ${u.input_tokens || 0}↑ ${u.output_tokens || 0}↓${cacheNote}${modelStr}`;
+            // 小機（no_cost）：接口的錢我們不知道價，不寫 $，只寫用量
+            footer.title = `model: ${u.model || '?'}\ninput: ${u.input_tokens || 0}\noutput: ${u.output_tokens || 0}\ncache write: ${u.cache_creation_input_tokens || 0}\ncache read: ${u.cache_read_input_tokens || 0}` + (u.no_cost ? '' : `\ncost: ${cost}`);
+            footer.textContent = (u.no_cost ? '' : `💰 ${cost} · `) + `${u.input_tokens || 0}↑ ${u.output_tokens || 0}↓${cacheNote}${modelStr}`;
             wrap.appendChild(footer);
         }
 
@@ -1946,9 +1947,9 @@
             const xj = result.xiaoji || null;   // API 小機：單子整張回來了，不去橋上拿
             const props = xj ? _xjProps(xj.props) : await _turnProps(_turnRid, _turnAt, toolsUsed);
 
-            // 累計到額度面板（💰 app）
+            // 累計到額度面板（💰 app）：記是誰、哪一種住戶，面板才分得了頁
             if (usage && window.OS_SPEND_PANEL && typeof window.OS_SPEND_PANEL.record === 'function') {
-                try { window.OS_SPEND_PANEL.record(usage); } catch (_) {}
+                try { window.OS_SPEND_PANEL.record(usage, { rid: _turnRid, provider: _provider() }); } catch (_) {}
             }
 
             // 先取消還在排程中的 throttled rerender,避免 final render 後又冒一個多餘 stream bubble

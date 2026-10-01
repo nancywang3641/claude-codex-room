@@ -1053,7 +1053,7 @@
         }
 
         if (result.usage && window.OS_SPEND_PANEL && typeof window.OS_SPEND_PANEL.record === 'function') {
-            try { window.OS_SPEND_PANEL.record(result.usage); } catch (_) {}
+            try { window.OS_SPEND_PANEL.record(result.usage, { rid, provider: _provOf(rid) }); } catch (_) {}
         }
         // 記下他這條 session 現在多大。只認橋新加的 context_tokens——那是最後一則
         // assistant 的 input + cache_read + cache_creation，也就是「當下有多滿」。

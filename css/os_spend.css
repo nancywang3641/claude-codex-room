@@ -24,50 +24,6 @@
     box-shadow: 0 2px 8px var(--cl-warm-shadow, rgba(70, 99, 155, 0.1));
 }
 
-.sp-big {
-    font-size: 32px;
-    font-weight: 700;
-    color: var(--cl-grenadine, #2a4a80);
-    text-align: center;
-    margin: 4px 0;
-    letter-spacing: 0.5px;
-    font-family: 'Cascadia Code', Consolas, monospace;
-}
-
-.sp-sub {
-    font-size: 12px;
-    color: var(--cl-cafe-latte, #46639b);
-    text-align: center;
-}
-
-.sp-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 10px;
-    margin-bottom: 12px;
-}
-
-.sp-grid-cell {
-    background: #fdfdfc;
-    border: 1px solid rgba(42, 74, 128, 0.33);
-    border-radius: 10px;
-    padding: 10px 6px;
-    text-align: center;
-}
-
-.sp-grid-num {
-    font-size: 18px;
-    font-weight: 700;
-    color: var(--cl-grenadine, #2a4a80);
-    font-family: 'Cascadia Code', Consolas, monospace;
-}
-
-.sp-grid-label {
-    font-size: 11px;
-    color: var(--cl-cafe-latte, #46639b);
-    margin-top: 2px;
-}
-
 .sp-section-title {
     font-size: 12px;
     font-weight: 700;
@@ -85,37 +41,120 @@
     box-shadow: 0 2px 8px var(--cl-warm-shadow, rgba(70, 99, 155, 0.1));
 }
 
+/* 最近幾句：時間｜誰｜送/回｜緩存。數字那兩欄不折行，名字那欄讓位（太長就省略） */
 .sp-row {
     display: grid;
-    grid-template-columns: 1.1fr 1fr 1.5fr 1fr;
+    grid-template-columns: auto minmax(0, 1fr) auto 4.8em;
+    column-gap: 8px;
     padding: 7px 12px;
     font-size: 12px;
     align-items: center;
     border-bottom: 1px solid rgba(42, 74, 128, 0.15);
 }
 .sp-row:last-child { border-bottom: none; }
+/* 誰用了多少：誰｜幾句｜送/回｜緩存 */
+.sp-row.sp-row-who { grid-template-columns: minmax(0, 1fr) auto auto 4.8em; }
 
 .sp-row-ts {
     color: var(--cl-cafe-latte, #46639b);
     font-family: 'Cascadia Code', Consolas, monospace;
-}
-.sp-row-cost {
-    color: var(--cl-grenadine, #2a4a80);
-    font-weight: 600;
-    text-align: right;
-    font-family: 'Cascadia Code', Consolas, monospace;
+    font-size: 11px;
+    white-space: nowrap;
 }
 .sp-row-tokens {
     color: var(--cl-cafe-latte, #46639b);
     font-family: 'Cascadia Code', Consolas, monospace;
     font-size: 11px;
-    text-align: center;
+    text-align: right;
+    white-space: nowrap;
 }
-.sp-row-model {
+.sp-row-name {
+    color: var(--cl-text-deep, #1f3a68);
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.sp-row-n {
     color: var(--cl-cafe-latte, #46639b);
-    font-family: 'Cascadia Code', Consolas, monospace;
+    font-size: 11px;
+}
+.sp-row-cache {
+    color: var(--cl-cafe-latte, #46639b);
     font-size: 11px;
     text-align: right;
+}
+
+/* 分頁：照同一池額度分（Claude 訂閱／Codex 訂閱／DeepSeek／小機），右邊是說明的小問號 */
+.sp-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+.sp-tab {
+    padding: 6px 12px;
+    border: 1px solid rgba(42, 74, 128, 0.3);
+    border-radius: 999px;
+    background: #fdfdfc;
+    color: var(--cl-cafe-latte, #46639b);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+}
+.sp-tab.on {
+    background: var(--cl-grenadine, #2a4a80);
+    border-color: transparent;
+    color: #fff;
+    font-weight: 600;
+}
+.sp-help { margin-left: auto; }
+
+/* 真的額度：一條一列，名字｜條｜幾成｜幾點重置 */
+.sp-q-who {
+    font-size: 11px;
+    color: var(--cl-cafe-latte, #46639b);
+    margin-bottom: 6px;
+}
+.sp-q-row {
+    display: grid;
+    grid-template-columns: 4.5em 1fr 3em 6.5em;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 0;
+    font-size: 12px;
+}
+.sp-q-label { color: var(--cl-text-deep, #1f3a68); font-weight: 600; }
+.sp-q-bar {
+    height: 8px;
+    border-radius: 999px;
+    background: rgba(42, 74, 128, 0.12);
+    overflow: hidden;
+}
+.sp-q-fill {
+    height: 100%;
+    width: 0;
+    border-radius: 999px;
+    background: var(--cl-grenadine, #2a4a80);
+    transition: width 0.3s;
+}
+.sp-q-bar.warn .sp-q-fill { background: #c9772b; }
+.sp-q-pct {
+    text-align: right;
+    font-weight: 700;
+    color: var(--cl-grenadine, #2a4a80);
+    font-family: 'Cascadia Code', Consolas, monospace;
+}
+.sp-q-meta {
+    color: var(--cl-cafe-latte, #46639b);
+    font-size: 11px;
+    text-align: right;
+}
+.sp-note {
+    font-size: 12px;
+    color: var(--cl-cafe-latte, #46639b);
+    line-height: 1.6;
 }
 
 .sp-row-empty {

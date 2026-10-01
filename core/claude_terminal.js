@@ -1315,7 +1315,13 @@ ${withOthers}
                     } catch (_) {}
                 },
             });
-            return { reply: t.reply, thinking: null, usage: null, toolsUsed: [],
+            // 用量換成橋那份 usage_meta 的形狀（input_tokens＝沒讀到緩存的那段），回覆底下那行、額度面板照用；
+            //   小機不知道價錢，no_cost 讓那行不寫 $（它是接口的錢，不是訂閱）
+            const u = t.usage;
+            const usage = u ? { input_tokens: Math.max(0, (u.input || 0) - (u.cacheRead || 0) - (u.cacheWrite || 0)),
+                output_tokens: u.output || 0, cache_read_input_tokens: u.cacheRead || 0, cache_creation_input_tokens: u.cacheWrite || 0,
+                model: t.model || '', no_cost: true } : null;
+            return { reply: t.reply, thinking: null, usage, toolsUsed: [],
                 xiaoji: { calls: t.calls, props: t.props || [], log: t.log || [], stopped: !!t.stopped } };
         } catch (e) {
             await ClaudeTerminal.saveHistory(rollback);
