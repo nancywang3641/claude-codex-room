@@ -695,7 +695,54 @@
             + '</section>';
     }
 
-    const _state = new WeakMap();   // container → { all, hb, reply, bugs, wakes（醒來紀錄第一頁，算封面那顆的數字）, wl（紀錄頁現在的樣子） }
+    // ---- 分頁（10-01 她：等你同意的、待修、想跟妳說的分別切換，全放一起要拉到很下面） ----
+    //   動態永遠在；其他三頁有東西才出現，只剩動態就不畫這排。這排黏在捲動區頂端，捲到哪都切得到。
+    //   四頁都畫進去、只顯示選中那頁（hidden），單一則的局部更新（_refreshPost、_propRefresh）照舊找得到元素。
+    const TAB_KEY = 'ccr_board_tab';
+    function _tabSaved() { try { return localStorage.getItem(TAB_KEY) || ''; } catch (_) { return ''; } }
+    function _tabSave(k) { try { localStorage.setItem(TAB_KEY, k); } catch (_) {} }
+    function _tabList(st, idx) {
+        const props = st.props || [], bugs = st.bugs || [];
+        const waiting = props.filter(x => x.state === 'wait').length;
+        return [
+            { key: 'feed', label: '動態', n: 0 },
+            props.length ? { key: 'props', label: '等你同意的', n: waiting, hot: waiting > 0 } : null,
+            bugs.length ? { key: 'bugs', label: '待修', n: bugs.filter(b => b.status === 'open').length } : null,
+            idx.pins.length ? { key: 'pins', label: '想跟妳說的', n: idx.pins.length } : null,
+        ].filter(Boolean);
+    }
+    // 這次打開指定的（有新提案）＞她上次停的那頁＞動態；指定的那頁不見了也退回這個順序
+    function _tabPick(st, list) {
+        const has = k => list.some(t => t.key === k);
+        if (st.tab && has(st.tab)) return st.tab;
+        const saved = _tabSaved();
+        return has(saved) ? saved : 'feed';
+    }
+    function _tabsHtml(list, cur) {
+        if (list.length < 2) return '';
+        return '<nav class="ob-tabs">' + list.map(t => '<button type="button" class="ob-tab' + (t.key === cur ? ' is-on' : '') + '" data-tab="' + t.key + '">'
+            + _esc(t.label) + (t.n ? '<span class="ob-tab-n' + (t.hot ? ' is-hot' : '') + '">' + t.n + '</span>' : '')
+            + '</button>').join('') + '</nav>';
+    }
+    function _tabGo(container, key) {
+        const st = _state.get(container);
+        const root = container.querySelector('.ob-container');
+        if (!st || !root) return;
+        st.tab = key;
+        _tabSave(key);
+        root.querySelectorAll('.ob-tab').forEach(b => b.classList.toggle('is-on', b.dataset.tab === key));
+        root.querySelectorAll('.ob-pane').forEach(p => { p.hidden = p.dataset.pane !== key; });
+        // 已經捲過分頁那排的話，換頁就回到這頁開頭（分頁那排的正下方），不然新的一頁會從中間開始
+        const sc = root.querySelector('.ob-scroll');
+        const nav = root.querySelector('.ob-tabs');
+        const above = nav && nav.previousElementSibling;
+        if (sc && above) {
+            const top = above.offsetTop + above.offsetHeight;
+            if (sc.scrollTop > top) sc.scrollTop = top;
+        }
+    }
+
+    const _state = new WeakMap();   // container → { all, hb, reply, bugs, wakes（醒來紀錄第一頁，算封面那顆的數字）, wl（紀錄頁現在的樣子）, tab（現在那個分頁） }
 
     function _renderBoard(container, all, hbConf) {
         const idx = _index(all);
@@ -709,6 +756,11 @@
         const feedHtml = idx.feed.length
             ? idx.feed.map(p => _postHtml(p, idx.byParent)).join('')
             : '<div class="ob-empty">板子上還沒有東西。</div>';
+        const st = _state.get(container) || {};
+        const tabs = _tabList(st, idx);
+        const cur = _tabPick(st, tabs);
+        st.tab = cur;
+        const pane = (key, html) => '<div class="ob-pane" data-pane="' + key + '"' + (tabs.length > 1 && key !== cur ? ' hidden' : '') + '>' + html + '</div>';
 
         container.innerHTML = `
             <div class="ob-container">
@@ -721,11 +773,12 @@
                         <div class="ob-me"><span class="ob-me-name">${_esc(ME)}</span>${_avatarHtml(ME)}</div>
                     </header>
                     ${viaNote}
-                    ${_wakesHtml(hbConf, (_state.get(container) || {}).wakes)}
-                    ${_propsHtml((_state.get(container) || {}).props)}
-                    ${_bugsHtml((_state.get(container) || {}).bugs)}
-                    ${pinsHtml}
-                    <section class="ob-feed">${feedHtml}</section>
+                    ${_wakesHtml(hbConf, st.wakes)}
+                    ${_tabsHtml(tabs, cur)}
+                    ${pane('feed', '<section class="ob-feed">' + feedHtml + '</section>')}
+                    ${pane('props', _propsHtml(st.props))}
+                    ${pane('bugs', _bugsHtml(st.bugs))}
+                    ${pane('pins', pinsHtml)}
                 </div>
                 <div class="ob-bar" hidden>
                     <input type="text" class="ob-bar-input" placeholder="評論" enterkeyhint="send">
@@ -897,7 +950,11 @@
         const root = container.querySelector('.ob-container');
         const sec = root && root.querySelector('.ob-props');
         const html = _propsHtml(st.props);
-        if (sec) { if (html) sec.outerHTML = html; else sec.remove(); }
+        // 分頁要出現或消失（第一張／最後一張）就整板重畫；不然只換這一區和分頁上的數字，捲動位置不動
+        if (!sec || !html) { _renderBoard(container, st.all, st.hb); return; }
+        sec.outerHTML = html;
+        const nav = root.querySelector('.ob-tabs');
+        if (nav) nav.outerHTML = _tabsHtml(_tabList(st, _index(st.all)), st.tab || 'feed');
     }
     function _propOpen(container, id, say) {
         const st = _state.get(container);
@@ -997,6 +1054,10 @@
             if (!t.closest('.ob-act-wrap')) closePops();
             if (!t.closest('.ob-del') && !t.closest('.ob-cmt-mine')) disarm();
 
+            // 分頁
+            const tabBtn = t.closest('.ob-tab');
+            if (tabBtn) { closeBar(); _tabGo(container, tabBtn.dataset.tab); return; }
+
             // 等你同意的：點一張打開單子
             const ppRow = t.closest('.ob-prop');
             if (ppRow) { _propOpen(container, ppRow.dataset.ppid, say); return; }
@@ -1039,6 +1100,7 @@
                     sheetSend.disabled = true;
                     await _postNote(text, ['rae']);
                     st.all = await _fetchPosts();
+                    st.tab = 'feed';   // 她剛發的在動態，停在別頁會以為沒發出去
                     _renderBoard(container, st.all, st.hb);
                 }).finally(() => { if (sheetSend.isConnected) sheetSend.disabled = !sheetText.value.trim(); });
                 return;
@@ -1115,7 +1177,11 @@
             const posts = await _fetchPosts();
             // 心跳設定只畫那排頭像、待修清單只畫那一區，拿不到就不畫，不擋板子
             const [hbConf, bugs, wakes, props] = await Promise.all([_fetchHeartbeatConf(), _fetchBugs(), _fetchWakesQuiet(), _fetchProps()]);
-            _state.set(container, { all: posts, hb: hbConf, reply: null, bugs: bugs, wakes: wakes, wl: null, props: props });
+            // 上次看過之後有新的提案（入口鈕亮的就是這個）＝這次直接停在「想跟妳說的」；這個不記成她選的頁
+            let seen = '';
+            try { seen = localStorage.getItem('ccr_board_seen') || ''; } catch (_) {}
+            const freshPin = !!seen && posts.some(p => (p.created_at || '') > seen && _isProposal(p));
+            _state.set(container, { all: posts, hb: hbConf, reply: null, bugs: bugs, wakes: wakes, wl: null, props: props, tab: freshPin ? 'pins' : '' });
             _renderBoard(container, posts, hbConf);
             // 這次是真的翻過板子了：記下看到哪、熄掉入口鈕上的小點
             try {

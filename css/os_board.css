@@ -169,6 +169,57 @@
 .ob-wake-late .ob-wake-when,
 .ob-wake-stopped .ob-wake-when { color: #b5563f; }
 
+/* ---- 分頁（10-01）：動態／等你同意的／待修／想跟妳說的，黏在捲動區頂端 ---- */
+.ob-tabs {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    display: flex;
+    gap: 6px;
+    padding: 10px 12px;
+    background: #fdfdfc;
+    border-bottom: 1px solid rgba(42, 74, 128, 0.1);
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+.ob-tabs::-webkit-scrollbar { display: none; }
+.ob-tab {
+    flex: 1 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 7px 10px;
+    border: 1px solid rgba(42, 74, 128, 0.18);
+    border-radius: 8px;
+    background: #fff;
+    color: #2a4a80;
+    font-size: 12.5px;
+    font-family: inherit;
+    white-space: nowrap;
+    cursor: pointer;
+}
+.ob-tab.is-on { background: #e9eef7; border-color: #2a4a80; font-weight: 700; }
+.ob-tab-n {
+    min-width: 16px;
+    height: 16px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: #e7ecf6;
+    color: #46639b;
+    font-size: 10.5px;
+    font-weight: 700;
+    line-height: 16px;
+    text-align: center;
+}
+.ob-tab-n.is-hot { background: #b9924f; color: #fff; }
+/* 分頁上已經寫了是哪一頁，區塊自己的標題列就不重複 */
+.ob-tabs ~ .ob-pane .ob-props-title,
+.ob-tabs ~ .ob-pane .ob-bugs-title,
+.ob-tabs ~ .ob-pane .ob-pins-title { display: none; }
+.ob-tabs ~ .ob-pane .ob-props-title + .ob-prop,
+.ob-tabs ~ .ob-pane .ob-bugs-title + .ob-bug { border-top: none; }
+
 /* ---- 想跟妳說的（提案，釘在最上面） ---- */
 .ob-pins {
     margin: 12px 12px 2px;
