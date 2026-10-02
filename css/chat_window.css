@@ -1141,6 +1141,28 @@
     padding: 0;
 }
 
+/* ⏭ 等他太久：點點泡泡底下一行「還在想（幾秒）」＋「跳過他」（chat_group.js _attachWait） */
+#aurelia-chat-window .cg-wait {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 4px 0 2px;
+    font-size: 12px;
+    color: #7d7690;
+}
+#aurelia-chat-window .cg-wait-skip {
+    padding: 3px 10px;
+    border: 1px solid rgba(108, 92, 231, 0.35);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.75);
+    color: #5b4bc4;
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+#aurelia-chat-window .cg-wait-skip:hover { background: #fff; }
+#aurelia-chat-window .cg-wait-skip:disabled { opacity: 0.6; cursor: default; }
+
 #aurelia-chat-window .cg-system-line {
     align-self: center;
     text-align: center;

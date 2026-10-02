@@ -487,6 +487,39 @@
         return wrap;
     }
 
+    // ⏭ 等他太久可以跳過（待修 #293）：他一次想好幾分鐘時整桌都在等，看起來像當掉。
+    //   點點泡泡底下過 15 秒冒一行「還在想（幾分幾秒）」＋「跳過他」；按了停掉他這一輪（橋上連 CLI 一起），換下一位。
+    //   state()：他現在在幹嘛（還在想／還在寫）。回 { stop } —— 這一輪收了（成功、失敗、跳過）一律 stop
+    function _attachWait(typingWrap, rid, state, onSkip) {
+        if (!typingWrap) return { stop: function () {} };
+        const t0 = Date.now();
+        let row = null;
+        const paint = function () {
+            const sec = Math.floor((Date.now() - t0) / 1000);
+            if (sec < 15) return;
+            if (!row) {
+                row = document.createElement('div');
+                row.className = 'cg-wait';
+                row.innerHTML = '<span class="cg-wait-text"></span>'
+                    + '<button type="button" class="cg-wait-skip"><i class="fa-solid fa-forward"></i> 跳過他</button>';
+                row.querySelector('.cg-wait-skip').addEventListener('click', function (ev) {
+                    ev.stopPropagation();
+                    const b = ev.currentTarget;
+                    if (b.disabled) return;
+                    b.disabled = true;
+                    b.textContent = '跳過中…';
+                    onSkip();
+                });
+                typingWrap.appendChild(row);
+                _scrollBottom();
+            }
+            const m = Math.floor(sec / 60), s = sec % 60;
+            row.querySelector('.cg-wait-text').textContent = _labelOf(rid) + state() + '（' + (m ? m + ' 分 ' : '') + s + ' 秒）';
+        };
+        const timer = setInterval(paint, 1000);
+        return { stop: function () { clearInterval(timer); if (row && row.parentNode) row.parentNode.removeChild(row); } };
+    }
+
     // 系統通知行（置中、淡色，例如收場 / 中止）
     function _renderSystemLine(text) {
         if (!_streamEl) return;
@@ -896,6 +929,19 @@
         const bubbleEl = typingWrap && typingWrap.querySelector('.cg-bubble');
         let acc = '';
 
+        // ⏭ 跳過他：停掉這一輪（橋上 /v1/cancel 連 CLI 一起殺，再中止輪詢）。下棋那種會重試的回合不給跳
+        const ctrl = new AbortController();
+        const taskId = (window.crypto && window.crypto.randomUUID && window.crypto.randomUUID()) || ('g-' + Math.random().toString(36).slice(2) + Date.now().toString(36));
+        let skipped = false;
+        const wait = opts.gameTurn ? { stop: function () {} } : _attachWait(typingWrap, rid,
+            function () { return acc ? '還在寫' : '還在想'; },
+            function () {
+                skipped = true;
+                const CTk = _CT();
+                Promise.resolve(CTk && typeof CTk.cancelTask === 'function' ? CTk.cancelTask(taskId) : null)
+                    .catch(function () {}).then(function () { ctrl.abort(); });
+            });
+
         // 🫧 段落一顆一顆冒出來（同私聊那支）：bubbleEl 當點點，寫完一段就在它前面放一顆
         const _room = window.VoidClaudeRoom;
         let revealer = null;
@@ -930,6 +976,8 @@
                 sessionId: sid,
                 userText: delta,
                 attachments: deltaAttachments,
+                signal: ctrl.signal,
+                taskId: taskId,
                 onProgress: function (ev) {
                     if (ev && ev.type === 'text') {
                         acc = ev.accumulated || (acc + (ev.delta || ''));
@@ -969,6 +1017,16 @@
         }
 
         function _fail(err) {
+            wait.stop();
+            // 她按了跳過：拿掉點點（他已經講出來的那幾顆留著），寫一行說跳過了；沒送到的這段下一輪補給他
+            if (skipped) {
+                if (revealer) revealer.stop();
+                const said = revealer && revealer.count > 0;
+                if (said) { if (bubbleEl && bubbleEl.parentNode) bubbleEl.parentNode.removeChild(bubbleEl); }
+                else if (typingWrap && typingWrap.parentNode) typingWrap.parentNode.removeChild(typingWrap);
+                _renderSystemLine('跳過了' + _labelOf(rid) + '，換下一位（這段他下次輪到時會補看到）');
+                return { spoke: false, failed: true, skipped: true, markers: {} };
+            }
             // 遊戲回合失敗會被重試，別留一顆 ⚠️ 氣泡在那裡——重試幾次就排成一列，
             // 而那一手其實根本沒發生過。收場的話迴圈會另外寫一行系統訊息。
             if (opts.gameTurn) {
@@ -1012,6 +1070,7 @@
                 return _fail(e);
             }
         }
+        wait.stop();
         if (result.sessionId) _lsSet(_sidKey(rid), result.sessionId);
 
         const reply = (result.reply || '').trim();

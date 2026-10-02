@@ -1883,11 +1883,12 @@ ${withOthers}
         };
     }
 
-    async function _ccBridgePost(cfg, body, onProgress, signal) {
+    async function _ccBridgePost(cfg, body, onProgress, signal, taskId) {
         // 先試脫鉤那條。舊版橋沒有 /v1/turn/*（她還沒重啟）就退回原本的串流，
         // 行為完全照舊——熄屏還是會斷，但至少不是整個功能不能用。
+        // taskId：給橋登記 CLI 行程，群聊按「跳過他」時 /v1/cancel/{taskId} 才殺得到
         try {
-            const t = await _ccBridgeTurn(cfg, body, onProgress, signal);
+            const t = await _ccBridgeTurn(cfg, body, onProgress, signal, { taskId: taskId });
             const imgs = await _processIncomingImages(t.imagesRaw);
             if (!t.reply && !imgs.length) throw new Error('EMPTY:沒回半個字。');
             return { reply: t.reply, newSid: t.newSid, usage: t.usage, images: imgs, toolsUsed: t.toolsUsed, thinking: t.thinking };
@@ -1982,8 +1983,12 @@ ${withOthers}
 
     // cc-bridge 請求排隊：一次只跑一個，避免群聊與畫布同時打 cc-bridge 撞串流。
     let _ccQueue = Promise.resolve();
-    function _ccBridgePostQueued(cfg, body, onProgress, signal) {
-        const run = function () { return _ccBridgePost(cfg, body, onProgress, signal); };
+    function _ccBridgePostQueued(cfg, body, onProgress, signal, taskId) {
+        const run = function () {
+            // 還在排隊就被跳過了：別再去叫他
+            if (signal && signal.aborted) { const ab = new Error('Aborted'); ab.name = 'AbortError'; return Promise.reject(ab); }
+            return _ccBridgePost(cfg, body, onProgress, signal, taskId);
+        };
         const result = _ccQueue.then(run, run);   // 不管前一個成功失敗，輪到就跑
         _ccQueue = result.then(function () {}, function () {});  // 佇列繼續，不被失敗中斷
         return result;
@@ -2064,7 +2069,7 @@ ${withOthers}
         if (Number.isFinite(cfg.temperature)) body.temperature = cfg.temperature;
         if (Number.isFinite(cfg.top_p)) body.top_p = cfg.top_p;
 
-        const r = await _ccBridgePostQueued(cfg, body, opts.onProgress, opts.signal);
+        const r = await _ccBridgePostQueued(cfg, body, opts.onProgress, opts.signal, opts.taskId);
         return { reply: r.reply, sessionId: r.newSid || sid, usage: r.usage, images: r.images || [], toolsUsed: r.toolsUsed || [], thinking: r.thinking || '' };
     };
 
@@ -2098,7 +2103,7 @@ ${withOthers}
         if (Number.isFinite(cfg.temperature)) body.temperature = cfg.temperature;
         if (Number.isFinite(cfg.top_p)) body.top_p = cfg.top_p;
 
-        const r = await _ccBridgePostQueued(cfg, body, opts.onProgress, opts.signal);
+        const r = await _ccBridgePostQueued(cfg, body, opts.onProgress, opts.signal, opts.taskId);
         return { reply: r.reply, usage: r.usage, images: r.images || [] };
     };
 
