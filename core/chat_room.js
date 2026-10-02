@@ -1573,10 +1573,11 @@
         }
 
         stream.appendChild(wrap);
-        _scrollClaudeChatToBottom();
+        if (!opts.noScroll) _scrollClaudeChatToBottom();
     }
 
-    /** 進入浮窗時用：把 _roomHistory 全部 render 成氣泡（含附件 + thinking + usage） */
+    /** 進入浮窗時用：把 _roomHistory 全部 render 成氣泡（含附件 + thinking + usage）
+     *  🚨 一則一則畫的時候不捲：每捲一次瀏覽器就得把整串排一次版（276 則＝排 277 次，聊越多越卡）。畫完才捲一次 */
     function _hydrateClaudeStream() {
         const stream = _el('claude-chat-stream');
         if (!stream) return;
@@ -1593,6 +1594,7 @@
                     voice: m.voiceAudio ? { audioId: m.voiceAudio, sec: m.voiceSec } : null,
                     props: (Array.isArray(m.props) && m.props.length) ? m.props : null,
                     calls: m.calls || 0,
+                    noScroll: true,
                 }
             );
         });

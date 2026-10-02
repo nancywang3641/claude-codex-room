@@ -341,7 +341,9 @@
     }
 
     // ── 渲染 ──
-    function _scrollBottom() { if (_streamEl) _streamEl.scrollTop = _streamEl.scrollHeight; }
+    // 🚨 hydrate 一則一則畫的時候不捲（_bulk）：每捲一次瀏覽器就得把整串排一次版，聊越多越卡。畫完才捲一次
+    let _bulk = false;
+    function _scrollBottom() { if (_streamEl && !_bulk) _streamEl.scrollTop = _streamEl.scrollHeight; }
 
     // 把內容塞進氣泡：AI → markdown 渲染；Rae → 純文字。一律先剝遊戲標記。
     //   🫧 AI 的話切成好幾顆（空行分段、表情包自己一顆，規則跟私聊同一支），多出來的接在 bubbleEl 後面，
@@ -645,15 +647,21 @@
                 '群聊區開張了 —— ' + who + (seats.length ? '@誰就只叫誰,不 @ 就大家一起回。' : ''));
             return;
         }
-        _transcript.forEach(function (m) {
-            // 系統告示（入席 / 離席 / 改名）→ 置中一行，不是氣泡
-            if (m.speaker === 'sys') { _renderSystemLine(m.content); return; }
-            // 系統注入提示、純標記行（如落子）剝完是空的 —— 不渲染
-            if (m.speaker === 'rae' && m.content && m.content.indexOf('（系統）') === 0) return;
-            const hasAtt = Array.isArray(m.attachments) && m.attachments.length;
-            if (!_stripForDisplay(m.content) && !hasAtt) return;
-            _renderBubble(m.speaker, m.content, m.attachments, m.toolsUsed, m.thinking);
-        });
+        _bulk = true;
+        try {
+            _transcript.forEach(function (m) {
+                // 系統告示（入席 / 離席 / 改名）→ 置中一行，不是氣泡
+                if (m.speaker === 'sys') { _renderSystemLine(m.content); return; }
+                // 系統注入提示、純標記行（如落子）剝完是空的 —— 不渲染
+                if (m.speaker === 'rae' && m.content && m.content.indexOf('（系統）') === 0) return;
+                const hasAtt = Array.isArray(m.attachments) && m.attachments.length;
+                if (!_stripForDisplay(m.content) && !hasAtt) return;
+                _renderBubble(m.speaker, m.content, m.attachments, m.toolsUsed, m.thinking);
+            });
+        } finally {
+            _bulk = false;
+        }
+        _scrollBottom();
     };
 
     // ── 遊戲標記解析 ──
