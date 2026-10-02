@@ -1463,3 +1463,83 @@
 #aurelia-chat-window .claude-voice-note { margin-top: 4px; font-size: 12px; opacity: 0.8; }
 #aurelia-chat-window .claude-voice-text[hidden],
 #aurelia-chat-window .claude-voice-note[hidden] { display: none; }
+
+/* ── 📱 手機：房間收成小橫幅（她挑的 A 捲簾；chat_window.js 的 _setRoomCollapsed 切 .cw-room-collapsed）──
+ * 房間是蓋在聊天上面的一層：聊天從橫幅底下開始、上面墊一段房間高度的留白。
+ * 收放只動房間的 clip-path、立繪與小卡的 translate／scale、橫幅 opacity；聊天區只在切換那一下換留白（排一次版）。
+ * 群聊沒有房間圖，不套。 */
+#aurelia-chat-window .cw-room-bar { display: none; }
+@media (max-width: 600px) {
+    #aurelia-chat-window .cw-body {
+        --cw-room-h: clamp(150px, 30vh, 230px);
+        --cw-bar-h: 56px;
+        --cw-fold-d: 360ms;
+        --cw-fold-ease: cubic-bezier(.2, .8, .2, 1);
+    }
+    #aurelia-chat-window .cw-body:not(.cw-body-group) .claude-portrait-area {
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: var(--cw-room-h);
+        flex: none;
+        z-index: 3;
+        clip-path: inset(0 0 0 0);
+        transition: clip-path var(--cw-fold-d) var(--cw-fold-ease);
+    }
+    #aurelia-chat-window .cw-body:not(.cw-body-group) .claude-chat-stream {
+        margin-top: var(--cw-bar-h);
+        padding-top: calc(var(--cw-room-h) - var(--cw-bar-h) + 12px);
+    }
+    #aurelia-chat-window .cw-body.cw-room-collapsed:not(.cw-body-group) .claude-chat-stream { padding-top: 12px; }
+    #aurelia-chat-window .cw-body.cw-room-collapsed:not(.cw-body-group) .claude-portrait-area {
+        clip-path: inset(0 0 calc(var(--cw-room-h) - var(--cw-bar-h)) 0);
+        cursor: pointer;
+    }
+
+    /* 橫幅：房間捲到剩一條時才淡進來，蓋住房間圖；小螃蟹與會話小卡疊在它上面 */
+    #aurelia-chat-window .cw-room-bar {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: var(--cw-bar-h);
+        padding: 0 16px;
+        z-index: 1;
+        background: linear-gradient(rgba(0, 0, 0, 0.14), rgba(0, 0, 0, 0.14)), #1e3554;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+        color: rgba(244, 239, 227, 0.85);
+        font-size: 14px;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity calc(var(--cw-fold-d) * 0.6) ease;
+    }
+    #aurelia-chat-window.cw-codex .cw-room-bar { background-color: #0e1c2e; }
+    #aurelia-chat-window.cw-deepseek .cw-room-bar { background-color: #14241a; }
+    #aurelia-chat-window .cw-room-collapsed .cw-room-bar {
+        opacity: 1;
+        transition-delay: calc(var(--cw-fold-d) * 0.5);
+    }
+
+    /* 立繪縮進橫幅左邊：位移與縮放由 _measureMini 量好放在 --cw-mini-*。
+       用 translate／scale 這兩個屬性，不碰原本漂浮動畫在用的 transform */
+    #aurelia-chat-window .claude-portrait-img,
+    #aurelia-chat-window .codex-portrait-sprite,
+    #aurelia-chat-window .cw-clawd-canvas {
+        transition: translate var(--cw-fold-d) var(--cw-fold-ease), scale var(--cw-fold-d) var(--cw-fold-ease);
+    }
+    #aurelia-chat-window .cw-room-collapsed .claude-portrait-img,
+    #aurelia-chat-window .cw-room-collapsed .codex-portrait-sprite,
+    #aurelia-chat-window .cw-room-collapsed .cw-clawd-canvas {
+        z-index: 2;
+        translate: var(--cw-mini-x, 0) var(--cw-mini-y, 0);
+        scale: var(--cw-mini-s, 1);
+    }
+
+    /* 會話小卡挪到小螃蟹右邊、橫幅正中（原本在左上 10px） */
+    #aurelia-chat-window .claude-conv-chip {
+        transition: translate var(--cw-fold-d) var(--cw-fold-ease), background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    #aurelia-chat-window .cw-room-collapsed .claude-conv-chip {
+        translate: 58px calc(var(--cw-bar-h) / 2 - 22px);
+    }
+}

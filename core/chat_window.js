@@ -91,6 +91,7 @@
                 </div>
                 <div class="cw-canvas-tab" id="cw-canvas-tab" style="display:none;">▾ 展開畫布</div>
                 <div class="claude-portrait-area">
+                    <div class="cw-room-bar" id="cw-room-bar" title="展開房間"><i class="fa-solid fa-chevron-down"></i></div>
                     <img id="cw-decor-img" class="cw-decor-img" alt="">
                     <img id="claude-portrait-img" class="claude-portrait-img" alt="Clawd">
                     <div id="codex-portrait-sprite" class="codex-portrait-sprite"></div>
@@ -156,6 +157,7 @@
         });
         _bindDrag(el.querySelector('#cw-titlebar'), el);
         _bindChatInput(el);
+        _bindRoomFold(el);
 
         const chip = el.querySelector('#claude-conv-chip');
         if (chip) chip.addEventListener('click', () => ChatWindow.openSubPanel('recents'));
@@ -615,8 +617,90 @@
         if (_winEl && _isOpen && _view === 'room' && _provider !== 'group') _renderDecor(_provider);
     };
 
+    // ── 📱 手機上房間收成小橫幅（三小樣裡她挑的 A 捲簾，tmp/collapse_samples.html）──
+    //   點輸入框、往上翻舊對話 → 收；點橫幅 → 展開；每次進房先展開。只在手機寬有作用（樣式在 chat_window.css 的 @media）。
+    //   房間是蓋在聊天上面的一層：收放只動房間的裁切、立繪與小卡的位移縮放；聊天區只在切換那一下換上方留白（排一次版），
+    //   捲動位置補同樣的距離，畫面上的字不跳。逐格改聊天區高度＝每格重排整串，在酒館會卡。
+    const _FOLD_MQ = window.matchMedia ? window.matchMedia('(max-width: 600px)') : null;
+
+    function _foldable() {
+        return !!(_winEl && _view === 'room' && _provider !== 'group' && _FOLD_MQ && _FOLD_MQ.matches);
+    }
+
+    function _barH(body) {
+        return parseFloat(getComputedStyle(body).getPropertyValue('--cw-bar-h')) || 56;
+    }
+
+    /** 立繪縮進橫幅左邊要挪多少、縮多少：量現在看得到的那一個（動圖／打扮過與洛德的畫布／Codex 角色表） */
+    function _measureMini(area, barH) {
+        const el = ['.cw-clawd-canvas', '.codex-portrait-sprite', '.claude-portrait-img']
+            .map(s => area.querySelector(s)).find(n => n && n.offsetWidth > 0);
+        if (!el) return;
+        // 動圖那組（assets/claude/*.svg）四周空白多、螃蟹畫在框中心往下 30% 的地方：框放大一點、往上補回來。
+        // 程式畫的（打扮過的螃蟹、洛德、小機的身體）人站在畫布偏下一點
+        const isImg = el.tagName === 'IMG';
+        const box = isImg ? 84 : 64;
+        const h = el.offsetHeight || box;
+        const s = Math.min(1, box / h);
+        const dy = (isImg ? 0.30 : 0.13) * h * s;
+        // 例外：JS 量出來的位移只能經 CSS 變數傳（永不 inline style 那條允許的那種）
+        area.style.setProperty('--cw-mini-x', (34 - (el.offsetLeft + el.offsetWidth / 2)) + 'px');
+        area.style.setProperty('--cw-mini-y', (barH / 2 + 2 - dy - (el.offsetTop + h / 2)) + 'px');
+        area.style.setProperty('--cw-mini-s', String(s));
+    }
+
+    function _setRoomCollapsed(on) {
+        const body = _winEl && _winEl.querySelector('#cw-body');
+        if (!body) return;
+        on = !!on;
+        if (body.classList.contains('cw-room-collapsed') === on) return;
+        if (on && !_foldable()) return;
+        if (!_foldable()) { body.classList.remove('cw-room-collapsed'); return; }   // 視窗拉寬了：沒有留白可補
+        const area = body.querySelector('.claude-portrait-area');
+        const stream = body.querySelector('#claude-chat-stream');
+        const barH = _barH(body);
+        const shift = area ? area.offsetHeight - barH : 0;   // 聊天區上方留白差這麼多
+        const st = stream ? stream.scrollTop : 0;
+        if (on && area) _measureMini(area, barH);
+        body.classList.toggle('cw-room-collapsed', on);
+        if (stream) stream.scrollTop = on ? Math.max(0, st - shift) : st + shift;
+    }
+    ChatWindow.setRoomCollapsed = _setRoomCollapsed;
+
+    function _bindRoomFold(el) {
+        const body = el.querySelector('#cw-body');
+        const area = el.querySelector('.claude-portrait-area');
+        const stream = el.querySelector('#claude-chat-stream');
+        const input = el.querySelector('#cw-input');
+        if (input) {
+            input.addEventListener('focus', () => _setRoomCollapsed(true));
+            input.addEventListener('pointerdown', () => _setRoomCollapsed(true));   // 焦點本來就在框裡時，再點不會有 focus
+        }
+        if (area) area.addEventListener('click', (e) => {
+            if (!body || !body.classList.contains('cw-room-collapsed')) return;
+            if (e.target.closest('.claude-conv-chip')) return;   // 小卡照舊開會話清單
+            _setRoomCollapsed(false);
+        });
+        if (!stream) return;
+        // 只認她自己的手勢（滾輪往上、手指往下拖＝看舊的）；程式捲到底、重畫歷史那種不算
+        let wheelUp = 0, touchY = null;
+        stream.addEventListener('wheel', (e) => {
+            if (e.deltaY >= 0) { wheelUp = 0; return; }
+            wheelUp -= e.deltaY;
+            if (wheelUp > 60) { wheelUp = 0; _setRoomCollapsed(true); }
+        }, { passive: true });
+        stream.addEventListener('touchstart', (e) => {
+            touchY = (e.touches && e.touches[0]) ? e.touches[0].clientY : null;
+        }, { passive: true });
+        stream.addEventListener('touchmove', (e) => {
+            if (touchY == null || !e.touches || !e.touches[0]) return;
+            if (e.touches[0].clientY - touchY > 40 && stream.scrollTop > 0) { touchY = null; _setRoomCollapsed(true); }
+        }, { passive: true });
+    }
+
     async function _loadRoom(provider) {
         const cwBody = _winEl && _winEl.querySelector('#cw-body');
+        if (cwBody) cwBody.classList.remove('cw-room-collapsed');   // 進房一律先展開
         // 🧹 摘要按鈕只在群聊房顯示
         const compactBtn = _winEl && _winEl.querySelector('.cw-tool-compact');
         if (compactBtn) compactBtn.style.display = (provider === 'group') ? '' : 'none';
