@@ -37,8 +37,31 @@
     }
 
     let _pendingClaudeAttachments = []; // 當前訊息要附的檔（每筆 {path, filename, mime, size}），送出後清空
-    let _claudeAbortCtrl = null;        // 當前 send 的 AbortController（client-side fetch 中止）
-    let _claudeTaskId    = null;        // 當前 send 的 task_id（給 /v1/cancel/{taskId} 用）
+    // 正在回的那幾輪：住戶 id → { ctrl（AbortController）, taskId（給 /v1/cancel/{taskId}）, provider }。
+    //   以前全房間只有一份：阿洛還在跑時切去丹的房間，丹那顆送出鈕也是 ⏹、按下去停的是阿洛（待修 #288/#289）
+    const _inflight = {};
+
+    // 送出鈕：現在開著的這位正在回就是 ⏹（按了停他那一輪），不然是紙飛機。切房間（applyRoomUi）時照新那間重畫
+    function _paintSendBtn() {
+        const sb = _el('cw-send-btn');
+        if (!sb) return;
+        const CT = window.ClaudeTerminal;
+        const cur = (CT && _provider() !== 'group' && typeof CT.getActiveResidentId === 'function') ? _inflight[CT.getActiveResidentId()] : null;
+        if (cur) {
+            sb.innerHTML = '<i class="fa-solid fa-stop"></i>';
+            sb.onclick = async () => {
+                // 先 server-side kill（cc-bridge 訂閱版才生效），再 client-side abort fetch；小機不經橋：直接停，不先等橋
+                if (cur.taskId && cur.provider !== 'xiaoji') {
+                    try { await CT.cancelTask?.(cur.taskId); } catch (_) {}
+                }
+                cur.ctrl.abort();
+            };
+        } else {
+            sb.innerHTML = '<i class="fa-solid fa-paper-plane"></i>';
+            const fn = window.ChatWindow && window.ChatWindow.submitInput;
+            if (typeof fn === 'function') sb.onclick = fn;
+        }
+    }
 
     // 套用浮窗聊天室 UI（picker 文字 / 立繪 / 輸入框 placeholder）
     function _applyClaudeRoomUi() {
@@ -56,6 +79,7 @@
         }
         if (!who) who = prov === 'codex' ? 'Codex' : (prov === 'deepseek' ? '蘇景明' : 'Claude');
         inputField.placeholder = '對 ' + who + ' 說點什麼...';
+        _paintSendBtn();
     }
 
     // 浮窗化後大廳傳送門按鈕為固定文字（🦀 Claude / 🔷 Codex），不再反映房間狀態
@@ -1854,38 +1878,36 @@
             _renderClaudeReply('⚠️ 還沒設定 cc-bridge URL / Key。\n\n去「寫作 → API 設置 → 🦀 Claude 的房間」填好。');
             return;
         }
-        if (_claudeAbortCtrl) return;        // 他正在回，這時候放的等下一次
+        // 這一輪是哪一間：送出那一刻照下來。她送出後切去別間，回覆照樣寫回這間、不畫進別人的房間（待修 #288/#289）
+        const CT = window.ClaudeTerminal;
+        const ctx = (typeof CT.captureCtx === 'function') ? CT.captureCtx() : null;
+        const rid = ctx ? ctx.rid : '';
+        const hist = _roomHistory;
+        const here = () => !ctx || CT.isCtxOpen(ctx);
+        if (_inflight[rid]) return;        // 這位正在回，這時候放的等下一次（別位不擋）
         const held = _heldTail();
         if (!held.length) { _renderClaudeNotice('先說點什麼，再按這顆讓他回'); return; }
+        // 送出鈕換 ⏹ 停止：click 觸發 abort + 呼叫 cc-bridge /v1/cancel/{taskId}
+        // 訂閱版（CLI）→ /v1/cancel kill 子進程；API 直連版 → abort fetch（server 端目前沒 cancel 機制）
+        const me = {
+            ctrl: new AbortController(),
+            taskId: (window.crypto?.randomUUID && window.crypto.randomUUID()) || ('t-' + Math.random().toString(36).slice(2) + Date.now().toString(36)),
+            provider: ctx ? ctx.provider : _provider(),
+        };
+        _inflight[rid] = me;
+        _paintSendBtn();
         const text = held.map(m => m.content).join('\n');
         const attachmentsSnapshot = [].concat(...held.map(m => m.attachments || []))
             .map(a => ({ path: a.path, filename: a.filename, mime: a.mime, size: a.size }));
         // 放著的那幾條要先落到記錄裡，送的那支才認得出哪幾條是這輪的
         if (_saveTimer) { clearTimeout(_saveTimer); _saveTimer = null; }
-        await window.ClaudeTerminal.saveHistory(_roomHistory);
+        await window.ClaudeTerminal.saveHistory(hist, ctx);
 
         // 立繪切 thinking（effort=high/xhigh/max 用 ultrathink）
         const _cfgForState = window.ClaudeTerminal.getConfig();
         const _eff = ((_cfgForState && _cfgForState.inlineEffort) || '').toLowerCase();
         const _thinkState = (_eff === 'high' || _eff === 'xhigh' || _eff === 'max') ? 'ultrathink' : 'thinking';
-        _setClaudePortraitState(_thinkState);
-
-        // 送出鈕換 ⏹ 停止：click 觸發 abort + 呼叫 cc-bridge /v1/cancel/{taskId}
-        // 訂閱版（CLI）→ /v1/cancel kill 子進程；API 直連版 → abort fetch（server 端目前沒 cancel 機制）
-        _claudeAbortCtrl = new AbortController();
-        _claudeTaskId    = (window.crypto?.randomUUID && window.crypto.randomUUID()) || ('t-' + Math.random().toString(36).slice(2) + Date.now().toString(36));
-        const sendBtn = _el('cw-send-btn');
-        if (sendBtn) {
-            sendBtn.innerHTML = '<i class="fa-solid fa-stop"></i>';
-            sendBtn.onclick = async () => {
-                // 先 server-side kill（cc-bridge 訂閱版才生效），再 client-side abort fetch
-                // 小機不經橋：直接停，不先等橋
-                if (_claudeTaskId && !(window.ClaudeTerminal.getProvider && window.ClaudeTerminal.getProvider() === 'xiaoji')) {
-                    try { await window.ClaudeTerminal.cancelTask?.(_claudeTaskId); } catch (_) {}
-                }
-                if (_claudeAbortCtrl) _claudeAbortCtrl.abort();
-            };
-        }
+        if (here()) _setClaudePortraitState(_thinkState);
 
         // 提到 try 外:finally / catch 也要碰這兩個變數(清 throttle timer + 殘留 stream bubble)
         let streamWrap = null;
@@ -1937,6 +1959,9 @@
             };
             const _flushStreamingRender = () => {
                 _rerenderTimer = null;
+                if (!here()) return;   // 她切到別間了：不畫進別人的房間
+                // 切走又切回來：房間重畫過、原本那個殼不在畫面上了，重新起一個（已經寫完的段落從頭放）
+                if (streamWrap && !streamWrap.isConnected) { streamWrap = null; _streamToolEl = null; }
                 _ensureStreamShell();
                 // 最後一段可能還在寫，只放前面寫完的
                 const segs = _replySegments(acc.text, true);
@@ -1967,7 +1992,7 @@
                 if (!ev) return;
                 if (ev.type === 'text') {
                     // 第一個文字 delta 抵達：thinking/ultrathink → typing
-                    if (!_typingSwitched) {
+                    if (!_typingSwitched && here()) {
                         _typingSwitched = true;
                         _setClaudePortraitState('typing');
                     }
@@ -1984,15 +2009,15 @@
 
             // 這一輪從什麼時候、跟誰開始（回完拿他這一輪提的單子用）
             const _turnAt = Date.now() / 1000;
-            let _turnRid = '';
-            try { _turnRid = window.ClaudeTerminal.getActiveResidentId ? window.ClaudeTerminal.getActiveResidentId() : ''; } catch (_) {}
+            const _turnRid = rid;
             const result = await window.ClaudeTerminal.send(text, attachmentsSnapshot, onProgress, {
-                taskId: _claudeTaskId,
-                signal: _claudeAbortCtrl?.signal,
+                taskId: me.taskId,
+                signal: me.ctrl.signal,
                 fromHeld: true,
+                ctx: ctx,
             });
             held.forEach(m => { delete m.held; });
-            _paintHeld();
+            if (here()) _paintHeld();
             const reply = result.reply;
             const thinking = result.thinking || null;
             const usage = result.usage || null;
@@ -2003,7 +2028,7 @@
 
             // 累計到額度面板（💰 app）：記是誰、哪一種住戶，面板才分得了頁
             if (usage && window.OS_SPEND_PANEL && typeof window.OS_SPEND_PANEL.record === 'function') {
-                try { window.OS_SPEND_PANEL.record(usage, { rid: _turnRid, provider: _provider() }); } catch (_) {}
+                try { window.OS_SPEND_PANEL.record(usage, { rid: _turnRid, provider: me.provider }); } catch (_) {}
             }
 
             // 先取消還在排程中的 throttled rerender,避免 final render 後又冒一個多餘 stream bubble
@@ -2014,7 +2039,8 @@
 
             // 🫧 還沒冒出來的段落照同一個節奏放完（整則一次到的也是在這裡一顆一顆放），
             //    放完才換成完整那份：思考、工具、附件、用量掛上去，泡泡不再播一次動畫
-            if (String(reply || '').trim()) {
+            if (here() && String(reply || '').trim()) {
+                if (streamWrap && !streamWrap.isConnected) { streamWrap = null; _streamToolEl = null; }
                 _ensureStreamShell();
                 if (_streamToolEl && _streamToolEl.parentNode) _streamToolEl.parentNode.removeChild(_streamToolEl);
                 _revealer.push(_replySegments(reply, false).slice(_revealer.count));
@@ -2037,6 +2063,12 @@
             if (xj) {
                 assistantRecord.calls = xj.calls;
                 if (xj.log && xj.log.length) assistantRecord.xjlog = xj.log.map(x => ({ label: x.label, ok: x.ok, text: String(x.text || '').slice(0, 12000) }));   // 下一句才改的時候要抄得到原文（OS_XIAOJI 只把最近那則留長）
+            }
+            if (!here()) {
+                // 她已經在別間：這輪的回覆存回它自己那一串，不畫、不動立繪；她回到這間時房間會重新載入
+                hist.push(assistantRecord);
+                await window.ClaudeTerminal.saveHistory(hist, ctx);
+                return;
             }
             _activeHistory().push(assistantRecord);
 
@@ -2061,6 +2093,7 @@
                 try { window._VoidClaudeUpdateChip(); } catch (_) {}
             }
         } catch (e) {
+            if (!here()) return;   // 已經在別間：不畫錯誤進別人的房間（送的那支已經把她這句存回原樣）
             const isAbort = e?.name === 'AbortError' || /abort/i.test(e?.message || '');
             // 失敗：她放著的那幾條留著、還是等著（送的那支也存回原樣），再按一次魔杖就好
             _paintHeld();
@@ -2106,15 +2139,9 @@
                 streamWrap = null;
             }
 
-            // 還原送出鈕：icon 回紙飛機、onclick 回浮窗的 submitInput
-            _claudeAbortCtrl = null;
-            _claudeTaskId    = null;
-            const sb = _el('cw-send-btn');
-            if (sb) {
-                sb.innerHTML = '<i class="fa-solid fa-paper-plane"></i>';
-                const fn = window.ChatWindow && window.ChatWindow.submitInput;
-                if (typeof fn === 'function') sb.onclick = fn;
-            }
+            // 這一輪收了：送出鈕照現在開著那間重畫（是這間就回紙飛機；別間在跑就留著它的 ⏹）
+            if (_inflight[rid] === me) delete _inflight[rid];
+            _paintSendBtn();
         }
     }
 
