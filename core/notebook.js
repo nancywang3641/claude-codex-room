@@ -27,7 +27,7 @@
         body: '這間聊天室的記事本，只有你跟他看得到；每個房間各一本，群聊也有一本。\n'
             + '長按對話裡的一則，選「收進記事本」，那一則就收進來，點開能跳回去那段對話。也可以按右下角自己寫一則、放照片。\n'
             + '他想跟你說的話也收在這裡，點開能直接回他。\n'
-            + '相簿是這間每一串對話裡發過的照片，表情包不算。\n'
+            + '相簿是這間每一串對話裡發過的照片，表情包不算。點一張按「引用」，會放回輸入框上面，送出時他就再看一次（換了新會話也一樣）。\n'
             + '最上面那格找字，會連同所有對話一起找；群聊只找得到這台裝置上的。' } });
 
     // ---------- 小工具 ----------
@@ -687,9 +687,43 @@
         const where = S.bk.group ? '群聊' : ('「' + (x.convTitle || '那一串') + '」');
         const body = '<div class="nb-photo">' + _imgTag(x, 'nb-photo-big') + '</div>'
             + '<div class="nb-photo-cap">' + _esc(who) + ' · ' + _esc(_when(x.ts)) + ' · ' + _esc(where) + '</div>';
-        const foot = '<span class="nb-grow"></span><button type="button" class="nb-btn nb-btn-main nb-go"><i class="fa-solid fa-arrow-turn-up"></i> 回到那段對話</button>';
+        const foot = '<button type="button" class="nb-btn nb-quote"><i class="fa-solid fa-quote-left"></i> 引用</button>'
+            + '<button type="button" class="nb-btn nb-btn-main nb-go"><i class="fa-solid fa-arrow-turn-up"></i> 回到那段對話</button>';
         const pg = _pageOpen('照片', body, foot);
-        if (pg) pg.querySelector('.nb-go').addEventListener('click', () => _jump(x));
+        if (!pg) return;
+        pg.querySelector('.nb-go').addEventListener('click', () => _jump(x));
+        pg.querySelector('.nb-quote').addEventListener('click', ev => _quote(x, ev.currentTarget));
+    }
+
+    /** 引用（10-03 她：「用戶可以在相簿引用當初的圖片…真的需要再討論的時候再去拿回來就好」）：
+     *  把這張圖放回現在這間的輸入框上面，跟她剛貼上的一樣，送出時他就重新看得到（換了新會話也一樣）。
+     *  一律重新傳一份：電腦上的原圖經橋拿（原尺寸），只剩縮圖的就傳縮圖；傳的路跟她平常附圖同一條。 */
+    async function _quote(x, btn) {
+        if (btn) btn.disabled = true;
+        let blob = null;
+        try {
+            if (x.path) {
+                const u = await _localUrl(x.path);
+                if (u) blob = await (await fetch(u)).blob();
+            }
+            if (!blob && (x.thumb || x.url)) blob = await (await fetch(x.thumb || x.url)).blob();
+        } catch (_) { blob = null; }
+        if (!blob || !blob.size) {
+            if (btn) btn.disabled = false;
+            _toast('這張拿不到，沒辦法引用');
+            return;
+        }
+        const type = blob.type && blob.type.indexOf('image/') === 0 ? blob.type : 'image/jpeg';
+        const ext = (type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
+        const d = new Date(x.ts || Date.now());
+        const file = new File([blob], '引用 ' + (d.getMonth() + 1) + '-' + d.getDate() + '.' + ext, { type: type });
+        const bk = S ? S.bk : _bookNow();
+        const CW = _CW();
+        if (CW) CW.closeSubPanel();
+        const G = window.ChatGroup, R = window.VoidClaudeRoom;
+        if (bk.group) { if (G && typeof G.handleFilePick === 'function') G.handleFilePick([file]); }
+        else if (R && typeof R.handleFilePick === 'function') R.handleFilePick([file]);
+        _toast('放好了，送出時他就看得到');
     }
 
     // =====================================================================
