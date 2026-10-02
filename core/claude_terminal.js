@@ -1104,6 +1104,20 @@ ${withOthers}
         return await ClaudeTerminal.loadConversation(convId);
     };
 
+    /** 紀錄頁「回到那段對話」：換到這位住戶的某一串（可能在另一頁 Max／API、這台的清單還沒拉過）。
+     *  先跟橋拉那一頁的清單再換 —— 拿本機舊清單直接設 active 的話，推上去會把橋上那份整份蓋掉。
+     *  回 false＝那一串已經不在了。換好之後由呼叫端重開房間（ChatWindow.reloadRoom）。 */
+    ClaudeTerminal.gotoConv = async function(tab, convId) {
+        tab = _normalizeTab(tab);
+        await ClaudeTerminal.flushSync();
+        ClaudeTerminal.setActiveTab(tab);
+        ClaudeTerminal._invalidateSync();
+        await _pullConvs(tab);
+        if (!ClaudeTerminal.listConversations(tab).some(c => c && c.id === convId)) return false;
+        ClaudeTerminal.setActiveConvId(tab, convId);
+        return true;
+    };
+
     /** 確保當前 tab 至少有一個 active conv（沒有就建一個），回 active conv id */
     ClaudeTerminal.ensureActiveConv = function(tab) {
         tab = _normalizeTab(tab);

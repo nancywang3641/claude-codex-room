@@ -169,7 +169,7 @@
 .ob-wake-late .ob-wake-when,
 .ob-wake-stopped .ob-wake-when { color: #b5563f; }
 
-/* ---- 分頁（10-01）：動態／等你同意的／待修／想跟妳說的，黏在捲動區頂端 ---- */
+/* ---- 分頁（10-01）：動態／等你同意的／待修，黏在捲動區頂端（想跟妳說的 10-03 搬去房間的紀錄） ---- */
 .ob-tabs {
     position: sticky;
     top: 0;
@@ -215,28 +215,9 @@
 .ob-tab-n.is-hot { background: #b9924f; color: #fff; }
 /* 分頁上已經寫了是哪一頁，區塊自己的標題列就不重複 */
 .ob-tabs ~ .ob-pane .ob-props-title,
-.ob-tabs ~ .ob-pane .ob-bugs-title,
-.ob-tabs ~ .ob-pane .ob-pins-title { display: none; }
+.ob-tabs ~ .ob-pane .ob-bugs-title { display: none; }
 .ob-tabs ~ .ob-pane .ob-props-title + .ob-prop,
 .ob-tabs ~ .ob-pane .ob-bugs-title + .ob-bug { border-top: none; }
-
-/* ---- 想跟妳說的（提案，釘在最上面） ---- */
-.ob-pins {
-    margin: 12px 12px 2px;
-    border-radius: 10px;
-    background: #f7f5ef;
-    border: 1px solid rgba(185, 146, 79, 0.35);
-    overflow: hidden;
-}
-.ob-pins-title {
-    padding: 9px 14px 0;
-    font-size: 12px;
-    font-weight: 700;
-    color: #8a6a33;
-    letter-spacing: 1px;
-}
-.ob-pins .ob-post { border-bottom-color: rgba(185, 146, 79, 0.2); }
-.ob-pins .ob-post:last-child { border-bottom: none; }
 
 /* ---- 待修（技術問題的清單，放在提案上面） ---- */
 .ob-bugs {

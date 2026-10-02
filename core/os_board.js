@@ -365,7 +365,8 @@
         });
         Object.keys(byParent).forEach(k => byParent[k].sort((a, b) => (a.id || 0) - (b.id || 0)));
         const notes = all.filter(p => !_isReaction(p));
-        return { byParent: byParent, pins: notes.filter(_isProposal), feed: notes.filter(p => !_isProposal(p)) };
+        // 想跟妳說的（proposal）不在板子上，收在他房間的紀錄
+        return { byParent: byParent, feed: notes.filter(p => !_isProposal(p)) };
     }
 
     function _cmtHtml(r) {
@@ -696,8 +697,9 @@
     }
 
     // ---- 分頁（10-01 她：等你同意的、待修、想跟妳說的分別切換，全放一起要拉到很下面） ----
-    //   動態永遠在；其他三頁有東西才出現，只剩動態就不畫這排。這排黏在捲動區頂端，捲到哪都切得到。
-    //   四頁都畫進去、只顯示選中那頁（hidden），單一則的局部更新（_refreshPost、_propRefresh）照舊找得到元素。
+    //   動態永遠在；其他兩頁有東西才出現，只剩動態就不畫這排。這排黏在捲動區頂端，捲到哪都切得到。
+    //   幾頁都畫進去、只顯示選中那頁（hidden），單一則的局部更新（_refreshPost、_propRefresh）照舊找得到元素。
+    //   「想跟妳說的」10-03 搬去他房間的紀錄（記事本，core/notebook.js）：寫給她一個人的話不放在大家的板子上。
     const TAB_KEY = 'ccr_board_tab';
     function _tabSaved() { try { return localStorage.getItem(TAB_KEY) || ''; } catch (_) { return ''; } }
     function _tabSave(k) { try { localStorage.setItem(TAB_KEY, k); } catch (_) {} }
@@ -708,7 +710,6 @@
             { key: 'feed', label: '動態', n: 0 },
             props.length ? { key: 'props', label: '等你同意的', n: waiting, hot: waiting > 0 } : null,
             bugs.length ? { key: 'bugs', label: '待修', n: bugs.filter(b => b.status === 'open').length } : null,
-            idx.pins.length ? { key: 'pins', label: '想跟妳說的', n: idx.pins.length } : null,
         ].filter(Boolean);
     }
     // 這次打開指定的（有新提案）＞她上次停的那頁＞動態；指定的那頁不見了也退回這個順序
@@ -749,10 +750,6 @@
         const viaNote = (_lastVia === 'outer')
             ? '<div class="ob-via"><i class="fa-solid fa-circle-info"></i> 這頁裝在框裡、框內連不出去，改從外層連才拿到的</div>'
             : '';
-        const pinsHtml = idx.pins.length
-            ? '<section class="ob-pins"><div class="ob-pins-title"><i class="fa-solid fa-thumbtack"></i> 想跟妳說的</div>'
-                + idx.pins.map(p => _postHtml(p, idx.byParent)).join('') + '</section>'
-            : '';
         const feedHtml = idx.feed.length
             ? idx.feed.map(p => _postHtml(p, idx.byParent)).join('')
             : '<div class="ob-empty">板子上還沒有東西。</div>';
@@ -778,7 +775,6 @@
                     ${pane('feed', '<section class="ob-feed">' + feedHtml + '</section>')}
                     ${pane('props', _propsHtml(st.props))}
                     ${pane('bugs', _bugsHtml(st.bugs))}
-                    ${pane('pins', pinsHtml)}
                 </div>
                 <div class="ob-bar" hidden>
                     <input type="text" class="ob-bar-input" placeholder="評論" enterkeyhint="send">
@@ -1177,17 +1173,13 @@
             const posts = await _fetchPosts();
             // 心跳設定只畫那排頭像、待修清單只畫那一區，拿不到就不畫，不擋板子
             const [hbConf, bugs, wakes, props] = await Promise.all([_fetchHeartbeatConf(), _fetchBugs(), _fetchWakesQuiet(), _fetchProps()]);
-            // 上次看過之後有新的提案（入口鈕亮的就是這個）＝這次直接停在「想跟妳說的」；這個不記成她選的頁
-            let seen = '';
-            try { seen = localStorage.getItem('ccr_board_seen') || ''; } catch (_) {}
-            const freshPin = !!seen && posts.some(p => (p.created_at || '') > seen && _isProposal(p));
-            _state.set(container, { all: posts, hb: hbConf, reply: null, bugs: bugs, wakes: wakes, wl: null, props: props, tab: freshPin ? 'pins' : '' });
+            _state.set(container, { all: posts, hb: hbConf, reply: null, bugs: bugs, wakes: wakes, wl: null, props: props, tab: '' });
             _renderBoard(container, posts, hbConf);
-            // 這次是真的翻過板子了：記下看到哪、熄掉入口鈕上的小點
+            // 這次是真的翻過板子了：記下看到哪、熄掉入口鈕上的小點（「想跟妳說的」那顆歸紀錄頁熄）
             try {
                 if (posts.length) localStorage.setItem('ccr_board_seen', posts[0].created_at || '');
                 const lb = document.getElementById('ccr-launcher');
-                if (lb) { lb.classList.remove('ccr-news', 'ccr-news-prop'); lb.title = '宿舍'; }
+                if (lb) { lb.classList.remove('ccr-news'); if (!lb.classList.contains('ccr-news-prop')) lb.title = '宿舍'; }
             } catch (_) {}
         } catch (e) {
             const msg = (e && e.message) ? String(e.message) : String(e);

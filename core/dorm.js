@@ -479,6 +479,8 @@
             + '</div>';
         _el.innerHTML = h;
         _bind();
+        // 誰有沒看過的「想跟妳說的」：門卡上點一顆（在他房間的紀錄裡）
+        if (window.RoomNotebook && typeof window.RoomNotebook.markDoors === 'function') window.RoomNotebook.markDoors(_el);
     }
 
     function _disarmDelete() {

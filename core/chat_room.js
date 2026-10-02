@@ -1436,6 +1436,7 @@
         const isUser = role === 'user';
         const wrap = document.createElement('div');
         wrap.className = 'claude-bubble-wrap ' + (isUser ? 'from-user' : 'from-claude');
+        if (opts.msg) wrap._ccrMsg = opts.msg;   // 長按收進記事本、紀錄頁跳回來找的就是這則
 
         // 留言板標籤橋已經替他做完，畫面上拿掉（歷史重畫也走這裡）。整則只有標籤就留一句說他去板上動了手。
         //   記進待修的（board_bug）另外掛一張待修卡；整則只有待修就只掛卡，不留那句
@@ -1598,6 +1599,7 @@
                     props: (Array.isArray(m.props) && m.props.length) ? m.props : null,
                     calls: m.calls || 0,
                     noScroll: true,
+                    msg: m,
                 }
             );
         });
@@ -1750,6 +1752,7 @@
         _renderClaudeBubble('user', text, {
             attachments: attachmentsSnapshot,
             voice: msg.voiceAudio ? { audioId: msg.voiceAudio, sec: msg.voiceSec } : null,
+            msg: msg,
         });
         _scrollClaudeChatToBottom();
         _scheduleSave();
@@ -2083,12 +2086,12 @@
                     '⚠️ 之前的 session 失效了（cc-bridge 重啟過 / log 被清 / 太久沒聊）。\n\n' +
                     '我從零開始記新對話了。如果想讓我知道之前聊過什麼，把重點再講一次給我聽吧。\n\n' +
                     '---\n\n' + reply,
-                    { thinking, usage, toolsUsed, attachments: images, props, still: true }
+                    { thinking, usage, toolsUsed, attachments: images, props, still: true, msg: assistantRecord }
                 );
                 _setClaudePortraitState('happy');
                 setTimeout(() => _setClaudePortraitState('living'), 600);
             } else {
-                _renderClaudeBubble('assistant', reply, { thinking, usage, toolsUsed, attachments: images, props, still: true, calls: xj ? xj.calls : 0, stopped: !!(xj && xj.stopped) });
+                _renderClaudeBubble('assistant', reply, { thinking, usage, toolsUsed, attachments: images, props, still: true, calls: xj ? xj.calls : 0, stopped: !!(xj && xj.stopped), msg: assistantRecord });
                 _setClaudePortraitState('happy');
                 setTimeout(() => _setClaudePortraitState('living'), 600);
             }

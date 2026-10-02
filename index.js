@@ -226,7 +226,7 @@
     // 手機瀏覽器把這批靜態檔快取得很兇,沒版本參數的話核心檔更新永遠到不了手機
     // (症狀:桌機是新版、手機停在幾個月前,甚至 chat_window 跟 chat_room 各停在不同版本)。
     // 檔案有改就把 VER +1,跟奧瑞亞 sw.js 的 CACHE_VERSION 同一套習慣。
-    const VER = 118;
+    const VER = 119;
 
     function loadCSS(href) {
         if (document.querySelector('link[data-ccr="' + href + '"]')) return;
@@ -259,6 +259,7 @@
     loadCSS(HERE + 'css/dorm.css');
     loadCSS(HERE + 'css/xiaoji.css');           // 🧩 API 小機                 // 🏠 宿舍面板
     loadCSS(HERE + 'css/wardrobe.css');         // 👕 衣櫃
+    loadCSS(HERE + 'css/notebook.css');         // 📒 紀錄（記事本＋相簿）
     loadCSS(HERE + 'css/launcher.css');
 
     const FILES = [
@@ -268,6 +269,7 @@
         'core/clawd_portrait.js',  // window.ClawdPortrait（打扮過的 Claude 住戶改用程式畫立繪）
         'core/wear_local.js',      // 🧥 不經橋的打扮與衣櫃（RoomWear：API 小機用，規則跟橋 room_decor 同一套）
         'core/wardrobe.js',        // 👕 衣櫃（RoomWardrobe，橋 /v1/wardrobe；小機走 RoomWear；小圖借 ClawdPortrait 畫）
+        'core/notebook.js',        // 📒 紀錄（RoomNotebook：記事本＋相簿＋找字，橋 /v1/notebook、/v1/room/media、/v1/room/search）
         'core/chat_window.js',     // window.ChatWindow（外殼）
         'core/chat_room.js',       // window.VoidClaudeRoom
         'core/chat_group.js',      // window.ChatGroup
@@ -385,11 +387,15 @@
             const data = await r.json();
             const posts = Array.isArray(data.posts) ? data.posts : [];
             if (!posts.length) return;
-            const newest = posts[0].created_at || '';
+            // 一般紙條：比留言板上次翻到哪；「想跟妳說的」（10-03 起收在他房間的紀錄）：比紀錄頁看過哪一則
+            const isProp = p => Array.isArray(p.tags) && p.tags.some(t => String(t).toLowerCase() === 'proposal');
             const seen = localStorage.getItem('ccr_board_seen') || '';
-            if (!newest || newest <= seen) return;
-            const hasProposal = posts.some(p => (p.created_at || '') > seen
-                && Array.isArray(p.tags) && p.tags.some(t => String(t).toLowerCase() === 'proposal'));
+            let nbSeen = {};
+            try { nbSeen = JSON.parse(localStorage.getItem('ccr_nb_seen') || '{}') || {}; } catch (e) {}
+            // 紀錄頁還沒開過的人：搬家前在留言板看過的就算看過
+            const hasProposal = posts.some(p => isProp(p) && (p.created_at || '') > (nbSeen[p.author] || seen));
+            const hasNews = posts.some(p => !isProp(p) && (p.created_at || '') > seen);
+            if (!hasProposal && !hasNews) return;
             // 入口在宿主那邊時，點要畫在宿主的鈕上 —— 各自標自己的 DOM，不互相伸手改樣式。
             if (window.__CCR_NO_LAUNCHER__) {
                 try {

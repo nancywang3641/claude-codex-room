@@ -426,7 +426,7 @@
         return box;
     }
 
-    function _renderBubble(speaker, content, attachments, toolsUsed, thinking) {
+    function _renderBubble(speaker, content, attachments, toolsUsed, thinking, msg) {
         if (!_streamEl) return null;
         // 'recap' = 「🧹 摘要重啟」按鈕生成的前情提要,render 成置中分隔卡(非氣泡)
         if (speaker === 'recap') {
@@ -447,6 +447,7 @@
         const css = _cssOf(speaker);
         const wrap = document.createElement('div');
         wrap.className = 'cg-bubble-wrap cg-from-' + css;
+        if (msg) wrap._ccrMsg = msg;   // 長按收進記事本、紀錄頁跳回來找的就是這則
         if (speaker !== 'rae') {
             const hdr = document.createElement('div');
             hdr.className = 'cg-bubble-hdr cg-hdr-' + css;
@@ -656,7 +657,7 @@
                 if (m.speaker === 'rae' && m.content && m.content.indexOf('（系統）') === 0) return;
                 const hasAtt = Array.isArray(m.attachments) && m.attachments.length;
                 if (!_stripForDisplay(m.content) && !hasAtt) return;
-                _renderBubble(m.speaker, m.content, m.attachments, m.toolsUsed, m.thinking);
+                _renderBubble(m.speaker, m.content, m.attachments, m.toolsUsed, m.thinking, m);
             });
         } finally {
             _bulk = false;
@@ -1175,6 +1176,7 @@
         // 存起來，不然重新進群聊就只剩文字、看不出他做過什麼
         if (Array.isArray(result.toolsUsed) && result.toolsUsed.length) turnEntry.toolsUsed = result.toolsUsed;
         _transcript.push(turnEntry);
+        if (typingWrap) typingWrap._ccrMsg = turnEntry;
         // 同一份話也留一份給他自己的房間：群聊跟私聊各自 resume，不回流的話同一位住戶
         // 在兩邊就是兩個人。收的是剝過標記的原話（[MOVE] 那些是對桌上講的，回房間沒有
         // 意義），別人說了什麼不收。
@@ -1622,7 +1624,7 @@
         // 遊戲進行中：只進 transcript + 渲染，不另起一輪（迴圈下個回合自然帶到）
         if (_game) {
             _transcript.push(entry);
-            _renderBubble('rae', text, atts);
+            _renderBubble('rae', text, atts, null, null, entry);
             _save();
             return;
         }
@@ -1630,7 +1632,7 @@
         _busy = true;
         try {
             _transcript.push(entry);
-            _renderBubble('rae', text, atts);
+            _renderBubble('rae', text, atts, null, null, entry);
             _save();
 
             // @-mention 路由:
@@ -1976,6 +1978,8 @@
     };
 
     ChatGroup.isBusy = function () { return _busy; };
+    /** 這台裝置上的群聊記錄（紀錄頁的相簿、找字、跳回那一則用；只讀） */
+    ChatGroup.transcript = function () { return _transcript; };
 
     console.log('✅ ChatGroup（群聊區協調器）模組就緒');
 })(window.ChatGroup = window.ChatGroup || {});

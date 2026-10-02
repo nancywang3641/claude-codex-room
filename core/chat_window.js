@@ -13,6 +13,7 @@
     let _provider = 'claude';        // 'claude' | 'codex'
     let _isOpen = false;
     let _subPanel = null;            // 當前開啟的子面板名（null = 沒開）
+    let _subBack = null;             // 子面板裡又點開一層時，標題列「返回」改做這件事（setSubPanelHead 設）
 
     const IDENTITY_ICON = {
         claude: '🦀', codex: '🔷', deepseek: '🟢', group: '👥', xiaoji: '',
@@ -74,6 +75,7 @@
                     <button class="cw-tool-btn" data-panel="settings"  type="button" title="設置"><i class="fa-solid fa-gear"></i></button>
                     <button class="cw-tool-btn" data-panel="spend"     type="button" title="額度"><i class="fa-solid fa-coins"></i></button>
                     <button class="cw-tool-btn" data-panel="board"     type="button" title="留言板"><i class="fa-solid fa-note-sticky"></i></button>
+                    <button class="cw-tool-btn" data-panel="notebook"  type="button" title="紀錄"><i class="fa-solid fa-book-bookmark"></i></button>
                     <button class="cw-tool-btn" data-panel="recents"   type="button" title="會話"><i class="fa-solid fa-clock-rotate-left"></i></button>
                     <button class="cw-tool-btn cw-tool-compact" data-action="compact" type="button" title="摘要 & 重啟群聊(壓縮上下文,清三人 session,留前情提要)" style="display:none;"><i class="fa-solid fa-broom"></i></button>
                 </div>
@@ -148,7 +150,11 @@
 
         el.querySelector('#cw-close').addEventListener('click', () => ChatWindow.close());
         el.querySelector('#cw-back').addEventListener('click', () => ChatWindow.showDorm());
-        el.querySelector('#cw-subpanel-close').addEventListener('click', () => ChatWindow.closeSubPanel());
+        el.querySelector('#cw-subpanel-close').addEventListener('click', () => {
+            // 子面板自己開了一層（紀錄點開的單頁）：返回先退那一層，不整個關掉
+            if (_subBack) { const f = _subBack; f(); return; }
+            ChatWindow.closeSubPanel();
+        });
         el.querySelectorAll('.cw-tool-btn').forEach(b => {
             b.addEventListener('click', () => {
                 if (b.dataset.action === 'compact') {
@@ -161,6 +167,7 @@
         _bindDrag(el.querySelector('#cw-titlebar'), el);
         _bindChatInput(el);
         _bindRoomFold(el);
+        if (window.RoomNotebook && typeof window.RoomNotebook.bind === 'function') window.RoomNotebook.bind(el);   // 長按一則 → 收進記事本
         const closet = el.querySelector('#cw-room-closet');
         if (closet) closet.addEventListener('click', (e) => { e.stopPropagation(); ChatWindow.openSubPanel('wardrobe'); });
 
@@ -726,6 +733,8 @@
         // 衣櫃鈕：只有會打扮的住戶（Claude 住戶、阿洛）
         const closet = _winEl && _winEl.querySelector('#cw-room-closet');
         if (closet) closet.hidden = !(window.RoomWardrobe && window.RoomWardrobe.canDress(provider));
+        // 紀錄那顆：這位有沒看過的「想跟妳說的」就點一顆（群聊沒有）
+        if (window.RoomNotebook && typeof window.RoomNotebook.peekRoom === 'function') window.RoomNotebook.peekRoom();
         // 🧹 摘要按鈕只在群聊房顯示
         const compactBtn = _winEl && _winEl.querySelector('.cw-tool-compact');
         if (compactBtn) compactBtn.style.display = (provider === 'group') ? '' : 'none';
@@ -1350,12 +1359,13 @@
         settings: '設置',
         spend: '額度', board: '留言板', recents: '會話',
         xiaoji_train: '培養室', xiaoji_box: '404 寄來的箱子',
-        wardrobe: '衣櫃',
+        wardrobe: '衣櫃', notebook: '紀錄',
     };
 
     ChatWindow.openSubPanel = function (name) {
         if (!_winEl) return;
         _subPanel = name;
+        _subBack = null;
         const sp = _winEl.querySelector('#cw-subpanel');
         const title = _winEl.querySelector('#cw-subpanel-title');
         const body = _winEl.querySelector('#cw-subpanel-body');
@@ -1382,6 +1392,9 @@
         } else if (name === 'wardrobe') {
             if (window.RoomWardrobe && typeof window.RoomWardrobe.launch === 'function') window.RoomWardrobe.launch(body);
             else body.innerHTML = '<div class="cw-sub-missing">衣櫃模組未載入</div>';
+        } else if (name === 'notebook') {
+            if (window.RoomNotebook && typeof window.RoomNotebook.launch === 'function') window.RoomNotebook.launch(body);
+            else body.innerHTML = '<div class="cw-sub-missing">紀錄模組未載入</div>';
         } else if (name === 'settings') {
             _renderSettingsPanel(body);
         } else if (name === 'recents') {
@@ -1395,8 +1408,17 @@
         sp.style.display = 'flex';
     };
 
+    /** 子面板裡點開一層：標題換成那一層的，「返回」退回上一層（onBack）。不給 onBack＝回到子面板本身的標題 */
+    ChatWindow.setSubPanelHead = function (title, onBack) {
+        if (!_winEl) return;
+        const t = _winEl.querySelector('#cw-subpanel-title');
+        if (t) t.textContent = title || _SUBPANEL_TITLES[_subPanel] || _subPanel || '';
+        _subBack = typeof onBack === 'function' ? onBack : null;
+    };
+
     ChatWindow.closeSubPanel = function () {
         _subPanel = null;
+        _subBack = null;
         if (!_winEl) return;
         const sp = _winEl.querySelector('#cw-subpanel');
         if (sp) sp.style.display = 'none';
@@ -1455,6 +1477,9 @@
             window.VoidClaudeRoom.holdMessage(txt);     // 🤚 私聊只放上去，按魔杖才回
         }
     };
+
+    /** 重開現在這間（紀錄頁跳回別的一串時用：先換好那串，再照開房間的路走一次） */
+    ChatWindow.reloadRoom = function () { return _winEl ? _loadRoom(_provider) : Promise.resolve(); };
 
     ChatWindow.isOpen      = function () { return _isOpen; };
     ChatWindow.getProvider = function () { return _provider; };
