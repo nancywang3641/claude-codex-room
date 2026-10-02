@@ -45,7 +45,6 @@
     let _needBrief = {};          // residentId → 回桌摘要要涵蓋的區間 { from, to }
     let _following = false;       // 正在跑 AI 互相接話的續輪
     let _followAbort = false;     // 她在續輪期間插話了 → 停下來讓她先講
-    let _queued = null;           // 續輪期間她送出的東西，停下來之後接著跑
     const GAME_TURN_LIMIT = 60;   // 安全閥：總手數上限，防無限迴圈 + 訂閱額度爆
     const GAME_RETRY_LIMIT = 3;   // 同一手連續送不出去幾次才真的收場（熄屏回來要能續）
     const GAME_RETRY_BACKOFF_MS = 1500;   // 重下前遞增等這麼久：1.5s → 3s → 4.5s
@@ -634,6 +633,7 @@
         _streamEl = streamEl;
         _pendingAttachments = [];
         _renderPendingAttachments();
+        _paintHeld();   // 魔杖上的數字照這桌的（私聊那邊畫的是私聊的）
         if (!_streamEl) return;
         // 上次那局可能還在橋上跑（她把 app 關掉去睡覺）。要等 _streamEl 有了才問，
         // 不然撈回來的那幾手沒有地方可畫。自己有守衛，重複 hydrate 不會重複接。
@@ -1553,7 +1553,7 @@
         return true;
     }
 
-    // ── @-mention 解析（給 sendUserMessage 用）──
+    // ── @-mention 解析（給 _runRound 用）──
     // 認入席住戶的名字（她自己取的名字都算）、住戶 id，以及舊的 @Claude / @Codex /
     // @deepseek 這種 provider 代號 —— 代號對到「該 provider 第一位入席者」。
     // 名字先長後短比對，免得叫「丹」的那位把 @丹二 也接走。
@@ -1591,50 +1591,80 @@
     }
 
     // ── 你發訊息 ──
-    ChatGroup.sendUserMessage = async function (text) {
-        text = text || '';
-        const hasAtt = _pendingAttachments.some(function (a) { return a && a.path; });
-        if (!text.trim() && !hasAtt) return;
-        // 一般忙碌中（非遊戲）→ 擋，不動 pending，使用者可稍後重送。
-        // 例外是 AI 正在互相接話：她插話代表她要主導，停下續輪、把這句排隊，
-        // 當前這個人講完就換她 —— 直接 return 會把她打的字吃掉，那最惱人。
-        if (!_game && _busy) {
-            if (!_queued) {
-                // 續輪的話停下來讓她先講;主輪本來就會跑完,排隊等它結束就好。
-                if (_following) _followAbort = true;
-                _queued = { text: text, atts: _pendingAttachments.slice() };
-                _pendingAttachments = [];
-                _renderPendingAttachments();
-            }
-            return;
-        }
+    // 🤚 先放著、按魔杖才回（10-03 她：「群聊能不能也放hold按鈕0..0 不然我發不了表情包XDD」）：
+    //   跟私聊同一套。輸入框送出、表情包都只是放上桌（記錄裡 held:true），想發幾條就發幾條；
+    //   按魔杖（replyNow）才叫大家回，這一輪找誰照舊看那幾條裡有沒有 @ 誰。
+    //   放著的那幾條在記錄裡就是普通的一則，誰下一次開口都讀得到；held 只是「還沒叫人回」的記號。
+    //   大家在回的時候她也能放；那時按魔杖＝等這輪講完接著叫（AI 正互相接話就先停下讓她）。
 
-        // 快照待送附件（只取上傳完成、有 path 的），清空 pending
+    /** 放一條上桌（不叫人回）。有附件也算；兩樣都沒有就不放。回那一則或 null */
+    ChatGroup.holdMessage = function (text) {
+        text = text || '';
         const atts = _pendingAttachments
             .filter(function (a) { return a && a.path; })
             .map(function (a) {
                 return { path: a.path, filename: a.filename, mime: a.mime, size: a.size, thumb: a.thumb || null };
             });
+        if (!text.trim() && !atts.length) return null;
         _pendingAttachments = [];
         _renderPendingAttachments();
-
         const entry = { speaker: 'rae', content: text, ts: Date.now() };
         if (atts.length) entry.attachments = atts;
+        if (!_game) entry.held = true;   // 對局中她的話由對局迴圈下一手帶到，不用等魔杖
+        _transcript.push(entry);
+        _renderBubble('rae', text, atts, null, null, entry);
+        _save();
+        _paintHeld();
+        return entry;
+    };
 
-        // 遊戲進行中：只進 transcript + 渲染，不另起一輪（迴圈下個回合自然帶到）
-        if (_game) {
-            _transcript.push(entry);
-            _renderBubble('rae', text, atts, null, null, entry);
-            _save();
+    /** 還沒叫人回的那幾條 */
+    function _heldEntries() {
+        return _transcript.filter(function (m) { return m && m.held; });
+    }
+    /** 魔杖：有放著的就亮、右上角數字（跟私聊同兩個元素；進群聊重畫時也叫） */
+    function _paintHeld() {
+        if (typeof document === 'undefined' || typeof document.getElementById !== 'function') return;
+        const n = _heldEntries().length;
+        const btn = document.getElementById('cw-reply-btn');
+        if (btn) btn.classList.toggle('has-held', n > 0);
+        const badge = document.getElementById('cw-held-n');
+        if (badge) { badge.textContent = String(n); badge.hidden = n === 0; }
+    }
+    ChatGroup.paintHeld = _paintHeld;
+
+    let _replyQueued = false;   // 大家在回時她按了魔杖：這輪講完接著叫
+
+    /** 魔杖：叫桌上的人回放著的那幾條 */
+    ChatGroup.replyNow = async function () {
+        if (_game) return;
+        // 附件傳好了、框裡沒打字就按魔杖：先把附件放上桌
+        if (_pendingAttachments.some(function (a) { return a && a.path; })) ChatGroup.holdMessage('');
+        if (_busy) {
+            if (_heldEntries().length) {
+                if (_following) _followAbort = true;   // AI 正互相接話：停下來讓她先
+                _replyQueued = true;
+            }
             return;
         }
+        const held = _heldEntries();
+        if (!held.length) { _renderSystemLine('先說點什麼，再按這顆讓大家回'); return; }
+        held.forEach(function (m) { delete m.held; });
+        _save();
+        _paintHeld();
+        await _runRound(held.map(function (m) { return m.content || ''; }).join('\n'));
+    };
 
+    /** 放上桌並馬上叫人回（對局中只放上桌，迴圈下一手帶到） */
+    ChatGroup.sendUserMessage = async function (text) {
+        if (!ChatGroup.holdMessage(text)) return;
+        if (!_game) await ChatGroup.replyNow();
+    };
+
+    /** 叫一輪：text 是她這次放上桌那幾條（拿來看 @ 了誰） */
+    async function _runRound(text) {
         _busy = true;
         try {
-            _transcript.push(entry);
-            _renderBubble('rae', text, atts, null, null, entry);
-            _save();
-
             // @-mention 路由:
             //  - 明確 @ 某幾隻 → 只叫那些(省 token、其他人完全跳過)
             //  - 無 @ → 全部入席者都叫、Fisher-Yates 洗順序、各自 [PASS] 自決
@@ -1663,15 +1693,12 @@
         // 水位到頂就自己整理一次。放在這裡而不是等她按掃把：她說她懶得開新 session，
         // 而沒人整理的話 context 遲早塞不下，到那時候是所有人一起講不了話。
         await _maybeAutoCompact();
-        // 她在續輪期間插的話，現在輪到她
-        if (!_game && _queued) {
-            const q = _queued;
-            _queued = null;
-            _pendingAttachments = q.atts || [];
-            _renderPendingAttachments();
-            await ChatGroup.sendUserMessage(q.text);
+        // 她在這輪期間按了魔杖，現在輪到她放著的那幾條
+        if (!_game && _replyQueued) {
+            _replyQueued = false;
+            await ChatGroup.replyNow();
         }
-    };
+    }
 
     /**
      * AI 互相接話：把上一輪被 @ 到的人叫進來回，他們回覆裡再 @ 誰就再接一輪。

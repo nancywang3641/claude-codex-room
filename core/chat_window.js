@@ -218,7 +218,7 @@
     }
 
     // 輸入列最右邊那一格：框裡有字是送出（先放著），框空著換成魔杖（叫他回）；他在回的時候是停止
-    //   （chat_room 的 _paintSendBtn 在列上掛 .cw-busy）。群聊沒有魔杖，一律送出。切換全在 chat_window.css
+    //   （chat_room 的 _paintSendBtn 在列上掛 .cw-busy）。群聊也一樣先放著（10-03 起），只是沒有停止。切換全在 chat_window.css
     function _syncInputEmpty() {
         const input = _winEl && _winEl.querySelector('#cw-input');
         const row = _winEl && _winEl.querySelector('.cw-input-row');
@@ -236,7 +236,9 @@
         // 🤚 魔杖：把放著的那幾條一起送、叫他回。🎙 麥克風：按住說話（放開放上去）
         const replyBtn = el.querySelector('#cw-reply-btn');
         if (replyBtn) replyBtn.onclick = () => {
-            if (window.VoidClaudeRoom && typeof window.VoidClaudeRoom.replyNow === 'function') window.VoidClaudeRoom.replyNow();
+            if (_provider === 'group') {
+                if (window.ChatGroup && typeof window.ChatGroup.replyNow === 'function') window.ChatGroup.replyNow();
+            } else if (window.VoidClaudeRoom && typeof window.VoidClaudeRoom.replyNow === 'function') window.VoidClaudeRoom.replyNow();
         };
         const micBtn = el.querySelector('#cw-mic-btn');
         if (micBtn) {
@@ -495,7 +497,7 @@
         const panel = el.querySelector('#claude-stk-panel');
         if (panel) panel.hidden = true;
         if (_provider === 'group') {
-            if (window.ChatGroup && typeof window.ChatGroup.sendUserMessage === 'function') window.ChatGroup.sendUserMessage(md);
+            if (window.ChatGroup && typeof window.ChatGroup.holdMessage === 'function') window.ChatGroup.holdMessage(md);   // 🤚 群聊也只放上桌
         } else if (window.VoidClaudeRoom && typeof window.VoidClaudeRoom.holdMessage === 'function') {
             window.VoidClaudeRoom.holdMessage(md);      // 🤚 私聊只放上去，按魔杖才回
         }
@@ -1470,8 +1472,8 @@
         input.style.height = 'auto';
         _syncInputEmpty();
         if (_provider === 'group') {
-            if (window.ChatGroup && typeof window.ChatGroup.sendUserMessage === 'function') {
-                window.ChatGroup.sendUserMessage(txt);
+            if (window.ChatGroup && typeof window.ChatGroup.holdMessage === 'function') {
+                window.ChatGroup.holdMessage(txt);          // 🤚 群聊也只放上桌，按魔杖才叫大家回
             }
         } else if (window.VoidClaudeRoom && typeof window.VoidClaudeRoom.holdMessage === 'function') {
             window.VoidClaudeRoom.holdMessage(txt);     // 🤚 私聊只放上去，按魔杖才回

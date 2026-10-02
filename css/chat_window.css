@@ -1405,15 +1405,14 @@
 }
 
 /* 最右邊那一格：框裡有字＝送出（先放著）；框空著＝魔杖（叫他回，有放著的才亮）；他在回＝停止（.cw-busy）。
-   兩顆同寬，換的時候輸入框不會跟著抖。群聊沒有魔杖，一律送出 */
+   兩顆同寬，換的時候輸入框不會跟著抖。群聊也一樣（10-03 起），只是沒有停止 */
 #aurelia-chat-window .cw-reply-btn { width: 44px; }
-#aurelia-chat-window .cw-body:not(.cw-body-group) .cw-input-row.cw-empty:not(.cw-busy) .cw-send-btn,
+#aurelia-chat-window .cw-input-row.cw-empty:not(.cw-busy) .cw-send-btn,
 #aurelia-chat-window .cw-input-row:not(.cw-empty) .cw-reply-btn,
 #aurelia-chat-window .cw-input-row.cw-busy .cw-reply-btn { display: none; }
 
-/* 群聊照舊送出就回，這兩顆只在私聊 */
-#aurelia-chat-window .cw-body-group .cw-mic-btn,
-#aurelia-chat-window .cw-body-group .cw-reply-btn { display: none; }
+/* 群聊沒有按住說話 */
+#aurelia-chat-window .cw-body-group .cw-mic-btn { display: none; }
 #aurelia-chat-window .cw-body-group .cw-input-wrap .cw-input { padding-right: 11px; }
 #aurelia-chat-window .cw-hold-card {
     position: absolute;
