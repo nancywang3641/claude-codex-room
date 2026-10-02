@@ -370,6 +370,10 @@
                 }
                 if (typeof room.isStickerSegment === 'function' && room.isStickerSegment(seg)) el.classList.add('claude-bubble-sticker');
             });
+            // 🔧 他這一句記進待修的（<board_bug>，上面已經藏起來）：掛一張待修卡，跟私聊同一支
+            const CT = window.ClaudeTerminal;
+            const bugs = (CT && typeof CT.boardBugs === 'function') ? CT.boardBugs(content) : [];
+            if (bugs.length && typeof room.buildBugCards === 'function' && el.parentNode) el.parentNode.insertBefore(room.buildBugCards(bugs), el.nextSibling);
             return el;
         }
         // 😺 她從表情包框送的那張：畫成圖（跟私聊同一支）

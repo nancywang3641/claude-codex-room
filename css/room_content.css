@@ -292,6 +292,10 @@
 .claude-prop-card:not(.is-wait) > i,
 .claude-prop-card:not(.is-wait) .claude-prop-chip { color: #46639b; font-weight: 400; }
 .claude-prop-card.is-stale .claude-prop-chip { color: #b5563f; }
+/* 🔧 待修卡跟單子同一款；修好了（is-fixed）變淡，白話底下多一行誰修了什麼 */
+.claude-bug-fix { display: block; margin-top: 3px; font-size: 12px; opacity: 0.85; }
+/* 上面 :not(.is-wait) 把圖示改成 400：扳手沒有細體那版，會變成方框，待修卡固定用粗體 */
+.claude-prop-card.claude-bug-card > i { font-weight: 900; }
 
 .claude-tool-summary {
     align-self: flex-start; max-width: 100%;

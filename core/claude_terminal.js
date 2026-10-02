@@ -1435,15 +1435,31 @@ ${withOthers}
     // （room_paint、room_move、room_remove、wear_color、wear_move、wear_remove、look_reset）；整段 svg 程式碼串流中還沒寫到結尾也要先藏著。
     // 容錯跟橋同一套：全形括號與引號、屬性不加引號、讚沒寫斜線；反引號與程式碼區塊裡的是他在講解，原樣留著。
     const _BOARD_CODE_RE = /```[\s\S]*?```|`[^`\n]*`/g;
-    const _BOARD_PAIR_RE = /[<＜]\s*(board_(?:post|comment|reply|like|proposal)|room_place|wear_put|look_set)\b[^>＞]*?(?:\/\s*[>＞]|[>＞][\s\S]*?[<＜]\s*\/\s*\1\s*[>＞])/gi;
+    // board_bug（待修，09-29 橋就認了）以前漏在這份清單外：整段給丹的細節直接畫進泡泡。現在藏起來，房間換成一張待修卡（boardBugs）
+    const _BOARD_PAIR_RE = /[<＜]\s*(board_(?:post|comment|reply|like|proposal|bug)|room_place|wear_put|look_set)\b[^>＞]*?(?:\/\s*[>＞]|[>＞][\s\S]*?[<＜]\s*\/\s*\1\s*[>＞])/gi;
     const _BOARD_SINGLE_RE = /[<＜]\s*(?:board_like|room_(?:paint|move|remove)|wear_(?:color|move|remove)|look_reset)\b[^>＞]*?\/?\s*[>＞]/gi;
-    const _BOARD_OPEN_RE = /[<＜]\s*(?:board_(?:post|comment|reply|proposal)|room_place|wear_put|look_set)\b[\s\S]*$/i;
+    const _BOARD_OPEN_RE = /[<＜]\s*(?:board_(?:post|comment|reply|proposal|bug)|room_place|wear_put|look_set)\b[\s\S]*$/i;
+    const _BOARD_BUG_RE = /[<＜]\s*board_bug\b[^>＞]*[>＞]([\s\S]*?)[<＜]\s*\/\s*board_bug\s*[>＞]/gi;
     const _BOARD_TAIL_RE = /[<＜]\s*\/?\s*(?:b(?:o(?:a(?:r(?:d(?:_[^>＞]*)?)?)?)?)?|r(?:o(?:o(?:m(?:_[^>＞]*)?)?)?)?|w(?:e(?:a(?:r(?:_[^>＞]*)?)?)?)?|l(?:o(?:o(?:k(?:_[^>＞]*)?)?)?)?)?$/i;
     function _boardInCode(s, pos) {
         let hit = false;
         s.replace(_BOARD_CODE_RE, function (m, off) { if (pos >= off && pos < off + m.length) hit = true; return m; });
         return hit;
     }
+    /** 回覆裡記進待修的那幾條：每條第一行（給她看的白話，橋存成清單的標題）。程式碼裡的不算 */
+    ClaudeTerminal.boardBugs = function (text) {
+        const s = String(text == null ? '' : text);
+        const out = [];
+        if (!/board_bug/i.test(s)) return out;
+        s.replace(_BOARD_BUG_RE, function (m, body, off) {
+            if (_boardInCode(s, off)) return m;
+            const title = String(body || '').trim().split('\n')[0].trim();
+            if (title) out.push(title);
+            return m;
+        });
+        return out;
+    };
+
     /** opts.streaming：串流中，結尾那半截還沒打完的 <b、<board_ 也先藏起來 */
     ClaudeTerminal.stripBoardTags = function (text, opts) {
         const orig = String(text == null ? '' : text);

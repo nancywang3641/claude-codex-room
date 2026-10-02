@@ -1322,6 +1322,55 @@
         }).catch(() => {});
         return box;
     }
+    // ── 待修卡（10-02 她：「待修在輸出時會顯示在聊天室，但卻長這樣，感覺得卡片反饋」）──
+    //   他在回覆裡寫的 <board_bug> 橋已經記進待修清單；泡泡裡那段藏起來，換成一張卡：白話那一行＋修好了沒。
+    //   卡從回覆原文現場解析（逐字稿存原文），重畫歷史也長得出來；狀態拿一次橋上的待修清單對白話那行。點了打開留言板的待修頁。
+    let _bugRowsP = null, _bugRowsAt = 0;
+    function _fetchBugRows() {
+        if (!_bugRowsP || Date.now() - _bugRowsAt > 60000) {
+            _bugRowsAt = Date.now();
+            _bugRowsP = _bridgeJson('/v1/board/bugs').then(d => (Array.isArray(d && d.bugs) ? d.bugs : [])).catch(() => []);
+        }
+        return _bugRowsP;
+    }
+    const _bugKey = s => String(s || '').replace(/\s+/g, '');
+    function _buildBugCards(titles) {
+        const box = document.createElement('div');
+        box.className = 'claude-prop-cards';
+        titles.forEach(t => {
+            const card = document.createElement('button');
+            card.type = 'button';
+            card.className = 'claude-prop-card claude-bug-card is-wait';
+            card.innerHTML = '<i class="fa-solid fa-screwdriver-wrench"></i><span class="claude-prop-text"></span><span class="claude-prop-chip">記進待修</span>';
+            card.querySelector('.claude-prop-text').textContent = t;
+            card.addEventListener('click', ev => {
+                ev.stopPropagation();
+                try { localStorage.setItem('ccr_board_tab', 'bugs'); } catch (_) {}
+                if (window.ChatWindow && typeof window.ChatWindow.openSubPanel === 'function') window.ChatWindow.openSubPanel('board');
+            });
+            box.appendChild(card);
+        });
+        _fetchBugRows().then(rows => {
+            box.querySelectorAll('.claude-bug-card').forEach(card => {
+                const k = _bugKey(card.querySelector('.claude-prop-text').textContent);
+                const row = rows.find(r => _bugKey(r.title) === k);
+                if (!row) return;   // 修好超過一週，清單上已經沒有了：照原樣
+                if (row.status === 'fixed') {
+                    card.className = 'claude-prop-card claude-bug-card is-fixed';
+                    card.querySelector('.claude-prop-chip').textContent = '已修';
+                    if (row.fix && row.fix.text) {
+                        const fx = document.createElement('span');
+                        fx.className = 'claude-bug-fix';
+                        fx.textContent = (row.fix.by || '丹') + '：' + row.fix.text;
+                        card.querySelector('.claude-prop-text').appendChild(fx);
+                    }
+                } else {
+                    card.querySelector('.claude-prop-chip').textContent = '待修';
+                }
+            });
+        });
+        return box;
+    }
     async function _openPropCard(card) {
         const w = window.parent || window;
         const T = w.WX_TOOLS || window.WX_TOOLS;
@@ -1362,9 +1411,12 @@
         wrap.className = 'claude-bubble-wrap ' + (isUser ? 'from-user' : 'from-claude');
 
         // 留言板標籤橋已經替他做完，畫面上拿掉（歷史重畫也走這裡）。整則只有標籤就留一句說他去板上動了手。
+        //   記進待修的（board_bug）另外掛一張待修卡；整則只有待修就只掛卡，不留那句
+        const bugTitles = (!isUser && !opts.suppressMarkdown && window.ClaudeTerminal && typeof window.ClaudeTerminal.boardBugs === 'function')
+            ? window.ClaudeTerminal.boardBugs(content) : [];
         if (!isUser && window.ClaudeTerminal && typeof window.ClaudeTerminal.stripBoardTags === 'function') {
             const shown = window.ClaudeTerminal.stripBoardTags(content, { streaming: !!opts.suppressMarkdown });
-            if (!shown && String(content || '').trim()) content = '（去留言板上動了一下）';
+            if (!shown && String(content || '').trim()) content = bugTitles.length ? '' : '（去留言板上動了一下）';
             else content = shown;
         }
 
@@ -1458,8 +1510,8 @@
             bubble.appendChild(attachBox);
         }
 
-        // 小機只交了單子沒說話：不畫空泡泡，只掛單子
-        if (isUser || String(content || '').trim() || !(opts.props && opts.props.length)) wrap.appendChild(bubble);
+        // 小機只交了單子沒說話：不畫空泡泡，只掛單子（只記了待修也一樣）
+        if (isUser || String(content || '').trim() || !((opts.props && opts.props.length) || bugTitles.length)) wrap.appendChild(bubble);
 
         // ASK marker UI：附在氣泡下方、用量 footer 上方
         askMatches.forEach(ask => {
@@ -1468,6 +1520,8 @@
 
         // 📝 他這一輪提的單子（改世界書、改預設）：一張一張掛在回覆底下，點了開單子
         if (!isUser && Array.isArray(opts.props) && opts.props.length) wrap.appendChild(_buildPropCards(opts.props));
+        // 🔧 他這一句記進待修的：一條一張卡，點了看待修清單
+        if (bugTitles.length) wrap.appendChild(_buildBugCards(bugTitles));
         // 小機：這一句叫了幾次模型（她付的錢，一眼看得到）
         if (!isUser && opts.calls) {
             const c = document.createElement('div');
@@ -2085,6 +2139,7 @@
     VoidClaudeRoom.micStart          = _micStart;          // 🎙 按住說話
     VoidClaudeRoom.markdownToSafeHtml = _claudeMarkdownToSafeHtml;
     VoidClaudeRoom.splitReplySegments = _splitReplySegments;   // 群聊切泡泡用同一支
+    VoidClaudeRoom.buildBugCards = _buildBugCards;             // 群聊的待修卡也用同一支
     VoidClaudeRoom.isStickerSegment = _isStickerSeg;
     VoidClaudeRoom.hideMdImages       = _hideMdImages;
     // 群聊借這兩支：折疊塊與串流中的人話標籤，兩邊長一樣、只維護一份
