@@ -47,6 +47,9 @@
         if (!sb) return;
         const CT = window.ClaudeTerminal;
         const cur = (CT && _provider() !== 'group' && typeof CT.getActiveResidentId === 'function') ? _inflight[CT.getActiveResidentId()] : null;
+        // 輸入框空著時這一格平常讓給魔杖；他在回就換回這顆（停止）。CSS 看 .cw-busy
+        const row = sb.closest('.cw-input-row');
+        if (row) row.classList.toggle('cw-busy', !!cur);
         if (cur) {
             sb.innerHTML = '<i class="fa-solid fa-stop"></i>';
             sb.onclick = async () => {

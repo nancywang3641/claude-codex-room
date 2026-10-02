@@ -1368,20 +1368,53 @@
     text-align: center;
 }
 #aurelia-chat-window .cw-held-n[hidden] { display: none; }
+
+/* 🎙 麥克風住在輸入框右下角（學聊天軟體），輸入框右邊讓出位子 */
+#aurelia-chat-window .cw-input-wrap {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    display: flex;
+}
+#aurelia-chat-window .cw-input-wrap .cw-input { padding-right: 38px; }
 #aurelia-chat-window .cw-mic-btn {
+    position: absolute;
+    right: 4px;
+    bottom: 4px;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--cl-cafe-latte, #46639b);
+    font-size: 15px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
     touch-action: none;
     -webkit-touch-callout: none;
     user-select: none;
     -webkit-user-select: none;
 }
+#aurelia-chat-window .cw-mic-btn:hover { background: rgba(42, 74, 128, 0.12); }
 #aurelia-chat-window .cw-mic-btn.holding {
     background: #d9534f;
     color: #ffffff;
-    border-color: #d9534f;
 }
+
+/* 最右邊那一格：框裡有字＝送出（先放著）；框空著＝魔杖（叫他回，有放著的才亮）；他在回＝停止（.cw-busy）。
+   兩顆同寬，換的時候輸入框不會跟著抖。群聊沒有魔杖，一律送出 */
+#aurelia-chat-window .cw-reply-btn { width: 44px; }
+#aurelia-chat-window .cw-body:not(.cw-body-group) .cw-input-row.cw-empty:not(.cw-busy) .cw-send-btn,
+#aurelia-chat-window .cw-input-row:not(.cw-empty) .cw-reply-btn,
+#aurelia-chat-window .cw-input-row.cw-busy .cw-reply-btn { display: none; }
+
 /* 群聊照舊送出就回，這兩顆只在私聊 */
 #aurelia-chat-window .cw-body-group .cw-mic-btn,
 #aurelia-chat-window .cw-body-group .cw-reply-btn { display: none; }
+#aurelia-chat-window .cw-body-group .cw-input-wrap .cw-input { padding-right: 11px; }
 #aurelia-chat-window .cw-hold-card {
     position: absolute;
     left: 50%;

@@ -125,11 +125,13 @@
                 </div>
                 <input type="file" id="claude-file-input" multiple style="display:none;"
                        accept="image/*,application/pdf,.txt,.md,.json,.csv,.js,.ts,.py,.html,.css,.yml,.yaml,.toml,.log">
-                <div class="cw-input-row">
-                    <textarea id="cw-input" class="cw-input" placeholder="對 Claude 說點什麼..." rows="1" autocomplete="off"></textarea>
+                <div class="cw-input-row cw-empty">
+                    <div class="cw-input-wrap">
+                        <textarea id="cw-input" class="cw-input" placeholder="對 Claude 說點什麼..." rows="1" autocomplete="off"></textarea>
+                        <button class="cw-mic-btn" id="cw-mic-btn" type="button" title="按住說話"><i class="fa-solid fa-microphone"></i></button>
+                    </div>
                     <button class="cw-attach-btn claude-stk-btn" id="claude-stk-btn" type="button" title="表情包"><i class="fa-regular fa-face-smile"></i></button>
-                    <button class="cw-attach-btn" id="claude-attach-btn" type="button" title="附加檔案">📎</button>
-                    <button class="cw-attach-btn cw-mic-btn" id="cw-mic-btn" type="button" title="按住說話"><i class="fa-solid fa-microphone"></i></button>
+                    <button class="cw-attach-btn" id="claude-attach-btn" type="button" title="附加檔案"><i class="fa-solid fa-paperclip"></i></button>
                     <button class="cw-attach-btn cw-reply-btn" id="cw-reply-btn" type="button" title="讓他回"><i class="fa-solid fa-wand-magic-sparkles"></i><span class="cw-held-n" id="cw-held-n" hidden>0</span></button>
                     <button class="cw-send-btn" id="cw-send-btn" type="button"><i class="fa-solid fa-paper-plane"></i></button>
                 </div>
@@ -203,6 +205,14 @@
         };
         handle.addEventListener('pointerup', end);
         handle.addEventListener('pointercancel', end);
+    }
+
+    // 輸入列最右邊那一格：框裡有字是送出（先放著），框空著換成魔杖（叫他回）；他在回的時候是停止
+    //   （chat_room 的 _paintSendBtn 在列上掛 .cw-busy）。群聊沒有魔杖，一律送出。切換全在 chat_window.css
+    function _syncInputEmpty() {
+        const input = _winEl && _winEl.querySelector('#cw-input');
+        const row = _winEl && _winEl.querySelector('.cw-input-row');
+        if (input && row) row.classList.toggle('cw-empty', !input.value.trim());
     }
 
     function _bindChatInput(el) {
@@ -363,6 +373,7 @@
             input.addEventListener('input', () => {
                 autoGrow();
                 _refreshMention();
+                _syncInputEmpty();
             });
             input.addEventListener('blur', () => {
                 // 延遲關，讓 mousedown 來得及 fire
@@ -701,6 +712,7 @@
     async function _loadRoom(provider) {
         const cwBody = _winEl && _winEl.querySelector('#cw-body');
         if (cwBody) cwBody.classList.remove('cw-room-collapsed');   // 進房一律先展開
+        _syncInputEmpty();
         // 🧹 摘要按鈕只在群聊房顯示
         const compactBtn = _winEl && _winEl.querySelector('.cw-tool-compact');
         if (compactBtn) compactBtn.style.display = (provider === 'group') ? '' : 'none';
@@ -1417,6 +1429,7 @@
         if (!txt && !groupHasAttach) return;
         input.value = '';
         input.style.height = 'auto';
+        _syncInputEmpty();
         if (_provider === 'group') {
             if (window.ChatGroup && typeof window.ChatGroup.sendUserMessage === 'function') {
                 window.ChatGroup.sendUserMessage(txt);
