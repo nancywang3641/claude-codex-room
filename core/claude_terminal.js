@@ -330,6 +330,9 @@ ${withOthers}
             // 只有自訂的 Claude 分身能設 —— 內建那幾位要留著工具幹活
             //（丹要寫留言板、要動手做事），拔掉他們的工具等於把功能砍了。
             chatOnly: !builtin && provider === 'claude' && !!r.chatOnly,
+            // 「日常」= 工具全留著，只把 Claude Code 那段「你是軟體工程助手」的開場換成住戶版（橋的 prompts/room_daily.md）。
+            //   內建的也能設（丹就是要這個）；只聊天的不必（那條本來就沒有那段開場）
+            daily: provider === 'claude' && !!r.daily && !(!builtin && r.chatOnly),
             builtin,
         };
     }
@@ -391,12 +394,14 @@ ${withOthers}
             const cur = list[idx];
             next = _normResident(cur.builtin ? {
                 id: cur.id, name: name || cur.name, provider: cur.provider, modelId: cur.modelId,
+                daily: resident.daily === undefined ? cur.daily : resident.daily,
             } : {
                 id: cur.id,
                 name: name || cur.name,
                 provider: resident.provider || cur.provider,
                 modelId: resident.modelId === undefined ? cur.modelId : resident.modelId,
                 chatOnly: resident.chatOnly === undefined ? cur.chatOnly : resident.chatOnly,
+                daily: resident.daily === undefined ? cur.daily : resident.daily,
             });
             list[idx] = next;
         } else {
@@ -408,6 +413,7 @@ ${withOthers}
                 provider: resident.provider || 'claude',
                 modelId: resident.modelId || '',
                 chatOnly: !!resident.chatOnly,
+                daily: !!resident.daily,
             });
             list.push(next);
         }
@@ -1593,6 +1599,8 @@ ${withOthers}
         // 不然同一位住戶在群聊裡沒工作服、進房間又穿回去,那就不是同一個人了。
         const _selfRes = ClaudeTerminal.getResident(ctx.rid);
         if (_selfRes && _selfRes.chatOnly) { body.use_sdk = true; body.bare = true; }
+        // 「日常」穿法：工具照帶，開場換成住戶版（橋認 cc_opening）。群聊那條帶同一個值，桌上跟房間裡是同一個人
+        if (_selfRes && _selfRes.daily) body.cc_opening = 'daily';
         // 留言板：橋每輪附板子近況給他、回完替他執行 <board_…> 標籤。住戶互叫不經這裡，不帶。
         if (_selfRes && _selfRes.name) { body.cc_board = true; body.cc_board_name = String(_selfRes.name); }
         // 他的房間：橋附房間近況、回完替他執行 <room_…> 標籤。房間用名冊 id 認，改名不會不見。
@@ -2050,6 +2058,7 @@ ${withOthers}
         // 「只聊天」的分身改走 Agent SDK 的近裸模式：橋那邊會把 system 從 messages
         // 抽出來當真正的系統指令（而不是拼成一坨文字塞進 prompt），並且卸掉
         // Claude Code 的內建工具、CLAUDE.md 與 MCP。沒設的人完全照舊走 CLI。
+        if (seat && seat.daily) body.cc_opening = 'daily';   // 「日常」穿法：同私聊那條
         if (seat && seat.chatOnly) {
             body.use_sdk = true;
             body.bare = true;

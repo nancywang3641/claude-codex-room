@@ -10,6 +10,11 @@
     'use strict';
     const NAME_MAX = 20;
 
+    // 門卡「穿法」那排的小問號（待修 #287 加了「日常」）
+    const _AUI0 = window.AUI || (window.parent && window.parent.AUI);
+    if (_AUI0 && _AUI0.registerHelp) _AUI0.registerHelp({ dorm_outfit: { title: '穿法',
+        body: '也能動手：Claude 原本那一套，開場是「你是寫程式的助手」，工具全帶。\n日常：工具全留著，只把開場那段換成「住在宿舍的住戶」。能做的事不變，聊天少一點上班感。\n只聊天：不帶工具，純聊天（只有自己新增的住戶能選）。\n換了之後，要在他的房間開一個新會話才算：開場在一串對話開頭就定下來了。' } });
+
     // ---- API 小機（provider xiaoji，引擎在奧瑞亞 OS_XIAOJI）：門卡副標、編輯列要讀它的存檔 ----
     const _xj = {};
     function _XJ() { return window.OS_XIAOJI || (window.parent && window.parent.OS_XIAOJI) || null; }
@@ -357,12 +362,18 @@
                 h += '<option value="' + _esc(m.id) + '"' + sel + '>' + _esc(_modelLabel(m.id)) + '</option>';
             });
             h += '</select>';
-            // 只聊天 = 不帶 Claude Code 那套工具與系統指令進來（省三萬多 token 的 context）。
-            // 預設「也能動手」—— 那是既有行為，不改變任何人的預期。
-            const chatOn = !!(r && r.chatOnly);
+        }
+        // 穿法（Claude 住戶）：也能動手＝Claude Code 原本那套（開場是「軟體工程助手」）；日常＝工具全留、只換開場；
+        // 只聊天＝不帶工具與系統指令（省三萬多 token 的 context，只有自訂分身能設——內建的要留著工具幹活）。
+        // 預設「也能動手」—— 那是既有行為，不改變任何人的預期。換了要開新會話才算（開場在一串對話開頭就定了，說明在小問號）
+        if (isNew || (r && r.provider === 'claude')) {
+            const chatOn = !!(r && r.chatOnly), dailyOn = !chatOn && !!(r && r.daily);
+            const A = window.AUI || (window.parent && window.parent.AUI);
             h += '<div class="dorm-mode">'
-               + '<button type="button" class="dorm-mode-btn' + (chatOn ? '' : ' active') + '" data-mode="work">也能動手</button>'
-               + '<button type="button" class="dorm-mode-btn' + (chatOn ? ' active' : '') + '" data-mode="chat">只聊天</button>'
+               + '<button type="button" class="dorm-mode-btn' + (chatOn || dailyOn ? '' : ' active') + '" data-mode="work">也能動手</button>'
+               + '<button type="button" class="dorm-mode-btn' + (dailyOn ? ' active' : '') + '" data-mode="daily">日常</button>'
+               + (isNew || !r.builtin ? '<button type="button" class="dorm-mode-btn' + (chatOn ? ' active' : '') + '" data-mode="chat">只聊天</button>' : '')
+               + (A && A.helpBtn ? A.helpBtn('dorm_outfit') : '')
                + '</div>';
         }
         // 奧瑞亞工具：只有會掛工具的（Claude、Codex 住戶）才有這排；按了當場存到橋上，不用等「改好了」
@@ -564,15 +575,17 @@
                 }
                 const modeBtn = form.querySelector('.dorm-mode-btn.active');
                 const chatOnly = !!(modeBtn && modeBtn.dataset.mode === 'chat');
+                const daily = !!(modeBtn && modeBtn.dataset.mode === 'daily');
                 if (id === '__new__') {
                     CT.saveResident({ name: name, provider: 'claude',
-                                      modelId: modelIn ? modelIn.value : '', chatOnly: chatOnly });
+                                      modelId: modelIn ? modelIn.value : '', chatOnly: chatOnly, daily: daily });
                 } else {
                     const before = CT.getResident(id);
                     const oldName = before ? before.name : '';
                     CT.saveResident({ id: id, name: name,
                                       modelId: modelIn ? modelIn.value : undefined,
-                                      chatOnly: modeBtn ? chatOnly : undefined });
+                                      chatOnly: modeBtn ? chatOnly : undefined,
+                                      daily: modeBtn ? daily : undefined });
                     // 在席的人改了名，桌上其他人要知道 —— 不然逐字稿的講者前綴會無聲換人
                     if (oldName && oldName !== name && CT.isGroupSeated(id)
                         && window.ChatGroup && typeof window.ChatGroup.announceRename === 'function') {
