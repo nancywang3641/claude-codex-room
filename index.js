@@ -226,7 +226,7 @@
     // 手機瀏覽器把這批靜態檔快取得很兇,沒版本參數的話核心檔更新永遠到不了手機
     // (症狀:桌機是新版、手機停在幾個月前,甚至 chat_window 跟 chat_room 各停在不同版本)。
     // 檔案有改就把 VER +1,跟奧瑞亞 sw.js 的 CACHE_VERSION 同一套習慣。
-    const VER = 116;
+    const VER = 117;
 
     function loadCSS(href) {
         if (document.querySelector('link[data-ccr="' + href + '"]')) return;
@@ -258,6 +258,7 @@
     loadCSS(HERE + 'css/os_board.css');             // 📝 留言板
     loadCSS(HERE + 'css/dorm.css');
     loadCSS(HERE + 'css/xiaoji.css');           // 🧩 API 小機                 // 🏠 宿舍面板
+    loadCSS(HERE + 'css/wardrobe.css');         // 👕 衣櫃
     loadCSS(HERE + 'css/launcher.css');
 
     const FILES = [
@@ -265,6 +266,7 @@
         'core/chat_canvas.js',     // window.ChatCanvas / VoidCanvas
         'core/room_scene.js',      // window.RoomScene（住戶布置的房間組成一張圖，鏡子也用）
         'core/clawd_portrait.js',  // window.ClawdPortrait（打扮過的 Claude 住戶改用程式畫立繪）
+        'core/wardrobe.js',        // 👕 衣櫃（RoomWardrobe，橋 /v1/wardrobe；小圖借 ClawdPortrait 畫）
         'core/chat_window.js',     // window.ChatWindow（外殼）
         'core/chat_room.js',       // window.VoidClaudeRoom
         'core/chat_group.js',      // window.ChatGroup

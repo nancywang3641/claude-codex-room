@@ -9,8 +9,9 @@
  * 打扮資料是橋 /v1/decor 帶回來的 wear：{ own, body: 身體顏色, items: [{ svg, ratio, x, y, w, face, eyes_only }], look }。
  * 座標以身體為準（寬 12、高 8，左上角 0,0），x、y 是那件東西底部中心，w 是寬；face 的跟著眼睛左看右看；
  * eyes_only（他寫 on="eyes"）的也跟著眼睛，而且只在睜眼時畫——眼睛裡的亮點閉眼還掛著會浮在眼縫上。
- * look 是他自己畫的形象 { svg, ratio, w, eyes: [[x,y]…] }（沒有＝預設的小螃蟹）：整張當身體畫，腳底站在小螃蟹的位置，
- * 眼睛跟表情照 eyes 畫在他指定的格子；戴的東西改以那張圖的左上角為原點。手的姿勢只有小螃蟹有。
+ * look 是他自己畫的形象 { svg, ratio, w, eyes: [[x,y]…], eye }（沒有＝預設的小螃蟹）：整張當身體畫，腳底站在小螃蟹的位置，
+ * 眼睛跟表情照 eyes 畫在他指定的格子（eye 有給就用那個顏色）；戴的東西改以那張圖的左上角為原點。手的姿勢只有小螃蟹有。
+ * 衣櫃（core/wardrobe.js）每一套也用這支畫定格。
  * 橋念給住戶聽的是同一套（cc-bridge room_decor.brief_wear），改一邊要改另一邊。
  *
  * 動作沿用房間原本的立繪狀態（chat_room.js 的 _swapPortraitImg 每次換狀態都會叫 setState）。
@@ -210,7 +211,7 @@
         const BODY = { lorde: _lordeBody, hamster: _hamsterBody, cat: _catBody, penguin: _penguinBody }[_base] || _crabBody;
         const m = _look ? _lookBody(o) : BODY(o);
         const look = o.look || 0, dy = o.eyeDy || 0;
-        const EYE = BASES[_base].eye;
+        const EYE = (_look && _look.eye) || BASES[_base].eye;     // 形象可以自己指定眼睛顏色（Codex 工作服是青色）
         // 程式有畫眼睛、而且這一格不是睜著的（眨眼、瞇眼笑、皺成一團、閉眼）：只在睜眼時畫的那幾件這格不畫
         const shut = m.eyes.length > 0 && (o.eyes || 'open') !== 'open';
         for (const [x0, y0, side] of m.eyes) {
@@ -336,7 +337,8 @@
         const img = new Image();
         img.src = 'data:image/svg+xml;base64,' + _b64(L.svg);
         const eyes = (Array.isArray(L.eyes) ? L.eyes : []).filter(e => Array.isArray(e) && e.length >= 2).map(e => [+e[0] || 0, +e[1] || 0]);
-        return { img, ratio: +L.ratio || 1, w: +L.w || 12, eyes };
+        const eye = /^#[0-9a-f]{3,6}$/i.test(L.eye || '') ? L.eye : null;
+        return { img, ratio: +L.ratio || 1, w: +L.w || 12, eyes, eye };
     }
 
     /** 照這身打扮接手立繪。wear 是橋回的那包；base 是預設樣子（crab 小螃蟹／lorde 洛德／小機的 hamster、cat、penguin）。

@@ -1,0 +1,230 @@
+/* ============================================================
+ * css/wardrobe.css — 衣櫃（core/wardrobe.js，子面板「衣櫃」）
+ * 上面現在穿的、中間收著的、下面現成的；點一套 → 底下那排「穿上／改名／丟掉」。
+ * class 一律 wd- 開頭（別用菜市場名，酒館全域樣式會蓋過來）。
+ * ============================================================ */
+#aurelia-chat-window .wd-wrap {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    color: var(--cl-text-deep, #1f3a68);
+}
+#aurelia-chat-window .wd-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 14px 14px 18px;
+}
+#aurelia-chat-window .wd-msg {
+    padding: 40px 20px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--cl-cafe-latte, #46639b);
+}
+
+/* 現在穿的 */
+#aurelia-chat-window .wd-now {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px;
+    border-radius: 14px;
+    background: #ffffff;
+    border: 1px solid rgba(42, 74, 128, 0.18);
+    box-shadow: 0 2px 8px rgba(31, 58, 104, 0.08);
+}
+#aurelia-chat-window .wd-now-pic {
+    flex-shrink: 0;
+    width: 96px;
+    height: 96px;
+    border-radius: 12px;
+    background: var(--cl-cream, #eef2f9);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+#aurelia-chat-window .wd-now-pic img {
+    width: 80px;
+    height: 80px;
+    object-fit: contain;
+    image-rendering: pixelated;
+}
+#aurelia-chat-window .wd-now-info { flex: 1; min-width: 0; }
+#aurelia-chat-window .wd-now-lab { font-size: 11px; color: var(--cl-cafe-latte, #46639b); letter-spacing: 1px; }
+#aurelia-chat-window .wd-now-name {
+    margin-top: 2px;
+    font-size: 16px;
+    font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+#aurelia-chat-window .wd-keep {
+    margin-top: 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 11px;
+    border-radius: 14px;
+    border: 1px solid rgba(42, 74, 128, 0.3);
+    background: rgba(42, 74, 128, 0.08);
+    color: var(--cl-grenadine, #2a4a80);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+#aurelia-chat-window .wd-help { position: absolute; top: 8px; right: 8px; }
+
+/* 段落標題 */
+#aurelia-chat-window .wd-h {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin: 18px 2px 8px;
+    font-size: 13px;
+    font-weight: 700;
+}
+#aurelia-chat-window .wd-n { font-size: 11px; font-weight: 400; color: var(--cl-cafe-latte, #46639b); }
+
+/* 一格一套 */
+#aurelia-chat-window .wd-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: 10px;
+}
+#aurelia-chat-window .wd-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding: 8px 6px 9px;
+    border-radius: 12px;
+    border: 2px solid transparent;
+    background: #ffffff;
+    box-shadow: 0 1px 4px rgba(31, 58, 104, 0.1);
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    transition: border-color 0.15s, transform 0.15s;
+}
+#aurelia-chat-window .wd-card:active { transform: scale(0.97); }
+#aurelia-chat-window .wd-card.is-sel { border-color: var(--cl-grenadine, #2a4a80); }
+#aurelia-chat-window .wd-pic {
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 9px;
+    background: var(--cl-cream, #eef2f9);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+#aurelia-chat-window .wd-pic img {
+    width: 78%;
+    height: 78%;
+    object-fit: contain;
+    image-rendering: pixelated;
+}
+#aurelia-chat-window .wd-name {
+    max-width: 100%;
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+#aurelia-chat-window .wd-badge {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: var(--cl-grenadine, #2a4a80);
+    color: #ffffff;
+    font-size: 10px;
+}
+#aurelia-chat-window .wd-empty {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 18px 14px;
+    border-radius: 12px;
+    border: 1px dashed rgba(42, 74, 128, 0.3);
+    font-size: 12px;
+    color: var(--cl-cafe-latte, #46639b);
+}
+
+/* 底下那排：選了一套才出現 */
+#aurelia-chat-window .wd-bar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+    background: var(--cl-cream-light, #f4efe3);
+    border-top: 1px solid rgba(42, 74, 128, 0.2);
+}
+#aurelia-chat-window .wd-bar-note { flex: 1; min-width: 0; font-size: 12px; color: var(--cl-cafe-latte, #46639b); }
+#aurelia-chat-window .wd-btn {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 36px;
+    padding: 0 14px;
+    border-radius: 18px;
+    border: 1px solid rgba(42, 74, 128, 0.3);
+    background: #ffffff;
+    color: var(--cl-grenadine, #2a4a80);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+}
+#aurelia-chat-window .wd-btn.is-main {
+    flex: 1;
+    justify-content: center;
+    border-color: transparent;
+    background: linear-gradient(135deg, var(--cl-beeswax, #b9924f), var(--cl-grenadine, #2a4a80));
+    color: #ffffff;
+    font-weight: 700;
+}
+#aurelia-chat-window .wd-btn.is-danger { border-color: transparent; background: #d9534f; color: #ffffff; }
+#aurelia-chat-window .wd-btn:disabled { opacity: 0.5; cursor: default; }
+#aurelia-chat-window .wd-input {
+    flex: 1;
+    min-width: 0;
+    height: 36px;
+    padding: 0 12px;
+    border-radius: 18px;
+    border: 1px solid var(--cl-beeswax, #b9924f);
+    background: #ffffff !important;
+    color: var(--cl-text-deep, #1f3a68) !important;
+    font: inherit;
+    font-size: 13px;
+    outline: none;
+}
+
+/* 房間圖右下角那顆衣櫃鈕（chat_window.js 的模板；只有會打扮的住戶出現） */
+#aurelia-chat-window .cw-room-closet {
+    position: absolute;
+    right: 10px;
+    bottom: 10px;
+    z-index: 5;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid rgba(42, 74, 128, 0.3);
+    background: rgba(251, 252, 254, 0.88);
+    color: #1f3a68;
+    font-size: 15px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+#aurelia-chat-window .cw-room-closet[hidden] { display: none; }
+#aurelia-chat-window .cw-room-closet:hover { background: #ffffff; }

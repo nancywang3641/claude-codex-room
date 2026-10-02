@@ -95,6 +95,7 @@
                     <img id="cw-decor-img" class="cw-decor-img" alt="">
                     <img id="claude-portrait-img" class="claude-portrait-img" alt="Clawd">
                     <div id="codex-portrait-sprite" class="codex-portrait-sprite"></div>
+                    <button type="button" class="cw-room-closet" id="cw-room-closet" title="衣櫃" hidden><i class="fa-solid fa-shirt"></i></button>
                     <div class="claude-conv-chip" id="claude-conv-chip" title="點開 Recents 多會話列表">
                         <span class="ccc-tab" id="ccc-tab">☕</span>
                         <span class="ccc-title" id="ccc-title">—</span>
@@ -160,6 +161,8 @@
         _bindDrag(el.querySelector('#cw-titlebar'), el);
         _bindChatInput(el);
         _bindRoomFold(el);
+        const closet = el.querySelector('#cw-room-closet');
+        if (closet) closet.addEventListener('click', (e) => { e.stopPropagation(); ChatWindow.openSubPanel('wardrobe'); });
 
         const chip = el.querySelector('#claude-conv-chip');
         if (chip) chip.addEventListener('click', () => ChatWindow.openSubPanel('recents'));
@@ -419,7 +422,7 @@
                 _pickFiles(named);
             });
         }
-        // 😺 表情包框：按一下開、再按一下收
+        // 😺 表情包框：按一下開、再按一下收；按到框以外的地方也收（她：「點擊其他地方自動縮起」）
         const stkBtn = el.querySelector('#claude-stk-btn');
         const stkPanel = el.querySelector('#claude-stk-panel');
         if (stkBtn && stkPanel) {
@@ -428,6 +431,11 @@
                 if (stkPanel.hidden) { _renderStickerPanel(el); stkPanel.hidden = false; }
                 else stkPanel.hidden = true;
             };
+            document.addEventListener('pointerdown', (e) => {
+                if (stkPanel.hidden) return;
+                if (stkPanel.contains(e.target) || stkBtn.contains(e.target)) return;
+                stkPanel.hidden = true;
+            }, true);
         }
         if (pickerBtn) {
             pickerBtn.onclick = (e) => {
@@ -713,6 +721,9 @@
         const cwBody = _winEl && _winEl.querySelector('#cw-body');
         if (cwBody) cwBody.classList.remove('cw-room-collapsed');   // 進房一律先展開
         _syncInputEmpty();
+        // 衣櫃鈕：只有會打扮的住戶（Claude 住戶、阿洛）
+        const closet = _winEl && _winEl.querySelector('#cw-room-closet');
+        if (closet) closet.hidden = !(window.RoomWardrobe && window.RoomWardrobe.canDress(provider));
         // 🧹 摘要按鈕只在群聊房顯示
         const compactBtn = _winEl && _winEl.querySelector('.cw-tool-compact');
         if (compactBtn) compactBtn.style.display = (provider === 'group') ? '' : 'none';
@@ -1337,6 +1348,7 @@
         settings: '設置',
         spend: '額度', board: '留言板', recents: '會話',
         xiaoji_train: '培養室', xiaoji_box: '404 寄來的箱子',
+        wardrobe: '衣櫃',
     };
 
     ChatWindow.openSubPanel = function (name) {
@@ -1365,6 +1377,9 @@
             const fn = name === 'xiaoji_box' ? 'box' : 'launch';
             if (XT && typeof XT[fn] === 'function') XT[fn](body);
             else body.innerHTML = '<div class="cw-sub-missing">培養室模組未載入</div>';
+        } else if (name === 'wardrobe') {
+            if (window.RoomWardrobe && typeof window.RoomWardrobe.launch === 'function') window.RoomWardrobe.launch(body);
+            else body.innerHTML = '<div class="cw-sub-missing">衣櫃模組未載入</div>';
         } else if (name === 'settings') {
             _renderSettingsPanel(body);
         } else if (name === 'recents') {
