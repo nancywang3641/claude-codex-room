@@ -603,7 +603,9 @@
             if (!CP || !X || !r || !r.id) return;
             try {
                 const rec = await X.get(r.id);
-                if (seq === _decorSeq) CP.show(area, null, X.bodyOf(rec));
+                // 它自己打扮過的（rec.wear，wear_local.js 管）照著畫
+                const wear = (window.RoomWear && rec && rec.wear) ? window.RoomWear.client(rec.wear) : null;
+                if (seq === _decorSeq) CP.show(area, wear, X.bodyOf(rec));
             } catch (_) {}
             return;
         }

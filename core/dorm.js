@@ -305,9 +305,32 @@
 
     // 小機的頭像＝領養時挑的那隻（ClawdPortrait.faceOf 每種畫一次）。存檔還沒讀到、或奧瑞亞沒載入時先放晶片
     const _xjFaces = {};      // body → 小圖
+    const _xjDressed = {};    // rid → { key: 那一身, url }：它自己打扮過的（RoomWear 管 rec.wear）畫它那一身，同一身只畫一次
     function _xjFaceHtml(r) {
-        const X = _XJ(), CP = window.ClawdPortrait, rec = _xj[r.id];
+        const X = _XJ(), CP = window.ClawdPortrait, rec = _xj[r.id], RW = window.RoomWear;
         const body = (X && rec) ? X.bodyOf(rec) : '';
+        if (body && rec && RW && !RW.plain(rec) && CP && typeof CP.renderStill === 'function') {
+            const key = body + '|' + JSON.stringify(rec.wear);
+            const hit = _xjDressed[r.id];
+            if (hit && hit.key === key && hit.url) return '<span class="dorm-face dorm-face-img"><img class="ccr-look" src="' + hit.url + '" alt=""></span>';
+            if (!hit || hit.key !== key) {
+                const job = _xjDressed[r.id] = { key, url: '' };
+                (async () => {
+                    const cv = document.createElement('canvas');
+                    await CP.renderStill(cv, RW.client(rec.wear), 'idle', 1, body);
+                    return CP.crop(cv);
+                })().then(url => {
+                    if (!url || _xjDressed[r.id] !== job) return;
+                    job.url = url;
+                    document.querySelectorAll('[data-xjrid="' + (window.CSS && CSS.escape ? CSS.escape(r.id) : r.id) + '"]').forEach(el => {
+                        el.classList.remove('dorm-face-icon', 'dorm-face-xj');
+                        el.classList.add('dorm-face-img');
+                        el.innerHTML = '<img class="ccr-look" src="' + url + '" alt="">';
+                    });
+                }).catch(() => {});
+            }
+            return '<span class="dorm-face dorm-face-icon dorm-face-xj" data-xjrid="' + _esc(r.id) + '"><i class="fa-solid fa-microchip"></i></span>';
+        }
         if (body && _xjFaces[body]) return '<span class="dorm-face dorm-face-img"><img class="ccr-look" src="' + _xjFaces[body] + '" alt=""></span>';
         if (body && CP && typeof CP.faceOf === 'function') {
             CP.faceOf(body).then(url => {

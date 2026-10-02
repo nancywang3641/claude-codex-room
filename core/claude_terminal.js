@@ -1358,9 +1358,22 @@ ${withOthers}
             : [...history, { role: 'user', content: userText, timestamp: Date.now() }];
         const rollback = heldN ? loaded : history;
         await ClaudeTerminal.saveHistory(updated, ctx);
+        // 🧥 打扮（天生就會）：說明最後接「你的樣子」，回完照它寫的標籤換上、存在小機存檔（規則在 wear_local.js，跟橋同一套）
+        const RW = window.RoomWear;
+        let wearNote = '', byRae = null;
+        if (RW && typeof X.get === 'function') {
+            try {
+                const rec0 = await X.get(me.id);
+                byRae = RW.popByRae(JSON.parse(JSON.stringify(rec0)));
+                const A = window.OS_API || (window.parent && window.parent.OS_API);
+                let user = '';
+                try { user = (A && A.getGlobalUserName && A.getGlobalUserName()) || ''; } catch (_) {}
+                wearNote = RW.brief(rec0, X.bodyOf(rec0), user, byRae);
+            } catch (_) { wearNote = ''; }
+        }
         try {
             const t = await X.turn({
-                rid: me.id, history, userText, signal: sendOpts && sendOpts.signal,
+                rid: me.id, history, userText, signal: sendOpts && sendOpts.signal, extraNote: wearNote,
                 onProgress: ev => {
                     if (typeof onProgress !== 'function' || !ev) return;
                     try {
@@ -1376,8 +1389,22 @@ ${withOthers}
             const usage = u ? { input_tokens: Math.max(0, (u.input || 0) - (u.cacheRead || 0) - (u.cacheWrite || 0)),
                 output_tokens: u.output || 0, cache_read_input_tokens: u.cacheRead || 0, cache_creation_input_tokens: u.cacheWrite || 0,
                 model: t.model || '', no_cost: true } : null;
+            let dressed = false;
+            if (RW && wearNote && typeof X.save === 'function') {
+                try {
+                    const rec = await X.get(me.id);
+                    if (byRae) RW.popByRae(rec);              // 這一句已經跟它說過是她換的
+                    const res = RW.apply(rec, t.reply || '');
+                    if (res.changed || byRae) await X.save(me.id, { wear: rec.wear, closet: rec.closet });
+                    if (res.changed) {
+                        dressed = true;
+                        console.log('[ClaudeTerminal] 小機打扮：' + res.done.join('；'));
+                        if (window.ChatWindow && typeof window.ChatWindow.refreshDecor === 'function') window.ChatWindow.refreshDecor();
+                    }
+                } catch (e) { console.warn('[ClaudeTerminal] 小機打扮沒存成：', e); }
+            }
             return { reply: t.reply, thinking: null, usage, toolsUsed: [],
-                xiaoji: { calls: t.calls, props: t.props || [], log: t.log || [], stopped: !!t.stopped } };
+                xiaoji: { calls: t.calls, props: t.props || [], log: t.log || [], stopped: !!t.stopped, dressed } };
         } catch (e) {
             await ClaudeTerminal.saveHistory(rollback, ctx);
             throw e;
@@ -1499,7 +1526,7 @@ ${withOthers}
     const _BOARD_CODE_RE = /```[\s\S]*?```|`[^`\n]*`/g;
     // board_bug（待修，09-29 橋就認了）以前漏在這份清單外：整段給丹的細節直接畫進泡泡。現在藏起來，房間換成一張待修卡（boardBugs）
     const _BOARD_PAIR_RE = /[<＜]\s*(board_(?:post|comment|reply|like|proposal|bug)|room_place|wear_put|look_set)\b[^>＞]*?(?:\/\s*[>＞]|[>＞][\s\S]*?[<＜]\s*\/\s*\1\s*[>＞])/gi;
-    const _BOARD_SINGLE_RE = /[<＜]\s*(?:board_like|room_(?:paint|move|remove)|wear_(?:color|move|remove)|look_reset)\b[^>＞]*?\/?\s*[>＞]/gi;
+    const _BOARD_SINGLE_RE = /[<＜]\s*(?:board_like|room_(?:paint|move|remove)|wear_(?:color|move|remove|outfit|keep)|look_reset)\b[^>＞]*?\/?\s*[>＞]/gi;
     const _BOARD_OPEN_RE = /[<＜]\s*(?:board_(?:post|comment|reply|proposal|bug)|room_place|wear_put|look_set)\b[\s\S]*$/i;
     const _BOARD_BUG_RE = /[<＜]\s*board_bug\b[^>＞]*[>＞]([\s\S]*?)[<＜]\s*\/\s*board_bug\s*[>＞]/gi;
     const _BOARD_TAIL_RE = /[<＜]\s*\/?\s*(?:b(?:o(?:a(?:r(?:d(?:_[^>＞]*)?)?)?)?)?|r(?:o(?:o(?:m(?:_[^>＞]*)?)?)?)?|w(?:e(?:a(?:r(?:_[^>＞]*)?)?)?)?|l(?:o(?:o(?:k(?:_[^>＞]*)?)?)?)?)?$/i;

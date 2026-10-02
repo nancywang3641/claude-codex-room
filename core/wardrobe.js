@@ -7,7 +7,8 @@
  * 這頁：現在穿的、收著的、現成的（原本的樣子；阿洛多一套 Codex 工作服）。點一套 → 底下那排「穿上／改名／丟掉」，
  * 改名、丟掉都在那排裡做完，不跳窗。她換的，橋會在他下一輪跟他說一聲。
  * 資料在橋 GET／POST /v1/wardrobe；每套的小圖借 ClawdPortrait.renderStill 畫一格定格。
- * 只有會打扮的住戶有（Claude 住戶的預設是小螃蟹、阿洛是洛德）；小機的打扮另外做。
+ * 會打扮的住戶都有：Claude 住戶（預設小螃蟹）、阿洛（洛德）走橋；API 小機（倉鼠／小貓／企鵝）不經橋，
+ * 衣櫃在它自己的存檔，規則交給 RoomWear（wear_local.js，跟橋同一套）。
  * ------------------------------------------------------------------
  */
 (function (RoomWardrobe) {
@@ -20,7 +21,12 @@
             + '一套是整個樣子：身體顏色、身上戴的東西、自己畫的形象一起換。\n'
             + '衣櫃最多放 30 套，滿了先丟最久沒穿、沒取名的那套。' } });
 
-    RoomWardrobe.canDress = function (provider) { return provider === 'claude' || provider === 'codex'; };
+    // 小機（不經橋）：衣櫃在它自己的存檔裡，規則交給 RoomWear（wear_local.js），引擎要有奧瑞亞的 OS_XIAOJI
+    function _XJ() { return window.OS_XIAOJI || (window.parent && window.parent.OS_XIAOJI) || null; }
+    RoomWardrobe.canDress = function (provider) {
+        if (provider === 'claude' || provider === 'codex') return true;
+        return provider === 'xiaoji' && !!(window.RoomWear && _XJ());
+    };
 
     function _esc(s) {
         return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -76,6 +82,21 @@
         _who0 = _who();
         _sel = null; _mode = ''; _note = ''; _data = null;
         body.innerHTML = '<div class="wd-wrap"><div class="wd-msg">打開衣櫃…</div></div>';
+        if (_who0.provider === 'xiaoji') {
+            const X = _XJ(), RW = window.RoomWear;
+            if (!X || !RW) { body.innerHTML = '<div class="wd-wrap"><div class="wd-msg">小機要在奧瑞亞裡才打得開衣櫃</div></div>'; return; }
+            try {
+                const rec = await X.get(_who0.rid);
+                _who0.base = X.bodyOf(rec);
+                _who0.local = true;
+                _data = RW.wardrobe(rec, _who0.base);
+            } catch (e) {
+                body.innerHTML = '<div class="wd-wrap"><div class="wd-msg">小機的存檔讀不到，衣櫃打不開</div></div>';
+                return;
+            }
+            if (_host === body) _render();
+            return;
+        }
         const b = _bridge();
         if (!b) { body.innerHTML = '<div class="wd-wrap"><div class="wd-msg">要先在設置填好橋，才打得開衣櫃</div></div>'; return; }
         try {
@@ -206,8 +227,8 @@
         if (_busy || !_sel) return;
         if (what === 'cancel') { _mode = ''; if (_sel.kind === 'current') _sel = null; _render(); return; }
         if (what === 'rename' || what === 'discard') { _mode = what; _render(); return; }
-        const b = _bridge();
-        if (!b) return;
+        const b = _who0.local ? null : _bridge();
+        if (!b && !_who0.local) return;
         let req = null;
         if (what === 'wear') req = _sel.kind === 'preset' ? { act: 'wear', preset: _sel.key } : { act: 'wear', id: _sel.id };
         if (what === 'discard-ok') req = { act: 'discard', id: _sel.id };
@@ -222,7 +243,17 @@
         const host = _host;
         host.querySelectorAll('.wd-bar button').forEach(x => { x.disabled = true; });
         let res = null;
-        try { res = await _call(b, _who0, req); } catch (e) { res = { ok: false, msg: '連不上橋，沒做成' }; }
+        if (_who0.local) {
+            const X = _XJ(), RW = window.RoomWear;
+            try {
+                const rec = await X.get(_who0.rid);
+                const [ok, msg] = RW.act(rec, req.act, req.id == null ? null : req.id, req.preset, req.name);
+                if (ok) await X.save(_who0.rid, { wear: rec.wear, closet: rec.closet });
+                res = { ok, msg, wardrobe: RW.wardrobe(rec, _who0.base) };
+            } catch (e) { res = { ok: false, msg: '小機的存檔沒存成' }; }
+        } else {
+            try { res = await _call(b, _who0, req); } catch (e) { res = { ok: false, msg: '連不上橋，沒做成' }; }
+        }
         _busy = false;
         if (host !== _host) return;
         if (res && res.wardrobe) _data = res.wardrobe;
