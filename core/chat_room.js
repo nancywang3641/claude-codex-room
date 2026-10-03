@@ -1003,8 +1003,10 @@
         return true;
     }
 
-    // 🎤 語音泡泡。他在回覆裡寫 <voice>要說的話</voice> → 自己一顆，她按了才用他的聲音念（借奧瑞亞的 OS_MINIMAX，
-    //   誰用哪個音色照「系統設置 → 語音清單」的角色名稱對住戶名字）。合成過的留在記憶體，同一句重播不再扣錢。
+    // 🎤 語音泡泡。他在回覆裡寫 <voice>要說的話</voice> → 自己一顆，她按了才用他的聲音念。
+    //   誰用哪個聲音照奧瑞亞「系統設置 → 語音 → 角色配音」的名字對住戶名字（OS_VOICE_CAST），
+    //   名單上選 Minimax 就借 OS_MINIMAX、選 ElevenLabs 就借 OS_ELEVENLABS；總開關不管這裡（她按了就是要聽）。
+    //   舊版奧瑞亞沒有名單：照舊只用 OS_MINIMAX 的音色檔案。合成過的留在記憶體，同一句重播不再扣錢。
     //   她按住麥克風說的那條：記錄帶 voiceAudio（錄音存在奧瑞亞圖庫 aud_room_…），泡泡點了播她自己的聲音。
     //   反引號裡的 <voice> 是他在講解，不算。串流中開頭來了、結尾還沒來的，從那裡先藏著。
     const VOICE_TOKEN_RE = /^\[\[ccr-voice:([A-Za-z0-9+/=]*)\]\]$/;
@@ -1035,11 +1037,11 @@
         }
         _voiceRow = null;
     }
-    function _voiceWhy(e, who) {
+    function _voiceWhy(e, who, src) {
         const code = String((e && e.message) || e || '');
         if (code === 'NO_TTS') return '這裡沒有接語音，要在奧瑞亞裡打開房間才念得出來';
-        if (code === 'NO_VOICE') return '還沒幫' + who + '挑聲音：到系統設置的語音清單，加一個角色名稱叫「' + who + '」的音色';
-        if (code === 'NO_KEY') return '語音清單還沒填 MiniMax 的 Group ID 和金鑰';
+        if (code === 'NO_VOICE') return '還沒幫' + who + '挑聲音：到系統設置 → 語音 → 角色配音，加一個名字叫「' + who + '」的角色';
+        if (code === 'NO_KEY') return src === 'elevenlabs' ? '語音設定還沒填 ElevenLabs 的金鑰' : '語音設定還沒填 MiniMax 的 Group ID 和金鑰';
         if (code === 'GONE') return '這段錄音找不到了';
         if (code === 'NOTHING_TO_SAY') return '這段沒有可以念的字';
         return '沒念出來：' + code;
@@ -1054,17 +1056,28 @@
         _voiceRow = row;
         row.classList.add('loading');
         note.hidden = true;
+        let src = 'minimax';
         try {
             let blobUrl;
             if (v.audioId) {
                 blobUrl = window.OS_DB && typeof window.OS_DB.getImage === 'function' ? await window.OS_DB.getImage(v.audioId) : null;
                 if (!blobUrl) throw new Error('GONE');
             } else {
-                const MM = window.OS_MINIMAX;
-                if (!MM || typeof MM.findVoiceId !== 'function') throw new Error('NO_TTS');
-                const voiceId = MM.findVoiceId(v.who);
-                if (!voiceId) throw new Error('NO_VOICE');
-                const key = voiceId + '§' + text;
+                const VC = window.OS_VOICE_CAST;
+                let MM = window.OS_MINIMAX, voiceId = '';
+                if (VC && typeof VC.find === 'function') {
+                    const ent = VC.find(v.who);
+                    if (!ent) throw new Error('NO_VOICE');
+                    src = ent.src;
+                    voiceId = ent.voiceId;
+                    MM = src === 'elevenlabs' ? window.OS_ELEVENLABS : window.OS_MINIMAX;
+                    if (!MM || typeof MM.synth !== 'function') throw new Error('NO_TTS');
+                } else {
+                    if (!MM || typeof MM.findVoiceId !== 'function') throw new Error('NO_TTS');
+                    voiceId = MM.findVoiceId(v.who);
+                    if (!voiceId) throw new Error('NO_VOICE');
+                }
+                const key = src + '§' + voiceId + '§' + text;
                 let blob = _voiceCache.get(key);
                 if (!blob) {
                     if (typeof MM.synth !== 'function') {         // 舊版奧瑞亞沒有只合成那支：交給它自己播，不留著
@@ -1089,7 +1102,7 @@
             if (ic) ic.className = 'fa-solid fa-pause claude-voice-icon';
         } catch (e) {
             if (_voiceRow === row) _stopVoice();
-            note.textContent = _voiceWhy(e, v.who || '他');
+            note.textContent = _voiceWhy(e, v.who || '他', src);
             note.hidden = false;
             body.hidden = false;
         }
