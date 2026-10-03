@@ -1380,7 +1380,7 @@ ${withOthers}
             const roster = VC.getRoster();
             const hasEl = roster.entries.some(e => e.src === 'elevenlabs' && VC.find(name, { entries: [e] }));
             if (!hasEl) return '';
-            return '【語音的語氣】你的 <voice> 會用能演語氣的聲音念：可以在要影響的那句前面加方括號標籤，方括號裡用英文寫一兩個字描述聲音或語氣（笑、嘆氣、小聲說、哽咽、興奮這類），念的時候會照著演、不會念出來。真的需要才加，一段一兩個就夠；標籤只放在 <voice> 裡，打字的訊息不要放。';
+            return '【語音的語氣】你的 <voice> 會用能演語氣的聲音念：可以在要影響的那句前面加方括號標籤，方括號裡用英文寫一兩個字描述聲音或語氣（笑、嘆氣、小聲說、哽咽、興奮這類），念的時候會照著演、不會念出來。真的需要才加，一段一兩個就夠；標籤只放在 <voice> 裡，打字的訊息不要放。想清唱幾句也可以用標籤寫唱歌，但這個還在實驗，聲音可能不太穩，偶爾用就好。';
         } catch (_) { return ''; }
     }
     function _turnNotes(rid) { return [_langNote(rid), _tagNote(rid)].filter(Boolean).join('\n\n'); }
