@@ -1066,7 +1066,7 @@
                 const VC = window.OS_VOICE_CAST;
                 let MM = window.OS_MINIMAX, voiceId = '';
                 if (VC && typeof VC.find === 'function') {
-                    const ent = VC.find(v.who);
+                    const ent = VC.find(v.who, null, text);   // 帶這句話：同一個人中文、英文可以綁不同聲音
                     if (!ent) throw new Error('NO_VOICE');
                     src = ent.src;
                     voiceId = ent.voiceId;
