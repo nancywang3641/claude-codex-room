@@ -1110,7 +1110,7 @@
                         if (!ok) throw new Error('NO_KEY');
                         return;
                     }
-                    blob = await MM.synth(text, voiceId);
+                    blob = await MM.synth(text, voiceId, { keepTags: true });   // 🎭 他寫的 [laughs] 這種語氣標籤留著（只有 ElevenLabs 會用到）
                     _voiceCache.set(key, blob);
                 }
                 blobUrl = URL.createObjectURL(blob);
@@ -1141,7 +1141,8 @@
         row.type = 'button';
         row.className = 'claude-voice-row';
         row.innerHTML = '<i class="fa-solid fa-play claude-voice-icon"></i><span class="claude-voice-wave"><i></i><i></i><i></i><i></i><i></i></span><span class="claude-voice-sec"></span>';
-        const _vx = _tlSplit(text);   // 🌐 外語語音：秒數只算原文，「字」那欄翻譯另起一行
+        // 🌐 外語語音：秒數只算原文，「字」那欄翻譯另起一行；🎭 語氣標籤 [laughs] 是給聲音演的，展開的字裡不顯示
+        const _vx = _tlSplit(String(text || '').replace(/\[[^\]\n]{1,40}\]\s*/g, '').trim());
         row.querySelector('.claude-voice-sec').textContent = (v.sec ? Math.max(1, Math.round(v.sec)) : _voiceSecOf(_vx.orig)) + '″';
         const tbtn = document.createElement('button');
         tbtn.type = 'button';

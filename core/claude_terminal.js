@@ -1367,6 +1367,24 @@ ${withOthers}
         } catch (_) { return ''; }
     }
 
+    // 🎭 語氣標籤：這位住戶的聲音是 ElevenLabs、模型吃標籤（v4／v3）時，每一輪附一句教他在 <voice> 裡用 [英文描述]。
+    //   誰用哪個聲音看奧瑞亞「設置 → 語音 → 角色配音」（OS_VOICE_CAST），名單上這個名字有任何一格是 ElevenLabs 就給。
+    //   Minimax 的住戶不給（寫法不一樣）；萬一中文那句走了 Minimax，方括號會被 Minimax 那邊清掉，不會念出來。
+    function _tagNote(rid) {
+        try {
+            const VC = window.OS_VOICE_CAST, EL = window.OS_ELEVENLABS;
+            if (!VC || !EL || typeof EL.tagsSupported !== 'function' || !EL.tagsSupported()) return '';
+            const r = ClaudeTerminal.getResident(rid);
+            const name = r && r.name;
+            if (!name) return '';
+            const roster = VC.getRoster();
+            const hasEl = roster.entries.some(e => e.src === 'elevenlabs' && VC.find(name, { entries: [e] }));
+            if (!hasEl) return '';
+            return '【語音的語氣】你的 <voice> 會用能演語氣的聲音念：可以在要影響的那句前面加方括號標籤，方括號裡用英文寫一兩個字描述聲音或語氣（笑、嘆氣、小聲說、哽咽、興奮這類），念的時候會照著演、不會念出來。真的需要才加，一段一兩個就夠；標籤只放在 <voice> 裡，打字的訊息不要放。';
+        } catch (_) { return ''; }
+    }
+    function _turnNotes(rid) { return [_langNote(rid), _tagNote(rid)].filter(Boolean).join('\n\n'); }
+
     async function _sendXiaoji(userText, onProgress, sendOpts, ctx) {
         const X = window.OS_XIAOJI || (window.parent && window.parent.OS_XIAOJI);
         if (!X || typeof X.turn !== 'function') throw new Error('XIAOJI:小機要在酒館或手機的奧瑞亞裡才動得了');
@@ -1401,7 +1419,7 @@ ${withOthers}
         }
         try {
             const t = await X.turn({
-                rid: me.id, history, userText, signal: sendOpts && sendOpts.signal, extraNote: [wearNote, _langNote(me.id)].filter(Boolean).join('\n\n'),
+                rid: me.id, history, userText, signal: sendOpts && sendOpts.signal, extraNote: [wearNote, _turnNotes(me.id)].filter(Boolean).join('\n\n'),
                 onProgress: ev => {
                     if (typeof onProgress !== 'function' || !ev) return;
                     try {
@@ -1621,7 +1639,7 @@ ${withOthers}
         // 之後她翻自己的對話會看到一大段不是她寫的東西，下次開新 session 還會被當成
         // 她的發言重送一次。
         const carry = _takeGroupCarry(ctx.rid);
-        const _ln = _langNote(ctx.rid);   // 🌐 這位住戶設了外語：附在這一輪後面，同樣不寫進 history
+        const _ln = _turnNotes(ctx.rid);   // 🌐 外語／🎭 語氣標籤：附在這一輪後面，同樣不寫進 history
         const apiUserText = (carry ? (carry + '\n\n' + userText) : userText) + (_ln ? '\n\n' + _ln : '');
         // 新 session 把 Aurelia 房間 system prompt 注入第一條（含 ASK marker 規則）
         // resume 模式不重送 system（已在 session log 裡了，重送可能干擾續接）
