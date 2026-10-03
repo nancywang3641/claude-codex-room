@@ -248,6 +248,15 @@
             m.textContent = emoji + _modelLabel(_lockedModel() || _residentPick() || _getProviderModel(cfg, prov), prov);
         }
         if (e && hasEffort) e.textContent = _shortEffortLabel(cfg.inlineEffort);
+        // 🌐 這位住戶講外語時，模型名字後面帶語言，一眼看得出這間現在不是講中文
+        if (m) {
+            const CT = window.ClaudeTerminal;
+            const r = (CT && typeof CT.getActiveResident === 'function') ? CT.getActiveResident(prov) : null;
+            const k = r && cfg.residentLang ? cfg.residentLang[r.id] : '';
+            const F = window.OS_VN_FOREIGN;
+            const ln = k ? ((F && F.langName && F.langName(k)) || k) : '';
+            if (ln) m.textContent += ' · ' + ln;
+        }
         if (ep) ep.textContent = _shortEndpointLabel(cfg);
         // backend 選單一律顯示（Anthropic 直連分支已於 2026-05-24 移除）
         if (bk) bk.style.display = '';
@@ -298,10 +307,17 @@
                <div class="claude-picker-fixed">${_modelLabel(locked, prov)}
                    <span class="claude-picker-fixed-note">這位住戶固定用這顆</span></div>`
             : sectionHtml(modelSectionTitle, models, curModel, 'model');
+        // 🌐 這位住戶講什麼語言（一位一個；中文＝照常）。每一輪送話時附一句，見 claude_terminal.js _langNote
+        const _CTL = window.ClaudeTerminal;
+        const _lr = (_CTL && typeof _CTL.getActiveResident === 'function') ? _CTL.getActiveResident(prov) : null;
+        const _F = window.OS_VN_FOREIGN;
+        const langList = [{ id: 'zh', label: '中文' }].concat(((_F && _F.LANGS) || [['en', '英文'], ['ja', '日文'], ['ko', '韓文']]).map(([k, v]) => ({ id: k, label: v })));
+        const curLang = (_lr && cfg.residentLang && cfg.residentLang[_lr.id]) || 'zh';
         popup.innerHTML = `
             ${sectionHtml('連線預設',  presetList, curPresetId, 'preset')}
             ${modelBlock}
             ${showEffort ? sectionHtml('Thinking 思考', CLAUDE_EFFORTS, curEffort || 'medium', 'effort') : ''}
+            ${_lr ? sectionHtml('講什麼語言', langList, curLang, 'lang') : ''}
         `;
         popup.style.display = 'block';
 
@@ -329,6 +345,14 @@
         });
         popup.querySelectorAll('[data-effort]').forEach(el => el.onclick = () => {
             const c = _getClaudeRoomCfg(); c.inlineEffort = el.dataset.effort; _saveClaudeRoomCfg(c);
+            _updateClaudePickerLabel(); _openClaudePickerPopup();
+        });
+        popup.querySelectorAll('[data-lang]').forEach(el => el.onclick = () => {
+            if (!_lr) return;
+            const c = _getClaudeRoomCfg();
+            c.residentLang = Object.assign({}, c.residentLang || {});
+            if (el.dataset.lang === 'zh') delete c.residentLang[_lr.id]; else c.residentLang[_lr.id] = el.dataset.lang;
+            _saveClaudeRoomCfg(c);
             _updateClaudePickerLabel(); _openClaudePickerPopup();
         });
     }
@@ -1117,7 +1141,8 @@
         row.type = 'button';
         row.className = 'claude-voice-row';
         row.innerHTML = '<i class="fa-solid fa-play claude-voice-icon"></i><span class="claude-voice-wave"><i></i><i></i><i></i><i></i><i></i></span><span class="claude-voice-sec"></span>';
-        row.querySelector('.claude-voice-sec').textContent = (v.sec ? Math.max(1, Math.round(v.sec)) : _voiceSecOf(text)) + '″';
+        const _vx = _tlSplit(text);   // 🌐 外語語音：秒數只算原文，「字」那欄翻譯另起一行
+        row.querySelector('.claude-voice-sec').textContent = (v.sec ? Math.max(1, Math.round(v.sec)) : _voiceSecOf(_vx.orig)) + '″';
         const tbtn = document.createElement('button');
         tbtn.type = 'button';
         tbtn.className = 'claude-voice-textbtn';
@@ -1125,7 +1150,13 @@
         tbtn.textContent = '字';
         const body = document.createElement('div');
         body.className = 'claude-voice-text';
-        body.textContent = text;
+        body.textContent = _vx.orig;
+        if (_vx.tl) {
+            const tl = document.createElement('div');
+            tl.className = 'claude-tl';
+            tl.textContent = _vx.tl;
+            body.appendChild(tl);
+        }
         body.hidden = true;
         const note = document.createElement('div');
         note.className = 'claude-voice-note';
@@ -1171,17 +1202,35 @@
     // 🫧 泡泡一顆一顆出來（她從三個小樣挑的第一個：點點等一下，再冒出一顆）
     const DOTS_HTML = '<i></i><i></i><i></i>';
 
-    /** 他的一段話畫進一顆泡泡：markdown、表情包自己不套底框、小面板建框 */
-    function _fillReplyBubble(el, text) {
-        if (_fillWidgetSeg(el, text)) return;
-        if (_fillVoiceSeg(el, text)) return;
-        const safeHtml = _claudeMarkdownToSafeHtml(text);
+    // 🌐 住戶講外語時一段話是「原文 (中文翻譯)」：翻譯拆出來放下面一行小字（奧瑞亞的 OS_VN_FOREIGN.splitTail；
+    //    只拆前面不是中文、括號裡是中文的，中文的（笑）不動）。沒有奧瑞亞就照原樣一行。
+    function _tlSplit(text) {
+        const F = window.OS_VN_FOREIGN;
+        return (F && typeof F.splitTail === 'function') ? F.splitTail(String(text || '')) : { orig: String(text || ''), tl: '' };
+    }
+    /** markdown 那段畫進泡泡，有翻譯就在下面多一行 .claude-tl */
+    function _fillMdSeg(el, text) {
+        const sx = _tlSplit(text);
+        const safeHtml = _claudeMarkdownToSafeHtml(sx.orig);
         if (safeHtml !== null) {
             el.innerHTML = safeHtml;
             el.classList.add('claude-bubble-md');
         } else {
-            el.textContent = text;
+            el.textContent = sx.orig;
         }
+        if (sx.tl) {
+            const d = document.createElement('div');
+            d.className = 'claude-tl';
+            d.textContent = sx.tl;
+            el.appendChild(d);
+        }
+    }
+
+    /** 他的一段話畫進一顆泡泡：markdown、表情包自己不套底框、小面板建框 */
+    function _fillReplyBubble(el, text) {
+        if (_fillWidgetSeg(el, text)) return;
+        if (_fillVoiceSeg(el, text)) return;
+        _fillMdSeg(el, text);
         if (_isStickerSeg(text)) el.classList.add('claude-bubble-sticker');
     }
 
@@ -1497,14 +1546,8 @@
             }
             if (_fillWidgetSeg(el, text)) return;   // 🧩 小面板
             if (_fillVoiceSeg(el, text)) return;    // 🎤 語音
-            // Claude 回覆：解析 markdown 後 sanitize 再插入
-            const safeHtml = _claudeMarkdownToSafeHtml(text);
-            if (safeHtml !== null) {
-                el.innerHTML = safeHtml;
-                el.classList.add('claude-bubble-md');
-            } else {
-                el.textContent = text;
-            }
+            // Claude 回覆：解析 markdown 後 sanitize 再插入（外語的翻譯拆到下面一行）
+            _fillMdSeg(el, text);
             if (_isStickerSeg(text)) el.classList.add('claude-bubble-sticker');
         };
         let bubble = null;

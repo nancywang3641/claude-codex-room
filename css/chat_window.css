@@ -1575,3 +1575,6 @@
         translate: 58px calc(var(--cw-bar-h) / 2 - 22px);
     }
 }
+
+/* 🌐 住戶講外語：泡泡與語音「字」那欄的中文翻譯，原文下面一行小字（chat_room.js _fillMdSeg／_buildVoice） */
+#aurelia-chat-window .claude-tl { margin-top: 4px; font-size: 0.82em; line-height: 1.5; opacity: 0.7; }

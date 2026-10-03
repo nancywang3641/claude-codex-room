@@ -1353,6 +1353,20 @@ ${withOthers}
      */
     // ===== API 小機：一句話交給奧瑞亞的 OS_XIAOJI.turn（頁面裡直接打接口，不碰橋）=====
     //   記錄的存法照 _sendCcBridge：先存她這句（放著的那幾條去掉 held），失敗撤回；他的回覆由房間 push。
+    // 🌐 住戶講外語（私聊房上方選模型那個小窗裡設；存 cfg.residentLang = { 住戶id: 'en' }）：
+    //   每一輪附這一句。人設在 session 出生時就定死，寫進人設要開新對話才生效，所以一輪一輪附，切了下一輪就照新的。
+    //   翻譯括號由奧瑞亞的 OS_VN_FOREIGN.splitTail 拆成泡泡下面一行小字。
+    const _LANG_NAMES = { en: '英文', ja: '日文', ko: '韓文', fr: '法文', de: '德文', es: '西班牙文', it: '義大利文', ru: '俄文', pt: '葡萄牙文' };
+    function _langNote(rid) {
+        try {
+            const cfg = _cfgRead();
+            const k = cfg && cfg.residentLang ? cfg.residentLang[rid] : '';
+            const name = _LANG_NAMES[k];
+            if (!name) return '';
+            return '【這一輪的回覆語言】這一輪請用' + name + '回覆：每一段的最後用括號附上中文翻譯，翻譯用跟對話同一種中文；<voice> 裡也一樣，翻譯寫在原文後面、</voice> 前面。程式碼、檔名、指令照原樣，不用翻。';
+        } catch (_) { return ''; }
+    }
+
     async function _sendXiaoji(userText, onProgress, sendOpts, ctx) {
         const X = window.OS_XIAOJI || (window.parent && window.parent.OS_XIAOJI);
         if (!X || typeof X.turn !== 'function') throw new Error('XIAOJI:小機要在酒館或手機的奧瑞亞裡才動得了');
@@ -1387,7 +1401,7 @@ ${withOthers}
         }
         try {
             const t = await X.turn({
-                rid: me.id, history, userText, signal: sendOpts && sendOpts.signal, extraNote: wearNote,
+                rid: me.id, history, userText, signal: sendOpts && sendOpts.signal, extraNote: [wearNote, _langNote(me.id)].filter(Boolean).join('\n\n'),
                 onProgress: ev => {
                     if (typeof onProgress !== 'function' || !ev) return;
                     try {
@@ -1607,7 +1621,8 @@ ${withOthers}
         // 之後她翻自己的對話會看到一大段不是她寫的東西，下次開新 session 還會被當成
         // 她的發言重送一次。
         const carry = _takeGroupCarry(ctx.rid);
-        const apiUserText = carry ? (carry + '\n\n' + userText) : userText;
+        const _ln = _langNote(ctx.rid);   // 🌐 這位住戶設了外語：附在這一輪後面，同樣不寫進 history
+        const apiUserText = (carry ? (carry + '\n\n' + userText) : userText) + (_ln ? '\n\n' + _ln : '');
         // 新 session 把 Aurelia 房間 system prompt 注入第一條（含 ASK marker 規則）
         // resume 模式不重送 system（已在 session log 裡了，重送可能干擾續接）
         const sysPrompt = P === 'codex'    ? CODEX_ROOM_SYSTEM_PROMPT
