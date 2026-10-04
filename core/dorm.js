@@ -64,8 +64,9 @@
         }
         const th = rec.theater !== false;
         h += '<div class="dorm-mode dorm-xj-theater">'
-           + '<button type="button" class="dorm-xj-th' + (th ? ' active' : '') + '" data-th="1">考過演小劇場</button>'
-           + '<button type="button" class="dorm-xj-th' + (th ? '' : ' active') + '" data-th="0">不演（省一次）</button></div>';
+           // 10-05 起考過不自動演：結業頁多一顆「看小劇場」，這裡決定那顆要不要出現（演過存起來的照樣能重看）
+           + '<button type="button" class="dorm-xj-th' + (th ? ' active' : '') + '" data-th="1">考過能看小劇場</button>'
+           + '<button type="button" class="dorm-xj-th' + (th ? '' : ' active') + '" data-th="0">不要小劇場</button></div>';
         return h;
     }
 
