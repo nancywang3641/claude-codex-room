@@ -226,7 +226,7 @@
     // 手機瀏覽器把這批靜態檔快取得很兇,沒版本參數的話核心檔更新永遠到不了手機
     // (症狀:桌機是新版、手機停在幾個月前,甚至 chat_window 跟 chat_room 各停在不同版本)。
     // 檔案有改就把 VER +1,跟奧瑞亞 sw.js 的 CACHE_VERSION 同一套習慣。
-    const VER = 131;
+    const VER = 132;
 
     function loadCSS(href) {
         if (document.querySelector('link[data-ccr="' + href + '"]')) return;
@@ -260,6 +260,7 @@
     loadCSS(HERE + 'css/xiaoji.css');           // 🧩 API 小機                 // 🏠 宿舍面板
     loadCSS(HERE + 'css/wardrobe.css');         // 👕 衣櫃
     loadCSS(HERE + 'css/notebook.css');         // 📒 紀錄（記事本＋相簿）
+    loadCSS(HERE + 'css/xiaoji_memory.css');    // 🪶 小機「它記得的事」
     loadCSS(HERE + 'css/launcher.css');
 
     const FILES = [
@@ -269,6 +270,7 @@
         'core/clawd_portrait.js',  // window.ClawdPortrait（打扮過的 Claude 住戶改用程式畫立繪）
         'core/wear_local.js',      // 🧥 不經橋的打扮與衣櫃（RoomWear：API 小機用，規則跟橋 room_decor 同一套）
         'core/wardrobe.js',        // 👕 衣櫃（RoomWardrobe，橋 /v1/wardrobe；小機走 RoomWear；小圖借 ClawdPortrait 畫）
+        'core/xiaoji_memory.js',   // 🪶 小機「它記得的事」（XiaojiMemory：它自己記的事＋這一串更早的聊天，資料在奧瑞亞 OS_XIAOJI）
         'core/notebook.js',        // 📒 紀錄（RoomNotebook：記事本＋相簿＋找字，橋 /v1/notebook、/v1/room/media、/v1/room/search）
         'core/chat_window.js',     // window.ChatWindow（外殼）
         'core/chat_room.js',       // window.VoidClaudeRoom

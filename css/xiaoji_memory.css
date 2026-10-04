@@ -1,0 +1,261 @@
+/* ============================================================
+ * css/xiaoji_memory.css — 小機「它記得的事」（core/xiaoji_memory.js，子面板 xiaoji_memory）
+ * 上面一張橫線紙（它記得的事，一行一條），下面「更早的聊天」一節一張卡。配色跟「紀錄」記事本同一套。
+ * class 一律 xjm- 開頭、掛在 #aurelia-chat-window 底下（別用菜市場名，酒館全域樣式會蓋過來）。
+ * ============================================================ */
+#aurelia-chat-window .xjm-wrap {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    background: #f4f6fb;
+    color: #1f3a68;
+}
+#aurelia-chat-window .xjm-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 12px 12px 18px;
+}
+#aurelia-chat-window .xjm-msg {
+    padding: 40px 0;
+    text-align: center;
+    color: #6a7fa6;
+    font-size: 13px;
+}
+
+/* ---- 橫線紙：它記得的事 ---- */
+#aurelia-chat-window .xjm-paper {
+    position: relative;
+    padding: 12px 12px 10px 18px;
+    border: 1px solid rgba(185, 146, 79, 0.35);
+    border-radius: 12px;
+    background: #fffdf7;
+    box-shadow: 0 1px 5px rgba(31, 58, 104, 0.07);
+}
+/* 左邊一條紅色邊線，像筆記本的裝訂線 */
+#aurelia-chat-window .xjm-paper::before {
+    content: '';
+    position: absolute;
+    left: 10px;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: rgba(214, 120, 120, 0.35);
+    pointer-events: none;
+}
+#aurelia-chat-window .xjm-paper-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 0 0 8px 6px;
+    border-bottom: 1px solid rgba(185, 146, 79, 0.3);
+}
+#aurelia-chat-window .xjm-paper-ttl {
+    flex: 1;
+    min-width: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #2a4a80;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+#aurelia-chat-window .xjm-paper-ttl > i { color: #b9924f; margin-right: 2px; }
+#aurelia-chat-window .xjm-count {
+    flex-shrink: 0;
+    font-size: 11.5px;
+    color: #8a9bbd;
+}
+#aurelia-chat-window .xjm-lines { padding: 2px 0 0; }
+#aurelia-chat-window .xjm-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 7px 0 7px 6px;
+    border-bottom: 1px dashed rgba(42, 74, 128, 0.14);
+}
+#aurelia-chat-window .xjm-dot {
+    flex-shrink: 0;
+    width: 6px;
+    height: 6px;
+    margin-top: 7px;
+    border-radius: 50%;
+    background: #b9924f;
+}
+#aurelia-chat-window .xjm-txt {
+    flex: 1;
+    min-width: 0;
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: #1f3a68;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+#aurelia-chat-window .xjm-when {
+    flex-shrink: 0;
+    margin-top: 2px;
+    font-size: 11px;
+    color: #9aaacb;
+}
+#aurelia-chat-window .xjm-ic {
+    flex-shrink: 0;
+    min-width: 30px;
+    height: 30px;
+    margin-top: -4px;
+    padding: 0 6px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: #8a9bbd;
+    font: inherit;
+    font-size: 12.5px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+#aurelia-chat-window .xjm-ic:hover { background: rgba(42, 74, 128, 0.07); color: #2a4a80; }
+#aurelia-chat-window .xjm-ic.is-armed {
+    background: #fbeaea;
+    color: #b23b3b;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+/* 改字／新的一條：同一行展開成打字框，不換頁 */
+#aurelia-chat-window .xjm-note.is-edit {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+}
+#aurelia-chat-window .xjm-input {
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 56px;
+    padding: 8px 10px;
+    border: 1px solid rgba(185, 146, 79, 0.55);
+    border-radius: 8px;
+    background: #ffffff !important;
+    color: #1f3a68 !important;
+    font: inherit;
+    font-size: 13.5px;
+    line-height: 1.5;
+    resize: vertical;
+    outline: none;
+    box-shadow: none;
+}
+#aurelia-chat-window .xjm-input:focus { border-color: #b9924f; }
+#aurelia-chat-window .xjm-edit-acts {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+#aurelia-chat-window .xjm-btn {
+    height: 32px;
+    padding: 0 14px;
+    border: 1px solid rgba(42, 74, 128, 0.22);
+    border-radius: 16px;
+    background: #ffffff;
+    color: #2a4a80;
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+}
+#aurelia-chat-window .xjm-btn.is-main {
+    border-color: #2a4a80;
+    background: #2a4a80;
+    color: #ffffff;
+}
+#aurelia-chat-window .xjm-add {
+    width: 100%;
+    height: 38px;
+    margin-top: 10px;
+    border: 1px dashed rgba(185, 146, 79, 0.6);
+    border-radius: 10px;
+    background: transparent;
+    color: #8a6a2f;
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+}
+#aurelia-chat-window .xjm-add:hover { background: rgba(185, 146, 79, 0.08); }
+#aurelia-chat-window .xjm-add:disabled { color: #a9b4cc; border-color: rgba(42, 74, 128, 0.18); cursor: default; background: transparent; }
+#aurelia-chat-window .xjm-flash {
+    margin-top: 8px;
+    font-size: 12px;
+    color: #b23b3b;
+}
+
+/* 空的時候 */
+#aurelia-chat-window .xjm-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 22px 8px 14px;
+    text-align: center;
+    color: #8a9bbd;
+    font-size: 13px;
+    line-height: 1.55;
+}
+#aurelia-chat-window .xjm-empty > i { font-size: 22px; color: #c9b083; }
+#aurelia-chat-window .xjm-empty.is-soft {
+    padding: 10px 4px;
+    font-size: 12.5px;
+}
+
+/* ---- 更早的聊天：一節一張卡 ---- */
+#aurelia-chat-window .xjm-sec-head {
+    margin: 18px 2px 8px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #46639b;
+}
+#aurelia-chat-window .xjm-sec-head > i { margin-right: 4px; color: #6a7fa6; }
+#aurelia-chat-window .xjm-node {
+    margin: 0 0 8px;
+    padding: 10px 12px 6px;
+    border: 1px solid rgba(42, 74, 128, 0.12);
+    border-left: 3px solid rgba(185, 146, 79, 0.7);
+    border-radius: 10px;
+    background: #ffffff;
+}
+#aurelia-chat-window .xjm-node-txt {
+    font-size: 13px;
+    line-height: 1.6;
+    color: #2a3f66;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+#aurelia-chat-window .xjm-node-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 4px;
+    font-size: 11px;
+    color: #9aaacb;
+}
+
+/* 房間圖右下：衣櫃左邊那顆（只有小機） */
+#aurelia-chat-window .cw-room-memo {
+    position: absolute;
+    right: 54px;
+    bottom: 10px;
+    z-index: 5;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid rgba(42, 74, 128, 0.3);
+    background: rgba(251, 252, 254, 0.88);
+    color: #1f3a68;
+    font-size: 15px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+#aurelia-chat-window .cw-room-memo[hidden] { display: none; }
+#aurelia-chat-window .cw-room-memo:hover { background: #ffffff; }
