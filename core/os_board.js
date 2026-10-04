@@ -40,6 +40,7 @@
             // 表情包圖 ![說明](https://…)：房間私聊／群聊在手機 PWA 也借這支，要畫得出圖（排在連結前面，不然會被當成連結）
             .replace(/!\[([^\]]*)\]\((https:\/\/[^)\s]+)\)/g, '<img class="claude-md-img" alt="$1" src="$2">')
             .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+        text = _shortUrls(text);
         const out = [];
         let para = [], list = null, fence = null;
         const flushPara = () => { if (para.length) { out.push('<p>' + para.map(inline).join('<br>') + '</p>'); para = []; } };
@@ -88,7 +89,25 @@
         flushPara();
         flushList();
         flushTable();
-        return out.join('');
+        return _urlChips(out.join(''));
+    }
+
+    // 直接貼的網址（住戶動態最後附的來源）：以前照字印一長串、也點不了（10-04 她截阿洛那則）。
+    //   先改寫成 [網站名](網址)，showdown 跟上面那支都認得；畫完 _urlChips 把「字＝網站名」的連結加上小圖示。
+    //   只認前面是開頭、空白或中文標點的 —— [字](網址) 裡那個前面是括號，不會再被包一次；句尾標點不算網址。
+    function _hostOf(u) { return (String(u).match(/^https?:\/\/([^\/?#]+)/) || ['', ''])[1].replace(/^www\./, ''); }
+    function _shortUrls(text) {
+        // 網址只認英數與網址符號：後面直接接中文（「…/PMC123。後面」）時停在中文前
+        return String(text == null ? '' : text).replace(/(^|[\s：:，,、])(https?:\/\/[A-Za-z0-9\-._~:\/?#@!$&*+,;=%]+)/g, (m, pre, url) => {
+            const tail = (url.match(/[.,;:!?]+$/) || [''])[0];
+            const u = tail ? url.slice(0, -tail.length) : url;
+            const host = _hostOf(u);
+            return host ? pre + '[' + host + '](' + u + ')' + tail : m;
+        });
+    }
+    function _urlChips(html) {
+        return String(html).replace(/<a ([^>]*?)href="([^"]+)"([^>]*)>([^<]+)<\/a>/g, (m, a, href, b, txt) =>
+            _hostOf(href.replace(/&amp;/g, '&')) === txt ? '<a class="md-url" ' + a + 'href="' + href + '"' + b + '><i class="fa-solid fa-link"></i>' + txt + '</a>' : m);
     }
 
     function _renderMd(text) {
@@ -103,8 +122,8 @@
                 strikethrough: true,
                 tables: true,
             });
-            const html = conv.makeHtml(text || '');
-            return DOMPurify ? DOMPurify.sanitize(html) : html;
+            const html = conv.makeHtml(_shortUrls(text || ''));
+            return _urlChips(DOMPurify ? DOMPurify.sanitize(html) : html);
         } catch (_) {
             return _esc(text);
         }

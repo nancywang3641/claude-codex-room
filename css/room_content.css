@@ -681,3 +681,7 @@ img.claude-md-img {
     .claude-chat-stream { padding: 12px 10px; }
     .claude-picker-popup { width: calc(100% - 24px); left: 12px; right: 12px; }
 }
+
+/* 直接貼的網址縮成網站名的小連結（os_board.js _miniMd；留言板與手機版房間泡泡共用） */
+a.md-url { white-space: nowrap; }
+a.md-url > i { font-size: 0.85em; margin-right: 4px; }
