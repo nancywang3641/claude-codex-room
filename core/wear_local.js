@@ -12,13 +12,15 @@
  * 衣櫃 rec.closet＝{ outfits: [{ id, name, data: {body, items, look}, sig, created_at, worn_at }], changedAt, byRae, nextId }。
  * 房間 rec.room＝{ wall, floor, items: [{ id, name, svg, ratio, x, y, w }], nextId }（wall、floor 沒刷過是 null）。
  * 用法：claude_terminal 送話前 briefRoom()、brief() 接進小機的說明，回完 apply() 照它寫的標籤動手；衣櫃面板 wardrobe()／act()；
- * 房間畫面 room() 交給 RoomScene。布置與打扮都是天生就會的（不用上課）；一次回覆房間、打扮、形象各只做第一個做得成的。
+ * 房間畫面 room() 交給 RoomScene。布置與打扮都是天生就會的（不用上課）；一次回覆房間最多動 CHAT_ROOM_MAX 件，打扮、形象各只做第一個做得成的。
  * ------------------------------------------------------------------
  */
 (function (RoomWear) {
     'use strict';
 
     const MAX_WEAR = 6, MAX_ITEMS = 12, SVG_MAX = 12000, NAME_MAX = 20, MAX_EYES = 4;
+    // 一則回覆房間最多動幾件：同橋的 CHAT_ROOM_MAX（10-05 她：「加牆再加倉庫應該可以一起出?」→ 聊天三件）。小機沒有醒來，一律照聊天算
+    const CHAT_ROOM_MAX = 3;
     const WALL_DEFAULT = '#efe6d8', FLOOR_DEFAULT = '#cdb99c';   // 同橋
     const OUTFIT_MAX = 30, OUTFIT_GAP = 20 * 60 * 1000;     // 舊的那套穿超過 20 分鐘才收進衣櫃（同橋）
     const RANGE = { room: { x: [0, 100], y: [0, 100], w: [3, 60], w0: 15 }, wear: { x: [-6, 18], y: [-10, 12], w: [1, 24], w0: 6 }, look: { w: [6, 20], w0: 12 } };
@@ -301,16 +303,22 @@
             items: r.items.map(it => ({ id: it.id, name: it.name, svg: it.svg, ratio: it.ratio || 1, x: it.x, y: it.y, w: it.w })) };
     };
 
-    /** 回覆裡的房間、打扮、形象標籤各做第一個做得成的；rec 就地改。回 { changed, room, done: [人話…] }（room＝房間動了） */
+    /** 回覆裡的標籤照先後做：房間最多 CHAT_ROOM_MAX 件，打扮、形象各一件；做不成的跳過不算。rec 就地改。
+     *  回 { changed, room, done: [人話…] }（room＝房間動了） */
     RoomWear.apply = function (rec, text) {
         const out = { changed: false, room: false, done: [] };
         if (!rec || !text || !/room_|wear_|look_/i.test(text)) return out;
         const acts = parseTags(text);
         ['room', 'wear', 'look'].forEach(kind => {
+            const cap = kind === 'room' ? CHAT_ROOM_MAX : 1;
+            let n = 0;
             for (const a of acts) {
                 if (a.verb.indexOf(kind + '_') !== 0) continue;
                 const d = kind === 'room' ? _doRoom(rec, a) : _do(rec, a);
-                if (d) { out.done.push(d); out.changed = true; if (kind === 'room') out.room = true; break; }
+                if (!d) continue;
+                out.done.push(d); out.changed = true;
+                if (kind === 'room') out.room = true;
+                if (++n >= cap) break;
             }
         });
         return out;
@@ -430,8 +438,10 @@
             } else out.push('房裡還是空的。');
         }
         out.push('',
-            '想動手就在回覆裡另外寫一個標籤。這不是工具，不用 tool_call，寫在你回' + user + '的話旁邊就好，' + user + '看不到標籤本身。'
-            + '一次回覆只會做第一個，一次動一件。標籤名與屬性名照抄英文，不要翻譯、不要改寫：',
+            // 一次幾件那句同橋 _per_reply_line；另外講明不是工具（10-05 小機把「一則一件」說成「還不會調用兩次」）
+            '想動手就在回覆裡另外寫標籤。這不是工具，不用 tool_call，跟你會不會接著用好幾輪工具無關，寫在你回' + user + '的話旁邊就好，' + user + '看不到標籤本身。'
+            + '一次回覆最多動 ' + CHAT_ROOM_MAX + ' 件，照你寫的先後一件一件做，做不成的那件（例如號碼找不到、滿了放不進）跳過不算，做滿 ' + CHAT_ROOM_MAX + ' 件之後寫的就不做了。'
+            + '標籤名與屬性名照抄英文，不要翻譯、不要改寫：',
             '<room_paint wall="#色碼" floor="#色碼"/>',
             '<room_place name="名字" x="左右" y="上下" w="寬">一張完整的 svg</room_place>',
             '<room_move id="號碼" x="左右" y="上下"/>',
@@ -443,6 +453,6 @@
     };
 
     RoomWear.parseTags = parseTags;      // 測試用
-    RoomWear.LIMITS = { MAX_WEAR, MAX_ITEMS, OUTFIT_MAX, OUTFIT_GAP };
+    RoomWear.LIMITS = { MAX_WEAR, MAX_ITEMS, CHAT_ROOM_MAX, OUTFIT_MAX, OUTFIT_GAP };
 
 })(window.RoomWear = window.RoomWear || {});
