@@ -342,6 +342,8 @@
             }
             _saveClaudeRoomCfg(c);
             _updateClaudePickerLabel(); _openClaudePickerPopup();
+            // 醒來也換成這顆（橋的心跳設定）
+            if (CT && typeof CT.syncWakeModels === 'function') CT.syncWakeModels();
         });
         popup.querySelectorAll('[data-effort]').forEach(el => el.onclick = () => {
             const c = _getClaudeRoomCfg(); c.inlineEffort = el.dataset.effort; _saveClaudeRoomCfg(c);

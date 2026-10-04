@@ -506,6 +506,42 @@ ${withOthers}
         return cur ? ClaudeTerminal.modelLabel(cur) : '';
     };
 
+    /** 這位住戶在房間聊天實際送出去的模型 id（鎖的那顆 → 自己挑的 → 共用預設）；群聊區、小機回空字串 */
+    ClaudeTerminal.residentModelId = function(rid) {
+        const r = ClaudeTerminal.getResident(rid);
+        if (!r || r.provider === 'group' || r.provider === 'xiaoji') return '';
+        return r.modelId || _residentPicked(r) || _modelFor(_cfgRead() || {}, r.provider);
+    };
+
+    /**
+     * 醒來跟聊天用同一顆（10-04 她：「喚醒的claude小機好像沒跟聊天室的小機模型對其，全部都走opus5了」）。
+     * 橋的心跳設定裡每位住戶記一格 model，跟這裡算的不一樣就補上。只動橋上已經有的那幾位；
+     * 舊的橋（GET 回來沒有 model 這欄）不送——它把沒送 enabled 當成關掉。拿不到就算了，不報錯。
+     */
+    ClaudeTerminal.syncWakeModels = async function() {
+        const OS = window.OS_SETTINGS;
+        const p = (OS && typeof OS.getActiveClaudePreset === 'function') ? OS.getActiveClaudePreset() : null;
+        if (!p || !p.url || !p.key) return;
+        const base = String(p.url).replace(/\/v1\/chat\/completions\/?$/, '').replace(/\/+$/, '');
+        const auth = { 'Authorization': 'Bearer ' + p.key };
+        try {
+            const r = await fetch(base + '/v1/heartbeat', { headers: auth });
+            if (!r.ok) return;
+            const all = ((await r.json()) || {}).residents || {};
+            for (const rid of Object.keys(all)) {
+                const cur = all[rid];
+                if (!cur || !('model' in cur) || !ClaudeTerminal.getResident(rid)) continue;
+                const want = ClaudeTerminal.residentModelId(rid) || null;
+                if ((cur.model || null) === want) continue;
+                await fetch(base + '/v1/heartbeat', {
+                    method: 'POST',
+                    headers: Object.assign({ 'Content-Type': 'application/json' }, auth),
+                    body: JSON.stringify({ resident_id: rid, enabled: !!cur.enabled, model: want || '' }),
+                });
+            }
+        } catch (_) { /* 沒連上橋：下次開宿舍或換模型再補 */ }
+    };
+
     ClaudeTerminal.isGroupSeated = function(id) {
         return !!id && _rawSeats().indexOf(id) >= 0;
     };

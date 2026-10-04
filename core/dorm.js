@@ -113,6 +113,9 @@
             if (!r.ok) throw new Error('HTTP ' + r.status);
             const j = await r.json();
             _hb = (j && j.residents) || {};
+            // 以前開的心跳沒帶模型（醒來一律走橋的預設那顆），開宿舍時順手對齊房間那顆
+            const CT = _CT();
+            if (CT && typeof CT.syncWakeModels === 'function') CT.syncWakeModels();
         } catch (e) {
             // 舊版橋沒有這條端點 → 當作沒人開著。不在這裡猜也不報錯：
             // 宿舍的主要功能跟心跳無關，不能因為它掛掉就打不開。
@@ -172,6 +175,8 @@
                     name: r.name,
                     backend: r.provider,
                     cwd: home || null,
+                    // 醒來跟他在房間聊天用同一顆
+                    model: (CT && typeof CT.residentModelId === 'function') ? CT.residentModelId(r.id) : '',
                 }),
             });
             if (!res.ok) return { ok: false, msg: '橋回了 HTTP ' + res.status + '（可能還沒重啟）' };
