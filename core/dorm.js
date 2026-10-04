@@ -54,8 +54,13 @@
         if (!X) return '';
         const rec = _xj[r.id] || {};
         let h = '<label class="dorm-xj-lab">樣子</label>' + _xjBodyPicker(X.bodyOf(rec));
-        h += '<label class="dorm-xj-lab">走哪個接口</label><select class="dorm-input dorm-in-conn">';
+        h += '<label class="dorm-xj-lab">說話走哪個接口</label><select class="dorm-input dorm-in-conn">';
         X.connList().forEach(c => { h += '<option value="' + _esc(c.id) + '"' + (c.id === (rec.conn || 'route') ? ' selected' : '') + '>' + _esc(c.label) + '</option>'; });
+        h += '</select>';
+        // 做主題、泡泡、組件、特效那一通（考試也是）另外選；''＝跟說話同一條（10-05 她：「再設置那裏加一條工具模型選項下拉單」）
+        h += '<label class="dorm-xj-lab">做東西走哪個接口</label><select class="dorm-input dorm-in-makeconn">'
+           + '<option value=""' + (rec.makeConn ? '' : ' selected') + '>跟說話同一條</option>';
+        X.connList().forEach(c => { h += '<option value="' + _esc(c.id) + '"' + (c.id === rec.makeConn ? ' selected' : '') + '>' + _esc(c.label) + '</option>'; });
         h += '</select>';
         if (rec.skills && rec.skills.chain) {
             h += '<label class="dorm-xj-lab">一句話最多叫幾次模型</label><select class="dorm-input dorm-in-cap">';
@@ -623,10 +628,11 @@
                         window.ChatGroup.announceRename(oldName, name, true);   // 她改的
                     }
                     if (before && before.provider === 'xiaoji' && _XJ()) {
-                        const conn = form.querySelector('.dorm-in-conn'), cap = form.querySelector('.dorm-in-cap'), th = form.querySelector('.dorm-xj-th.active');
+                        const conn = form.querySelector('.dorm-in-conn'), mk = form.querySelector('.dorm-in-makeconn'), cap = form.querySelector('.dorm-in-cap'), th = form.querySelector('.dorm-xj-th.active');
                         const body = form.querySelector('.dorm-xj-body.active');
                         const patch = {};
                         if (conn) patch.conn = conn.value;
+                        if (mk) patch.makeConn = mk.value;
                         if (cap) patch.cap = parseInt(cap.value, 10);
                         if (th) patch.theater = th.dataset.th === '1';
                         if (body) patch.body = body.dataset.body;
