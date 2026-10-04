@@ -63,7 +63,8 @@
 .xj-node:hover { background: rgba(42, 74, 128, 0.07); }
 .xj-node-name { font-size: 13px; color: var(--cl-text-deep, #1f3a68); }
 .xj-node-sub { font-size: 11px; color: var(--cl-cafe-latte, #46639b); }
-.xj-node.xj-done { border-color: transparent; background: rgba(42, 74, 128, 0.1); cursor: default; }
+.xj-node.xj-done { border-color: transparent; background: rgba(42, 74, 128, 0.1); }
+.xj-node.xj-done:hover { background: rgba(42, 74, 128, 0.16); }
 .xj-node.xj-done i { position: absolute; right: 8px; top: 8px; color: var(--cl-grenadine, #2a4a80); }
 .xj-back { align-self: flex-start; border: none; background: none; color: var(--cl-cafe-latte, #46639b); cursor: pointer; padding: 0; }
 .xj-stage { display: flex; flex-direction: column; gap: 10px; }
@@ -80,6 +81,44 @@
 .xj-note { font-size: 13px; line-height: 1.6; color: var(--cl-text-deep, #1f3a68); }
 .xj-btn { align-self: center; padding: 7px 18px; border: none; border-radius: 8px; background: var(--cl-grenadine, #2a4a80); color: #fff; cursor: pointer; font-size: 13px; }
 .xj-btn:disabled { opacity: .5; cursor: default; }
+.xj-btn2 { padding: 6px 14px; border: 1px solid rgba(42, 74, 128, 0.3); border-radius: 8px; background: #fff; color: var(--cl-grenadine, #2a4a80); cursor: pointer; font-size: 13px; }
+.xj-btn2:hover { background: rgba(42, 74, 128, 0.07); }
+.xj-btn2:disabled { opacity: .6; cursor: default; }
+.xj-chip { flex-shrink: 0; padding: 2px 8px; border-radius: 6px; font-size: 11px; background: rgba(42, 74, 128, 0.1); color: var(--cl-grenadine, #2a4a80); }
+.xj-chip.is-ok { background: #e3f1e6; color: #2f6b3d; }
+.xj-chip.is-no { background: #f8e5e1; color: #9a3b2c; }
+
+/* 考試中：它講的話＋做到哪一步 */
+.xj-run { display: flex; flex-direction: column; gap: 10px; padding: 12px; background: #fdfdfc; border-radius: 10px; border: 1px solid rgba(42, 74, 128, 0.2); }
+.xj-said { display: flex; align-items: flex-start; gap: 8px; }
+.xj-said-face { width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0; object-fit: contain; image-rendering: pixelated; background: rgba(42, 74, 128, 0.08); color: var(--cl-grenadine, #2a4a80); }
+.xj-said-txt { flex: 1; min-width: 0; padding: 8px 10px; border-radius: 4px 10px 10px 10px; background: rgba(42, 74, 128, 0.07); font-size: 13px; line-height: 1.6; color: var(--cl-text-deep, #1f3a68); white-space: pre-wrap; overflow-wrap: anywhere; }
+.xj-said-txt.is-wait { color: var(--cl-cafe-latte, #46639b); }
+.xj-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.xj-step { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--cl-text-deep, #1f3a68); }
+.xj-step i { width: 14px; text-align: center; color: var(--cl-grenadine, #2a4a80); }
+.xj-step.is-ok { color: var(--cl-cafe-latte, #46639b); }
+.xj-step.is-ok i { color: #2f6b3d; }
+.xj-step.is-bad i, .xj-step.is-bad { color: #9a3b2c; }
+
+/* 結業頁：作業、它現在會、小劇場、叫它試試 */
+.xj-cert { display: flex; flex-direction: column; gap: 12px; padding: 12px; background: #fdfdfc; border-radius: 10px; border: 1px solid rgba(42, 74, 128, 0.2); }
+.xj-cert-hd { display: flex; align-items: center; gap: 10px; }
+.xj-cert-hd .xj-face { width: 44px; height: 44px; }
+.xj-cert-ttl { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.xj-sec { display: flex; flex-direction: column; gap: 6px; }
+.xj-sec-lab { font-size: 12px; color: var(--cl-cafe-latte, #46639b); }
+.xj-sec-txt { font-size: 13px; line-height: 1.6; color: var(--cl-text-deep, #1f3a68); overflow-wrap: anywhere; }
+.xj-sec-soft { font-size: 12px; line-height: 1.6; color: var(--cl-cafe-latte, #46639b); }
+.xj-quote { white-space: pre-wrap; padding: 6px 10px; border-left: 3px solid rgba(42, 74, 128, 0.25); background: rgba(42, 74, 128, 0.04); }
+.xj-hw { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 8px; border: 1px solid rgba(42, 74, 128, 0.18); background: #fff; }
+.xj-hw-line { font-size: 13px; line-height: 1.6; color: var(--cl-text-deep, #1f3a68); overflow-wrap: anywhere; }
+.xj-hw-pv { min-width: 0; overflow: hidden; }
+.xj-hw-acts, .xj-acts { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.xj-hw-acts .xj-btn { align-self: auto; }
+.xj-acts .xj-btn2 { flex: 1; }
+.xj-calls { font-size: 11px; color: var(--cl-cafe-latte, #46639b); text-align: right; }
+.xj-cert .xj-hint:empty, .xj-hw .xj-hint:empty { display: none; }
 @media (max-width: 480px) {
     .xj-tree { grid-template-columns: minmax(0, 1fr); }
     .xj-last .xj-col { max-width: none; }
