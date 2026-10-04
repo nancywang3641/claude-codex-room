@@ -1,6 +1,6 @@
 /* ============================================================
  * css/xiaoji_memory.css — 小機「它記得的事」（core/xiaoji_memory.js，子面板 xiaoji_memory）
- * 上面一張橫線紙（它記得的事，一行一條），下面「更早的聊天」一節一張卡。配色跟「紀錄」記事本同一套。
+ * 最上面一張「它是什麼樣的」卡，再來一張橫線紙（它記得的事，一行一條），下面「更早的聊天」一節一張卡。配色跟「紀錄」記事本同一套。
  * class 一律 xjm- 開頭、掛在 #aurelia-chat-window 底下（別用菜市場名，酒館全域樣式會蓋過來）。
  * ============================================================ */
 #aurelia-chat-window .xjm-wrap {
@@ -23,6 +23,49 @@
     color: #6a7fa6;
     font-size: 13px;
 }
+
+/* ---- 最上面：它是什麼樣的（她領養時寫的那段，點筆改） ---- */
+#aurelia-chat-window .xjm-about {
+    margin: 0 0 12px;
+    padding: 10px 12px;
+    border: 1px solid rgba(42, 74, 128, 0.14);
+    border-radius: 12px;
+    background: #ffffff;
+    box-shadow: 0 1px 5px rgba(31, 58, 104, 0.07);
+}
+#aurelia-chat-window .xjm-about.is-edit {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+#aurelia-chat-window .xjm-about-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 22px;
+}
+#aurelia-chat-window .xjm-about-head .xjm-ic { margin: -4px -6px -4px 0; }
+#aurelia-chat-window .xjm-about-ttl {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: #2a4a80;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+#aurelia-chat-window .xjm-about-ttl > i { color: #6a7fa6; margin-right: 2px; }
+#aurelia-chat-window .xjm-about-txt {
+    margin-top: 4px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #2a3f66;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+#aurelia-chat-window .xjm-about-txt.is-empty { color: #9aaacb; }
+#aurelia-chat-window .xjm-about .xjm-flash { margin-top: 0; }
 
 /* ---- 橫線紙：它記得的事 ---- */
 #aurelia-chat-window .xjm-paper {
