@@ -605,16 +605,23 @@
         area.classList.remove('cw-own-room');
         const CP = window.ClawdPortrait;
         if (CP) CP.hide(area);
-        // 小機沒有打扮、沒有房間布置（那些在橋上）；樣子是領養時挑的那隻（存在小機存檔，不經橋）
+        // 小機：樣子是領養時挑的那隻，房間布置與打扮都在它自己的存檔（rec.room、rec.wear，wear_local.js 管，不經橋）
         if (provider === 'xiaoji') {
-            const X = window.OS_XIAOJI, CT = window.ClaudeTerminal;
+            const X = window.OS_XIAOJI, CT = window.ClaudeTerminal, RW = window.RoomWear;
             const r = (CT && typeof CT.getActiveResident === 'function') ? CT.getActiveResident('xiaoji') : null;
-            if (!CP || !X || !r || !r.id) return;
+            if (!X || !r || !r.id) return;
             try {
                 const rec = await X.get(r.id);
-                // 它自己打扮過的（rec.wear，wear_local.js 管）照著畫
-                const wear = (window.RoomWear && rec && rec.wear) ? window.RoomWear.client(rec.wear) : null;
-                if (seq === _decorSeq) CP.show(area, wear, X.bodyOf(rec));
+                if (seq !== _decorSeq) return;
+                // 它自己打扮過的照著畫
+                const wear = (RW && rec && rec.wear) ? RW.client(rec.wear) : null;
+                if (CP) CP.show(area, wear, X.bodyOf(rec));
+                // 它布置過的房間（同住戶那張，RoomScene 組圖）；沒布置過照舊顯示原本那張
+                const st = (RW && typeof RW.room === 'function') ? RW.room(rec) : null;
+                if (st && st.own && window.RoomScene) {
+                    img.src = window.RoomScene.dataUrl(st);
+                    area.classList.add('cw-own-room');
+                }
             } catch (_) {}
             return;
         }

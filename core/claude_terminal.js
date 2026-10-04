@@ -1440,9 +1440,10 @@ ${withOthers}
             : [...history, { role: 'user', content: userText, timestamp: Date.now() }];
         const rollback = heldN ? loaded : history;
         await ClaudeTerminal.saveHistory(updated, ctx);
-        // 🧥 打扮（天生就會）：說明最後接「你的樣子」，回完照它寫的標籤換上、存在小機存檔（規則在 wear_local.js，跟橋同一套）
+        // 🧥 布置房間與打扮（天生就會）：說明最後接「你的房間」「你的樣子」，回完照它寫的標籤動手、存在小機存檔
+        //   （規則在 wear_local.js，跟橋 room_decor.py 同一套；房間 10-05 補的）
         const RW = window.RoomWear;
-        let wearNote = '', byRae = null;
+        let wearNote = '', roomNote = '', byRae = null;
         if (RW && typeof X.get === 'function') {
             try {
                 const rec0 = await X.get(me.id);
@@ -1450,12 +1451,13 @@ ${withOthers}
                 const A = window.OS_API || (window.parent && window.parent.OS_API);
                 let user = '';
                 try { user = (A && A.getGlobalUserName && A.getGlobalUserName()) || ''; } catch (_) {}
+                if (typeof RW.briefRoom === 'function') roomNote = RW.briefRoom(rec0, user);
                 wearNote = RW.brief(rec0, X.bodyOf(rec0), user, byRae);
-            } catch (_) { wearNote = ''; }
+            } catch (_) { wearNote = ''; roomNote = ''; }
         }
         try {
             const t = await X.turn({
-                rid: me.id, history, userText, signal: sendOpts && sendOpts.signal, extraNote: [wearNote, _turnNotes(me.id)].filter(Boolean).join('\n\n'),
+                rid: me.id, history, userText, signal: sendOpts && sendOpts.signal, extraNote: [roomNote, wearNote, _turnNotes(me.id)].filter(Boolean).join('\n\n'),
                 onProgress: ev => {
                     if (typeof onProgress !== 'function' || !ev) return;
                     try {
@@ -1477,13 +1479,17 @@ ${withOthers}
                     const rec = await X.get(me.id);
                     if (byRae) RW.popByRae(rec);              // 這一句已經跟它說過是她換的
                     const res = RW.apply(rec, t.reply || '');
-                    if (res.changed || byRae) await X.save(me.id, { wear: rec.wear, closet: rec.closet });
+                    if (res.changed || byRae) {
+                        const patch = { wear: rec.wear, closet: rec.closet };
+                        if (rec.room) patch.room = rec.room;
+                        await X.save(me.id, patch);
+                    }
                     if (res.changed) {
                         dressed = true;
-                        console.log('[ClaudeTerminal] 小機打扮：' + res.done.join('；'));
+                        console.log('[ClaudeTerminal] 小機房間／打扮：' + res.done.join('；'));
                         if (window.ChatWindow && typeof window.ChatWindow.refreshDecor === 'function') window.ChatWindow.refreshDecor();
                     }
-                } catch (e) { console.warn('[ClaudeTerminal] 小機打扮沒存成：', e); }
+                } catch (e) { console.warn('[ClaudeTerminal] 小機房間／打扮沒存成：', e); }
             }
             return { reply: t.reply, thinking: null, usage, toolsUsed: [],
                 xiaoji: { calls: t.calls, props: t.props || [], log: t.log || [], stopped: !!t.stopped, dressed } };

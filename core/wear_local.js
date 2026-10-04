@@ -1,26 +1,30 @@
 /**
- * core/wear_local.js — 不經橋的打扮與衣櫃（window.RoomWear）
+ * core/wear_local.js — 不經橋的房間布置、打扮與衣櫃（window.RoomWear）
  * ------------------------------------------------------------------
  * 她 10-02：「我覺得小機應該也能打扮🤔 畢竟不排除有人用API接好的模型，通常小模型在這裡比較吃力，但我覺得可以開放需求」
  * API 小機不經橋（引擎是奧瑞亞的 OS_XIAOJI，存檔在 OS_DB app_data 'xiaoji'），所以會員住戶那套（橋 cc-bridge room_decor.py）
  * 在這裡照抄一份：同一組標籤、同一套座標與範圍、同一個衣櫃規則，資料放在小機存檔的 rec.wear、rec.closet。
+ * 房間布置是 10-05 補的（她：「才發現小機不會裝飾房間嗎?」→「好，做吧」）：同橋的 room_paint／room_place／room_move／room_remove，
+ * 存在 rec.room。小機沒有醒來，只有聊天時動手。
  * 🚨 改規則要兩邊一起改（橋 room_decor.py ↔ 這支）；畫法在 clawd_portrait.js（倉鼠／小貓／企鵝的身體框）。
  *
  * 一套打扮 rec.wear＝{ body, items: [{ id, name, svg, ratio, x, y, w, face }], look, nextId }；
  * 衣櫃 rec.closet＝{ outfits: [{ id, name, data: {body, items, look}, sig, created_at, worn_at }], changedAt, byRae, nextId }。
- * 用法：claude_terminal 送話前 brief() 接進小機的說明、回完 apply() 照它寫的標籤換上；衣櫃面板 wardrobe()／act()。
- * 打扮是天生就會的（不用上課）；一次回覆打扮、形象各只做第一個做得成的。
+ * 房間 rec.room＝{ wall, floor, items: [{ id, name, svg, ratio, x, y, w }], nextId }（wall、floor 沒刷過是 null）。
+ * 用法：claude_terminal 送話前 briefRoom()、brief() 接進小機的說明，回完 apply() 照它寫的標籤動手；衣櫃面板 wardrobe()／act()；
+ * 房間畫面 room() 交給 RoomScene。布置與打扮都是天生就會的（不用上課）；一次回覆房間、打扮、形象各只做第一個做得成的。
  * ------------------------------------------------------------------
  */
 (function (RoomWear) {
     'use strict';
 
-    const MAX_WEAR = 6, SVG_MAX = 12000, NAME_MAX = 20, MAX_EYES = 4;
+    const MAX_WEAR = 6, MAX_ITEMS = 12, SVG_MAX = 12000, NAME_MAX = 20, MAX_EYES = 4;
+    const WALL_DEFAULT = '#efe6d8', FLOOR_DEFAULT = '#cdb99c';   // 同橋
     const OUTFIT_MAX = 30, OUTFIT_GAP = 20 * 60 * 1000;     // 舊的那套穿超過 20 分鐘才收進衣櫃（同橋）
-    const RANGE = { wear: { x: [-6, 18], y: [-10, 12], w: [1, 24], w0: 6 }, look: { w: [6, 20], w0: 12 } };
+    const RANGE = { room: { x: [0, 100], y: [0, 100], w: [3, 60], w0: 15 }, wear: { x: [-6, 18], y: [-10, 12], w: [1, 24], w0: 6 }, look: { w: [6, 20], w0: 12 } };
     const COLOR_RE = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
-    const PAIR_RE = /[<＜]\s*(wear_put|look_set)\b([^>＞]*?)[>＞]([\s\S]*?)[<＜]\s*\/\s*\1\s*[>＞]/gi;
-    const SINGLE_RE = /[<＜]\s*(wear_color|wear_move|wear_remove|wear_outfit|wear_keep|look_reset)\b([^>＞]*?)\/?\s*[>＞]/gi;
+    const PAIR_RE = /[<＜]\s*(room_place|wear_put|look_set)\b([^>＞]*?)[>＞]([\s\S]*?)[<＜]\s*\/\s*\1\s*[>＞]/gi;
+    const SINGLE_RE = /[<＜]\s*(room_paint|room_move|room_remove|wear_color|wear_move|wear_remove|wear_outfit|wear_keep|look_reset)\b([^>＞]*?)\/?\s*[>＞]/gi;
     const CODE_RE = /```[\s\S]*?```|`[^`\n]*`/g;
 
     // 預設樣子：名字、長怎樣、座標（對得上 clawd_portrait.js 的 _hamsterBody／_catBody／_penguinBody 回的身體框）
@@ -121,6 +125,14 @@
         }
         if (tag === 'wear_keep') { const n = _name(attrs); return n ? { verb: tag, name: n } : null; }
         if (tag === 'wear_color') { const body = _color(attrs, 'body'); return body ? { verb: tag, body } : null; }
+        if (tag === 'room_paint') { const wall = _color(attrs, 'wall'), floor = _color(attrs, 'floor'); return (wall || floor) ? { verb: tag, wall, floor } : null; }
+        if (tag === 'room_place') {
+            const svg = cleanSvg(inner);
+            const x = _num(attrs, 'x', rg.x[0], rg.x[1]), y = _num(attrs, 'y', rg.y[0], rg.y[1]);
+            if (!svg || x == null || y == null) return null;
+            const w = _num(attrs, 'w', rg.w[0], rg.w[1]);
+            return { verb: tag, name: _name(attrs) || '沒取名的東西', svg, x, y, w: w != null ? w : rg.w0 };
+        }
         if (tag === 'wear_put') {
             const svg = cleanSvg(inner);
             const x = _num(attrs, 'x', rg.x[0], rg.x[1]), y = _num(attrs, 'y', rg.y[0], rg.y[1]);
@@ -131,12 +143,12 @@
         }
         const id = parseInt(_attr(attrs, '(?<![\\w:-])id'), 10);
         if (!isFinite(id)) return null;
-        if (tag === 'wear_remove') return { verb: tag, id };
+        if (tag === 'wear_remove' || tag === 'room_remove') return { verb: tag, id };
         const x = _num(attrs, 'x', rg.x[0], rg.x[1]), y = _num(attrs, 'y', rg.y[0], rg.y[1]), w = _num(attrs, 'w', rg.w[0], rg.w[1]);
         if (x == null && y == null && w == null) return null;
         return { verb: tag, id, x, y, w };
     }
-    /** 打扮與形象的標籤，照出現的先後；反引號與程式碼區塊裡的不算（他在講解） */
+    /** 房間、打扮與形象的標籤，照出現的先後；反引號與程式碼區塊裡的不算（他在講解） */
     function parseTags(text) {
         text = String(text || '');
         const found = [], spans = [];
@@ -255,16 +267,50 @@
         return done;
     }
 
-    /** 回覆裡的打扮、形象標籤各做第一個做得成的；rec 就地改。回 { changed, done: [人話…] } */
+    // ---------- 房間（同橋 _do_one 的 room 那幾條；不碰衣櫃）----------
+    function _room(rec) {
+        const r = rec.room && typeof rec.room === 'object' ? rec.room : {};
+        rec.room = { wall: r.wall || null, floor: r.floor || null, items: Array.isArray(r.items) ? r.items : [], nextId: r.nextId || 1 };
+        return rec.room;
+    }
+    function _doRoom(rec, a) {
+        const r = _room(rec), v = a.verb;
+        if (v === 'room_paint') {
+            r.wall = a.wall || r.wall || WALL_DEFAULT;
+            r.floor = a.floor || r.floor || FLOOR_DEFAULT;
+            return '刷了牆 ' + r.wall + '、地板 ' + r.floor;
+        }
+        if (v === 'room_place') {
+            if (r.items.length >= MAX_ITEMS) return null;
+            const id = r.nextId++;
+            r.items.push({ id, name: a.name, svg: a.svg, ratio: svgRatio(a.svg), x: a.x, y: a.y, w: a.w });
+            return '放了 #' + id + ' ' + a.name;
+        }
+        const it = r.items.find(x => x.id === a.id);
+        if (!it) return null;
+        if (v === 'room_remove') { r.items = r.items.filter(x => x !== it); return '收掉 #' + it.id + ' ' + it.name; }
+        if (a.x != null) it.x = a.x;
+        if (a.y != null) it.y = a.y;
+        if (a.w != null) it.w = a.w;
+        return '挪了 #' + it.id + ' ' + it.name;
+    }
+    /** 給 RoomScene 畫的房間（形狀跟橋 /v1/decor 房間那半一樣）：沒刷過也沒放過東西＝own false，照舊顯示原本那張圖。不改 rec */
+    RoomWear.room = function (rec) {
+        const r = _room(Object.assign({}, rec || {}));
+        return { own: !!(r.wall || r.floor || r.items.length), wall: r.wall || WALL_DEFAULT, floor: r.floor || FLOOR_DEFAULT,
+            items: r.items.map(it => ({ id: it.id, name: it.name, svg: it.svg, ratio: it.ratio || 1, x: it.x, y: it.y, w: it.w })) };
+    };
+
+    /** 回覆裡的房間、打扮、形象標籤各做第一個做得成的；rec 就地改。回 { changed, room, done: [人話…] }（room＝房間動了） */
     RoomWear.apply = function (rec, text) {
-        const out = { changed: false, done: [] };
-        if (!rec || !text || !/wear_|look_/i.test(text)) return out;
+        const out = { changed: false, room: false, done: [] };
+        if (!rec || !text || !/room_|wear_|look_/i.test(text)) return out;
         const acts = parseTags(text);
-        ['wear', 'look'].forEach(kind => {
+        ['room', 'wear', 'look'].forEach(kind => {
             for (const a of acts) {
                 if (a.verb.indexOf(kind + '_') !== 0) continue;
-                const d = _do(rec, a);
-                if (d) { out.done.push(d); out.changed = true; break; }
+                const d = kind === 'room' ? _doRoom(rec, a) : _do(rec, a);
+                if (d) { out.done.push(d); out.changed = true; if (kind === 'room') out.room = true; break; }
             }
         });
         return out;
@@ -370,7 +416,33 @@
         return out.join('\n');
     };
 
+    /** 接在小機說明最後的「你的房間」一段（同橋 brief，寫給陌生模型看；不給範例） */
+    RoomWear.briefRoom = function (rec, user) {
+        user = user || '對方';
+        const st = RoomWear.room(rec);
+        const out = ['', '【你的房間】', '這間房間是你一個人的。' + user + '打開跟你的私聊時，上半部那塊畫面就是它。布置成什麼樣子你自己決定，不動也可以。'];
+        if (!st.own) out.push('你還沒布置過：現在那塊顯示的是原本的一張圖。刷過牆或放了第一件東西，就換成你自己的房間。');
+        else {
+            out.push('現在：牆 ' + st.wall + '、地板 ' + st.floor + '。');
+            if (st.items.length) {
+                out.push('房裡有 ' + st.items.length + ' 件（最多 ' + MAX_ITEMS + ' 件）：');
+                st.items.forEach(it => out.push('#' + it.id + ' ' + it.name + '｜x ' + _fmt(it.x) + '、y ' + _fmt(it.y) + '、寬 ' + _fmt(it.w)));
+            } else out.push('房裡還是空的。');
+        }
+        out.push('',
+            '想動手就在回覆裡另外寫一個標籤。這不是工具，不用 tool_call，寫在你回' + user + '的話旁邊就好，' + user + '看不到標籤本身。'
+            + '一次回覆只會做第一個，一次動一件。標籤名與屬性名照抄英文，不要翻譯、不要改寫：',
+            '<room_paint wall="#色碼" floor="#色碼"/>',
+            '<room_place name="名字" x="左右" y="上下" w="寬">一張完整的 svg</room_place>',
+            '<room_move id="號碼" x="左右" y="上下"/>',
+            '<room_remove id="號碼"/>',
+            '畫面寬二高一。x、y、w 都是 0～100：x 是這件東西底部中心的左右位置，y 是它底部的上下位置（0 最上面、100 最下面），'
+            + 'w 是它的寬度佔畫面寬的幾成，高度照 svg 的比例跟著算。上面六成是牆，62 以下是地板。你自己會站在畫面正中間，擋住中間那一塊。',
+            'svg 要有 viewBox，全部畫在裡面，不接外部圖片或字型，背景留透明。滿 ' + MAX_ITEMS + ' 件要先收掉一件才放得進新的。');
+        return out.join('\n');
+    };
+
     RoomWear.parseTags = parseTags;      // 測試用
-    RoomWear.LIMITS = { MAX_WEAR, OUTFIT_MAX, OUTFIT_GAP };
+    RoomWear.LIMITS = { MAX_WEAR, MAX_ITEMS, OUTFIT_MAX, OUTFIT_GAP };
 
 })(window.RoomWear = window.RoomWear || {});
