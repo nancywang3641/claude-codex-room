@@ -753,6 +753,12 @@
         // 🧹 摘要按鈕只在群聊房顯示
         const compactBtn = _winEl && _winEl.querySelector('.cw-tool-compact');
         if (compactBtn) compactBtn.style.display = (provider === 'group') ? '' : 'none';
+        // 🫧 房間的泡泡（room_bubbles.js）：一間一套；群聊不換
+        const RB = window.RoomBubbles;
+        if (RB && typeof RB.apply === 'function') {
+            const CT0 = window.ClaudeTerminal;
+            try { RB.apply(provider === 'group' ? null : ((CT0 && CT0.getActiveResidentId) ? CT0.getActiveResidentId(provider) : null)); } catch (e) { console.warn('[ChatWindow] 房間泡泡沒套上', e); }
+        }
         // 群聊區：交給 ChatGroup，跳過單房間流程
         if (provider === 'group') {
             if (cwBody) cwBody.classList.add('cw-body-group');

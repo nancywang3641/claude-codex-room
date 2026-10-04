@@ -228,3 +228,50 @@
 }
 #aurelia-chat-window .cw-room-closet[hidden] { display: none; }
 #aurelia-chat-window .cw-room-closet:hover { background: #ffffff; }
+
+/* 🫧 聊天泡泡（core/room_bubbles.js 的 RoomBubbles.section）：一格一套，小圖是兩顆泡泡 */
+#aurelia-chat-window .wd-bgrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+    gap: 10px;
+}
+#aurelia-chat-window .wd-bcard {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    min-width: 0;
+    padding: 6px 6px 8px;
+    border-radius: 12px;
+    border: 2px solid transparent;
+    background: #ffffff;
+    box-shadow: 0 1px 4px rgba(31, 58, 104, 0.1);
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    transition: border-color 0.15s, transform 0.15s;
+}
+#aurelia-chat-window .wd-bcard:active { transform: scale(0.97); }
+#aurelia-chat-window .wd-bcard.is-now { border-color: var(--cl-grenadine, #2a4a80); cursor: default; }
+#aurelia-chat-window .wd-bcard .wd-name { align-self: center; }
+#aurelia-chat-window .wd-bpic {
+    display: block;
+    height: 78px;
+    border-radius: 9px;
+    overflow: hidden;
+    background: #eaeaea;
+}
+#aurelia-chat-window .wd-bpic iframe {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    pointer-events: none;   /* 點小圖＝點那一格 */
+}
+#aurelia-chat-window .wd-bnote {
+    margin-top: 8px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--cl-cafe-latte, #46639b);
+}

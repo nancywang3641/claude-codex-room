@@ -19,7 +19,8 @@
         body: '他換裝的時候，換下來的那套會自動收進來（穿了一陣子的才收；他一次換一件，連著換好幾件的中間樣子不收）。\n'
             + '點一套就能幫他換上，他下一次跟你說話時會知道是你換的。他自己也能從衣櫃換回去、幫一套取名。\n'
             + '一套是整個樣子：身體顏色、身上戴的東西、自己畫的形象一起換。\n'
-            + '衣櫃最多放 30 套，滿了先丟最久沒穿、沒取名的那套。' } });
+            + '衣櫃最多放 30 套，滿了先丟最久沒穿、沒取名的那套。\n'
+            + '最底下的聊天泡泡：從聊天 app 的泡泡庫挑一套，換的是你們私聊這一間兩邊的泡泡（群聊不換）。學過泡泡課的小機也會自己換。' } });
 
     // 小機（不經橋）：衣櫃在它自己的存檔裡，規則交給 RoomWear（wear_local.js），引擎要有奧瑞亞的 OS_XIAOJI
     function _XJ() { return window.OS_XIAOJI || (window.parent && window.parent.OS_XIAOJI) || null; }
@@ -155,6 +156,7 @@
             : '<div class="wd-empty"><i class="fa-solid fa-shirt"></i>他換下來的衣服會自動收在這裡</div>';
         h += '<div class="wd-h">現成的</div>';
         h += '<div class="wd-grid">' + _data.presets.map(p => _card('preset', p, p.name)).join('') + '</div>';
+        h += '<div class="wd-bsec"></div>';   // 🫧 聊天泡泡（RoomBubbles.section，下面畫完衣服那幾格才填）
         h += '</div>' + _barHtml() + '</div>';
         _host.innerHTML = h;
         const sc = _host.querySelector('.wd-scroll');
@@ -182,6 +184,8 @@
         const keep = _host.querySelector('[data-act="keep"]');
         if (keep) keep.addEventListener('click', () => { _sel = { kind: 'current' }; _mode = 'rename'; _note = ''; _render(); });
         _bindBar();
+        const bsec = _host.querySelector('.wd-bsec');
+        if (bsec && window.RoomBubbles && typeof window.RoomBubbles.section === 'function') window.RoomBubbles.section(bsec, _who0.rid);
         if (_mode === 'rename') {
             const inp = _host.querySelector('.wd-input');
             if (inp) { inp.focus({ preventScroll: true }); inp.select(); }

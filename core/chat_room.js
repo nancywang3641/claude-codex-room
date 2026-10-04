@@ -1235,6 +1235,7 @@
         if (_fillVoiceSeg(el, text)) return;
         _fillMdSeg(el, text);
         if (_isStickerSeg(text)) el.classList.add('claude-bubble-sticker');
+        else el.classList.add('ccrb-bubble');   // 🫧 房間泡泡（room_bubbles.js）：只換文字那幾顆，表情包、語音、小面板照舊
     }
 
     /** 一顆一顆放泡泡。host 裡擺一顆點點泡泡 dots；push 進來的每段先讓點點停一下，再在點點前面冒出那顆。
@@ -1500,7 +1501,8 @@
         if (!stream) return;
         const isUser = role === 'user';
         const wrap = document.createElement('div');
-        wrap.className = 'claude-bubble-wrap ' + (isUser ? 'from-user' : 'from-claude');
+        // ccrb-*：房間泡泡（room_bubbles.js）的零件，這間沒挑泡泡時什麼都不做
+        wrap.className = 'claude-bubble-wrap ' + (isUser ? 'from-user' : 'from-claude') + ' ccrb-row ' + (isUser ? 'ccrb-me' : 'ccrb-other');
         if (opts.msg) wrap._ccrMsg = opts.msg;   // 長按收進記事本、紀錄頁跳回來找的就是這則
 
         // 留言板標籤橋已經替他做完，畫面上拿掉（歷史重畫也走這裡）。整則只有標籤就留一句說他去板上動了手。
@@ -1545,13 +1547,11 @@
                 // User 訊息 / streaming 中：raw text 顯示（streaming 期間每 chunk re-render
                 // 一次 markdown 太貴，stream 結束最後一次 render 才開 markdown）
                 el.textContent = isUser ? text : _hideMdImages(text);
+                el.classList.add('ccrb-bubble');
                 return;
             }
-            if (_fillWidgetSeg(el, text)) return;   // 🧩 小面板
-            if (_fillVoiceSeg(el, text)) return;    // 🎤 語音
-            // Claude 回覆：解析 markdown 後 sanitize 再插入（外語的翻譯拆到下面一行）
-            _fillMdSeg(el, text);
-            if (_isStickerSeg(text)) el.classList.add('claude-bubble-sticker');
+            // Claude 回覆（🧩 小面板、🎤 語音、表情包、解析 markdown 後 sanitize 的字）：跟串流中一顆一顆冒的同一份
+            _fillReplyBubble(el, text);
         };
         let bubble = null;
         _segs.forEach(seg => {
@@ -2002,10 +2002,10 @@
             const _ensureStreamShell = () => {
                 if (streamWrap) return;
                 streamWrap = document.createElement('div');
-                streamWrap.className = 'claude-bubble-wrap from-claude';
+                streamWrap.className = 'claude-bubble-wrap from-claude ccrb-row ccrb-other';   // ccrb-*：房間泡泡，同 _renderClaudeBubble
                 // 🫧 寫到一半的那段不畫（會露出 ** 跟 -）：先放一顆點點，寫完一段就在點點前面冒出一顆
                 _streamDotsEl = document.createElement('div');
-                _streamDotsEl.className = 'claude-bubble from-claude claude-bubble-dots';
+                _streamDotsEl.className = 'claude-bubble from-claude claude-bubble-dots ccrb-bubble';
                 _streamDotsEl.innerHTML = DOTS_HTML;
                 streamWrap.appendChild(_streamDotsEl);
                 stream.appendChild(streamWrap);

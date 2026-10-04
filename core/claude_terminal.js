@@ -1459,7 +1459,9 @@ ${withOthers}
         // 🧥 布置房間與打扮（天生就會）：說明最後接「你的房間」「你的樣子」，回完照它寫的標籤動手、存在小機存檔
         //   （規則在 wear_local.js，跟橋 room_decor.py 同一套；房間 10-05 補的）
         const RW = window.RoomWear;
-        let wearNote = '', roomNote = '', byRae = null;
+        // 🫧 房間的泡泡（room_bubbles.js）：學會泡泡課的小機自己能換，說明接「你的泡泡」，回完照 bubble_use／bubble_reset 換（10-05）
+        const RB = window.RoomBubbles;
+        let wearNote = '', roomNote = '', byRae = null, bubbleNote = '';
         if (RW && typeof X.get === 'function') {
             try {
                 const rec0 = await X.get(me.id);
@@ -1468,12 +1470,13 @@ ${withOthers}
                 const user = X.USER || '使用者';
                 if (typeof RW.briefRoom === 'function') roomNote = RW.briefRoom(rec0, user);
                 wearNote = RW.brief(rec0, X.bodyOf(rec0), user, byRae);
-            } catch (_) { wearNote = ''; roomNote = ''; }
+                if (RB && typeof RB.brief === 'function' && rec0.skills && rec0.skills.bubble) bubbleNote = RB.brief(me.id, user);
+            } catch (_) { wearNote = ''; roomNote = ''; bubbleNote = ''; }
         }
         try {
             const t = await X.turn({
                 // conv：這一串的編號，奧瑞亞用它存這一串舊聊天的摘要（一串一份，10-05）
-                rid: me.id, conv: ctx.convId, history, userText, signal: sendOpts && sendOpts.signal, extraNote: [roomNote, wearNote, _turnNotes(me.id)].filter(Boolean).join('\n\n'),
+                rid: me.id, conv: ctx.convId, history, userText, signal: sendOpts && sendOpts.signal, extraNote: [roomNote, wearNote, bubbleNote, _turnNotes(me.id)].filter(Boolean).join('\n\n'),
                 onProgress: ev => {
                     if (typeof onProgress !== 'function' || !ev) return;
                     try {
@@ -1506,6 +1509,10 @@ ${withOthers}
                         if (window.ChatWindow && typeof window.ChatWindow.refreshDecor === 'function') window.ChatWindow.refreshDecor();
                     }
                 } catch (e) { console.warn('[ClaudeTerminal] 小機房間／打扮沒存成：', e); }
+            }
+            if (RB && bubbleNote && typeof RB.applyTags === 'function') {
+                try { const said = RB.applyTags(me.id, t.reply || ''); if (said) console.log('[ClaudeTerminal] 小機泡泡：' + said); }
+                catch (e) { console.warn('[ClaudeTerminal] 小機泡泡沒換成：', e); }
             }
             return { reply: t.reply, thinking: null, usage, toolsUsed: [],
                 xiaoji: { calls: t.calls, props: t.props || [], log: t.log || [], stopped: !!t.stopped, dressed } };
@@ -1630,11 +1637,12 @@ ${withOthers}
     const _BOARD_CODE_RE = /```[\s\S]*?```|`[^`\n]*`/g;
     // board_bug（待修，09-29 橋就認了）以前漏在這份清單外：整段給丹的細節直接畫進泡泡。現在藏起來，房間換成一張待修卡（boardBugs）
     // memory_add／memory_edit／memory_remove：小機記事（奧瑞亞 os_xiaoji 收完會從回話拿掉，這裡是串流中先藏著，10-05）
+    // bubble_use／bubble_reset：小機換自己房間的泡泡（room_bubbles.js，10-05）
     const _BOARD_PAIR_RE = /[<＜]\s*(board_(?:post|comment|reply|like|proposal|bug)|room_place|wear_put|look_set|memory_add|memory_edit)\b[^>＞]*?(?:\/\s*[>＞]|[>＞][\s\S]*?[<＜]\s*\/\s*\1\s*[>＞])/gi;
-    const _BOARD_SINGLE_RE = /[<＜]\s*(?:board_like|room_(?:paint|move|remove)|wear_(?:color|move|remove|outfit|keep)|look_reset|memory_remove)\b[^>＞]*?\/?\s*[>＞]/gi;
+    const _BOARD_SINGLE_RE = /[<＜]\s*(?:board_like|room_(?:paint|move|remove)|wear_(?:color|move|remove|outfit|keep)|look_reset|memory_remove|bubble_(?:use|reset))\b[^>＞]*?\/?\s*[>＞]/gi;
     const _BOARD_OPEN_RE = /[<＜]\s*(?:board_(?:post|comment|reply|proposal|bug)|room_place|wear_put|look_set|memory_add|memory_edit)\b[\s\S]*$/i;
     const _BOARD_BUG_RE = /[<＜]\s*board_bug\b[^>＞]*[>＞]([\s\S]*?)[<＜]\s*\/\s*board_bug\s*[>＞]/gi;
-    const _BOARD_TAIL_RE = /[<＜]\s*\/?\s*(?:b(?:o(?:a(?:r(?:d(?:_[^>＞]*)?)?)?)?)?|r(?:o(?:o(?:m(?:_[^>＞]*)?)?)?)?|w(?:e(?:a(?:r(?:_[^>＞]*)?)?)?)?|l(?:o(?:o(?:k(?:_[^>＞]*)?)?)?)?|m(?:e(?:m(?:o(?:r(?:y(?:_[^>＞]*)?)?)?)?)?)?)?$/i;
+    const _BOARD_TAIL_RE = /[<＜]\s*\/?\s*(?:b(?:o(?:a(?:r(?:d(?:_[^>＞]*)?)?)?)?|u(?:b(?:b(?:l(?:e(?:_[^>＞]*)?)?)?)?)?)?|r(?:o(?:o(?:m(?:_[^>＞]*)?)?)?)?|w(?:e(?:a(?:r(?:_[^>＞]*)?)?)?)?|l(?:o(?:o(?:k(?:_[^>＞]*)?)?)?)?|m(?:e(?:m(?:o(?:r(?:y(?:_[^>＞]*)?)?)?)?)?)?)?$/i;
     function _boardInCode(s, pos) {
         let hit = false;
         s.replace(_BOARD_CODE_RE, function (m, off) { if (pos >= off && pos < off + m.length) hit = true; return m; });
