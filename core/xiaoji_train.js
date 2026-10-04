@@ -173,7 +173,10 @@
             _talk(stage, sk.teacher, T.name, X.lines(rid, sid, 'pass'), async () => {
                 stage.innerHTML = '<div class="xj-note">學會了「' + _esc(sk.label) + '」。這次叫了 ' + res.calls + ' 次模型。</div>';
                 if (window.DormPanel && DormPanel.refreshXiaoji) DormPanel.refreshXiaoji();
-                const played = await X.theater(rid, sid, res.summary);
+                // 小劇場帶它跟使用者最近 20 則：照它們平常相處的樣子演，不自己編（10-05 她：小機把她當成跑團的 MC、亂編愛恨情仇）
+                let recent = [];
+                try { if (window.ClaudeTerminal && ClaudeTerminal.xiaojiRecent) recent = await ClaudeTerminal.xiaojiRecent(rid, 20); } catch (_) {}
+                const played = await X.theater(rid, sid, res.summary, { recent });
                 // 小劇場在 VN 播放器播：把窗收起來，不然擋在播放器前面
                 if (played && window.ChatWindow && ChatWindow.close) ChatWindow.close();
             });

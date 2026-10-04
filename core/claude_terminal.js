@@ -1421,6 +1421,22 @@ ${withOthers}
     }
     function _turnNotes(rid) { return [_langNote(rid), _tagNote(rid)].filter(Boolean).join('\n\n'); }
 
+    /** 某一隻小機最近那一串的最後 n 則（小劇場用，奧瑞亞 OS_XIAOJI.theater 的 opt.recent）。
+     *  只讀本機那份、不等橋；它開著的那串優先，沒有就挑最近動過的。標籤拿掉、等她按「讓他回」的不算。 */
+    ClaudeTerminal.xiaojiRecent = async function(rid, n) {
+        n = Math.max(1, n || 20);
+        try {
+            const list = _allConvs('xiaoji').filter(c => c && c.residentId === rid);
+            if (!list.length || !window.OS_DB || typeof window.OS_DB.getStudioChat !== 'function') return [];
+            const act = _lsGetRaw(LS_KEYS.xiaojiActive + '__' + rid);
+            const conv = list.find(c => c.id === act) || list.slice().sort((a, b) => (b.lastActive || 0) - (a.lastActive || 0))[0];
+            const msgs = (await window.OS_DB.getStudioChat(XIAOJI_IDB_PREFIX + conv.id)) || [];
+            return msgs.filter(m => m && (m.role === 'user' || m.role === 'assistant') && !m.held && m.content)
+                .map(m => ({ role: m.role, content: m.role === 'assistant' ? ClaudeTerminal.stripBoardTags(String(m.content)) : String(m.content) }))
+                .filter(m => m.content.trim()).slice(-n);
+        } catch (_) { return []; }
+    };
+
     async function _sendXiaoji(userText, onProgress, sendOpts, ctx) {
         const X = window.OS_XIAOJI || (window.parent && window.parent.OS_XIAOJI);
         if (!X || typeof X.turn !== 'function') throw new Error('XIAOJI:小機要在酒館或手機的奧瑞亞裡才動得了');
@@ -1448,9 +1464,8 @@ ${withOthers}
             try {
                 const rec0 = await X.get(me.id);
                 byRae = RW.popByRae(JSON.parse(JSON.stringify(rec0)));
-                const A = window.OS_API || (window.parent && window.parent.OS_API);
-                let user = '';
-                try { user = (A && A.getGlobalUserName && A.getGlobalUserName()) || ''; } catch (_) {}
+                // 給小機看的叫「使用者」（OS_XIAOJI.USER），不用人設的名字：人設是使用者跑團的主角，不是使用者本人（10-05）
+                const user = X.USER || '使用者';
                 if (typeof RW.briefRoom === 'function') roomNote = RW.briefRoom(rec0, user);
                 wearNote = RW.brief(rec0, X.bodyOf(rec0), user, byRae);
             } catch (_) { wearNote = ''; roomNote = ''; }
