@@ -1383,8 +1383,12 @@
         wardrobe: '衣櫃', notebook: '紀錄', xiaoji_memory: '它記得的事',
     };
 
+    // 培養室正在考試的話先停掉：換到別的子頁、關子頁、整個窗關掉，考試都不該在背後繼續叫模型
+    function _stopXiaojiExam() { try { if (window.XiaojiTrain && typeof window.XiaojiTrain.stop === 'function') window.XiaojiTrain.stop(); } catch (_) {} }
+
     ChatWindow.openSubPanel = function (name) {
         if (!_winEl) return;
+        _stopXiaojiExam();
         _subPanel = name;
         _subBack = null;
         const sp = _winEl.querySelector('#cw-subpanel');
@@ -1392,6 +1396,8 @@
         const body = _winEl.querySelector('#cw-subpanel-body');
         if (!sp || !body) return;
         if (title) title.textContent = _SUBPANEL_TITLES[name] || name;
+        // 箱子那頁從 404 黑市買第二隻也是它（XiaojiTrain.mode 'adopt'）：標題別寫「404 寄來的箱子」
+        if (title && name === 'xiaoji_box' && window.XiaojiTrain && window.XiaojiTrain.mode === 'adopt') title.textContent = '從黑市帶一隻小機';
         body.innerHTML = '';
         if (name === 'spend') {
             if (window.OS_SPEND_PANEL && typeof window.OS_SPEND_PANEL.launch === 'function') {
@@ -1441,6 +1447,7 @@
     };
 
     ChatWindow.closeSubPanel = function () {
+        _stopXiaojiExam();
         _subPanel = null;
         _subBack = null;
         if (!_winEl) return;

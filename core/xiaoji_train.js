@@ -91,8 +91,13 @@
         });
     }
 
+    // 正在考的那一場：關子頁、換子頁、整個窗關掉、按「回培養室」都叫 stop（以前關了考試照跑、照叫模型）
+    XT._ac = null;
+    XT.stop = function () { const ac = XT._ac; XT._ac = null; if (ac) { try { ac.abort(); } catch (_) {} } };
+
     // ── 培養室 ────────────────────────────────────────────
     XT.launch = async function (body) {
+        XT.stop();
         const X = _X(), L = _L();
         if (!X || !L) { _missing(body); return; }
         const rid = XT.target;
@@ -169,7 +174,9 @@
     // 考試中：它講的話一則一則冒出來，底下一步一步打勾（10-05 她：學著但沒反饋）。它講的話本來就生出來了，不多叫模型
     async function _exam(stage, rid, sid) {
         const X = _X(), L = _L(), sk = L.SKILLS.find(s => s.id === sid), T = L.TEACHERS[sk.teacher] || {};
+        XT.stop();
         const ac = new AbortController();
+        XT._ac = ac;
         stage.innerHTML = '<div class="xj-run">'
             + '<div class="xj-what">' + _esc((T.name || '') + '的課：' + sk.label) + '・考試中</div>'
             + '<div class="xj-said">' + _xjFace(rid) + '<div class="xj-said-txt is-wait">在想怎麼做…</div></div>'
@@ -207,9 +214,11 @@
                 else if (ev.type === 'tool') { if (cur && ev.ok === false) cur.querySelector('span').textContent += '：沒成功'; done(ev.ok); }
             } });
         } catch (e) {
+            if (XT._ac === ac) XT._ac = null;
             again(_isAbort(e) ? '停下來了。學費繳過了，下次直接考。' : ('考場出了問題：' + ((e && e.message) || e)));
             return;
         }
+        if (XT._ac === ac) XT._ac = null;
         done();
         if (res.pass) {
             _talk(stage, sk.teacher, T.name, X.lines(rid, sid, 'pass'), async () => {
@@ -305,11 +314,14 @@
         try { line = E.text(hw, false); } catch (_) {}
         slot.innerHTML = '<div class="xj-hw"><div class="xj-hw-line"></div><div class="xj-hw-pv wxtl-pp-pv"></div><div class="xj-hw-acts"></div><div class="xj-hint"></div></div>';
         slot.querySelector('.xj-hw-line').textContent = line || hw.title || '';
-        // 樣子：照模組給單子的那幾格，拿新的那一格（掛 wxtl-pp-pv＝借單子小窗那套預覽樣式）；聊天 app 主題只有「先套上看看」，這裡沒有聊天 app 可套
+        // 樣子：照模組給單子的那幾格，拿新的那一格（掛 wxtl-pp-pv＝借單子小窗那套預覽樣式）。
+        //   聊天 app 主題：奧瑞亞畫得出假群聊（WX_THEME_PACK.sampleDoc，10-06）就畫它（'sample'＝不帶「先套上看看」，這裡沒有單子可以收尾）；舊版奧瑞亞照舊一句話
         const pv = slot.querySelector('.xj-hw-pv');
         let cards = [];
         if (hw.state !== 'practice' && E.sheet && E.mountPreview) { try { cards = E.sheet(hw).cards || []; } catch (_) {} }
+        const TP = _g('WX_THEME_PACK');
         if (cards.some(c => c.preview === 'after')) { try { E.mountPreview(hw, 'after', pv); } catch (e) { pv.textContent = '畫不出樣子：' + ((e && e.message) || e); } }
+        else if (cards.some(c => c.preview === 'try') && TP && TP.sampleDoc) { try { E.mountPreview(hw, 'sample', pv); } catch (e) { pv.textContent = '畫不出樣子：' + ((e && e.message) || e); } }
         else if (cards.some(c => c.preview === 'try')) pv.innerHTML = '<div class="xj-sec-soft">聊天 app 的主題要在聊天 app 裡才看得到樣子：收下之後，到聊天 app 的主題那裡換上。</div>';
         else pv.remove();
         const acts = slot.querySelector('.xj-hw-acts'), hint = slot.querySelector('.xj-hint');

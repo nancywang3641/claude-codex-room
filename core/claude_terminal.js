@@ -1100,6 +1100,24 @@ ${withOthers}
         return true;
     };
 
+    /** 住戶搬走時把他在這一頁的會話全收掉：本機清單、本機逐字稿、橋上那份（橋收到空清單＝連訊息一起刪，room.save_convs）。
+     *  目前小機用（宿舍請它搬走）：它的對話只在這裡跟橋上，留著就成了沒人開得到的孤兒。回收掉的會話編號 */
+    ClaudeTerminal.dropResidentConvs = async function(rid, tab) {
+        tab = tab || 'xiaoji';
+        if (!rid) return [];
+        const all = _allConvs(tab);
+        const gone = all.filter(c => c && c.residentId === rid).map(c => c.id).filter(Boolean);
+        if (!gone.length) return [];
+        _lsSetJson(_convsKey(tab), all.filter(c => !(c && c.residentId === rid)));
+        _lsSetRaw(_activeKeyBase(tab) + '__' + rid, null);
+        const prefix = tab === 'xiaoji' ? XIAOJI_IDB_PREFIX : tab === 'codex' ? CODEX_IDB_PREFIX : tab === 'deepseek' ? DEEPSEEK_IDB_PREFIX : CONV_IDB_PREFIX;
+        if (window.OS_DB && typeof window.OS_DB.clearStudioChat === 'function') {
+            for (const id of gone) { try { await window.OS_DB.clearStudioChat(prefix + id); } catch (_) {} }
+        }
+        try { await _api('/v1/room/convs', { method: 'POST', body: { rid: rid, tab: tab, convs: [], active: null } }); } catch (_) {}
+        return gone;
+    };
+
     /** 載入指定 conv 的 meta + messages，沒找到回 null */
     ClaudeTerminal.loadConversation = async function(convId) {
         const found = ClaudeTerminal.findConv(convId);

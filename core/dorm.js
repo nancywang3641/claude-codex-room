@@ -48,7 +48,11 @@
     }
     DormPanel.xjBodyPicker = _xjBodyPicker;
     DormPanel.xjBindPicker = _xjBindPicker;
-    function _xjSub(r) { const rec = _xj[r.id]; const n = rec ? Object.keys(rec.skills || {}).length : 0; return n ? '小機・學會 ' + n + ' 門' : '小機'; }
+    function _xjSub(r) {
+        // 房間單獨載、沒有奧瑞亞：小機動不了，門卡別裝成跟平常一樣（以前要點進去送話才看到錯）
+        if (!_XJ()) return '小機・要在奧瑞亞裡才動得了';
+        const rec = _xj[r.id]; const n = rec ? Object.keys(rec.skills || {}).length : 0; return n ? '小機・學會 ' + n + ' 門' : '小機';
+    }
     function _xjFormHtml(r) {
         const X = _XJ();
         if (!X) return '';
@@ -454,7 +458,7 @@
             + '</span>'
             + '<i class="fa-solid fa-chevron-right dorm-go"></i>'
             + '</button>'
-            + (r.provider === 'xiaoji' ? '<button type="button" class="dorm-train" title="培養室"><i class="fa-solid fa-graduation-cap"></i></button>' : _wakeBtnHtml(r))
+            + (r.provider === 'xiaoji' ? (_XJ() ? '<button type="button" class="dorm-train" title="培養室"><i class="fa-solid fa-graduation-cap"></i></button>' : '') : _wakeBtnHtml(r))
             + '<button type="button" class="dorm-pen" title="改這位住戶"><i class="fa-solid fa-pen"></i></button>'
             + (_editing === r.id ? _formHtml(r) : '')
             + '</div>';
@@ -670,7 +674,14 @@
                     const gone = CT.getResident(id);
                     const wasSeated = typeof CT.isGroupSeated === 'function' && CT.isGroupSeated(id);
                     const removed = CT.deleteResident(id);
-                    if (removed && gone && gone.provider === 'xiaoji' && _XJ()) _XJ().remove(id).catch(() => {});
+                    // 小機搬走：存檔、它的會話（本機與橋上）、每串的舊聊天摘要一起收掉（以前只刪存檔，對話留成沒人開得到的孤兒）
+                    if (removed && gone && gone.provider === 'xiaoji') {
+                        (async () => {
+                            let convs = [];
+                            try { if (typeof CT.dropResidentConvs === 'function') convs = await CT.dropResidentConvs(id, 'xiaoji'); } catch (_) {}
+                            try { if (_XJ()) await _XJ().remove(id, convs); } catch (_) {}
+                        })();
+                    }
                     if (removed && window.ChatGroup
                         && typeof window.ChatGroup.noteResidentRemoved === 'function') {
                         window.ChatGroup.noteResidentRemoved(id, gone ? gone.name : '', wasSeated);
