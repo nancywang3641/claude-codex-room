@@ -141,7 +141,12 @@
             const left = Math.max(1, (st.every || 20) - (st.pending || 0));
             h += '<div class="xjm-st-line is-soft"><i class="fa-solid fa-broom"></i><span class="xjm-st-txt">再 ' + left + ' 件事，它會第一次整理自己的記憶</span></div>';
         }
-        if (st.tidyFails > 0) h += '<div class="xjm-st-line is-bad"><i class="fa-solid fa-triangle-exclamation"></i><span class="xjm-st-txt">整理沒成功：' + esc(st.tidyErr || '') + '（下次會再試）</span></div>';
+        if (st.tidyStopped) {
+            h += '<div class="xjm-st-line is-bad"><i class="fa-solid fa-triangle-exclamation"></i><span class="xjm-st-txt">整理連續 ' + st.tidyFails + ' 次沒成功，先停下來了（不會再自己叫模型）：' + esc(st.tidyErr || '') + '</span>'
+                + '<button type="button" class="xjm-st-btn" data-act="tidy-retry"' + (S.busy ? ' disabled' : '') + '>' + (S.busy ? '整理中…' : '再試一次') + '</button></div>';
+        } else if (st.tidyFails > 0) {
+            h += '<div class="xjm-st-line is-bad"><i class="fa-solid fa-triangle-exclamation"></i><span class="xjm-st-txt">整理沒成功：' + esc(st.tidyErr || '') + '（多聊一陣子會再試）</span></div>';
+        }
         const em = st.embed;
         if (em && em.total && !em.ready) {
             h += '<div class="xjm-st-line is-soft"><i class="fa-solid fa-book-open"></i><span class="xjm-st-txt">正在記熟以前的事 ' + em.done + '／' + em.total + '（好了之後換個說法問，它也想得起來）</span></div>'
@@ -191,41 +196,41 @@
     function _noteRow(m, mode) {
         const id = m.id;
         if (S.ui.editing === id) {
-            return '<div class="xjm-note is-edit" data-id="' + id + '">'
+            return '<div class="xjm-note is-edit" data-id="' + esc(id) + '">'
                 + '<textarea class="xjm-input" rows="' + Math.max(2, Math.min(5, Math.ceil(String(m.text).length / 16))) + '" maxlength="' + _max() + '">' + esc(m.text) + '</textarea>'
                 + '<div class="xjm-hint">以前是對的、後來變了才用「改」；當初就記錯，請用旗子那顆。</div>'
                 + '<div class="xjm-edit-acts"><button type="button" class="xjm-btn" data-act="cancel">取消</button>'
-                + '<button type="button" class="xjm-btn is-main" data-act="save" data-id="' + id + '">存好</button></div></div>';
+                + '<button type="button" class="xjm-btn is-main" data-act="save" data-id="' + esc(id) + '">存好</button></div></div>';
         }
         if (S.ui.wrongFor === id) {
-            return '<div class="xjm-note is-edit" data-id="' + id + '">'
+            return '<div class="xjm-note is-edit" data-id="' + esc(id) + '">'
                 + '<div class="xjm-txt is-struck">' + esc(m.text) + '</div>'
                 + '<textarea class="xjm-input" rows="2" maxlength="' + _max() + '" placeholder="正確的是…（可以不寫）"></textarea>'
                 + '<div class="xjm-edit-acts"><button type="button" class="xjm-btn" data-act="cancel">取消</button>'
-                + '<button type="button" class="xjm-btn is-main" data-act="wrong-save" data-id="' + id + '">記錯了</button></div></div>';
+                + '<button type="button" class="xjm-btn is-main" data-act="wrong-save" data-id="' + esc(id) + '">記錯了</button></div></div>';
         }
         const vers = (m.versions || []).length;
         const srcOpen = S.ui.openSrc.has(id), verOpen = S.ui.openVer.has(id);
-        let h = '<div class="xjm-note' + (mode === 'off' ? ' is-off' : '') + '" data-id="' + id + '">'
+        let h = '<div class="xjm-note' + (mode === 'off' ? ' is-off' : '') + '" data-id="' + esc(id) + '">'
             + '<span class="xjm-dot' + (m.kind === 'promise' ? ' is-promise' : '') + '"></span>'
             + '<div class="xjm-nbody"><div class="xjm-txt">' + esc(m.text) + '</div>'
             + '<div class="xjm-meta">'
             + (mode === 'off' ? '<span class="xjm-chip is-off">' + (m.state === 'wrong' ? '記錯了' : '收起了') + '</span>' : '')
             + '<span>' + esc(KIND_UI[m.kind] || m.kind) + (m.about === 'user' && (m.kind === 'user' || m.kind === 'legacy') ? '' : '・' + esc(ABOUT_UI[m.about] || m.about)) + '・' + esc(_date(m.at)) + '</span>'
             + (S.over.has(id) ? '<span class="xjm-chip">太多了，聊到才想起</span>' : '')
-            + ((m.from || []).length ? '<button type="button" class="xjm-link" data-act="src" data-id="' + id + '">' + (srcOpen ? '收起原話' : '原話') + '</button>' : '')
-            + (vers > 1 ? '<button type="button" class="xjm-link" data-act="ver" data-id="' + id + '">' + (verOpen ? '收起' : '改過 ' + (vers - 1) + ' 次') + '</button>' : '')
+            + ((m.from || []).length ? '<button type="button" class="xjm-link" data-act="src" data-id="' + esc(id) + '">' + (srcOpen ? '收起原話' : '原話') + '</button>' : '')
+            + (vers > 1 ? '<button type="button" class="xjm-link" data-act="ver" data-id="' + esc(id) + '">' + (verOpen ? '收起' : '改過 ' + (vers - 1) + ' 次') + '</button>' : '')
             + '</div>';
         if (srcOpen) h += '<div class="xjm-src">' + (m.from || []).slice(-3).map(f => '<div class="xjm-src-line"><span class="xjm-src-d">' + esc(_date((S.evMap.get(f) || {}).at)) + '</span>「' + esc(_clip(_srcText(f), 120)) + '」</div>').join('') + '</div>';
         if (verOpen) h += '<ol class="xjm-vers">' + (m.versions || []).map(v => '<li><span class="xjm-src-d">' + esc(_date(v.at)) + '</span>' + esc(BY_UI[v.by] || v.by) + esc(WHY_UI[v.why] || v.why) + '「' + esc(v.text) + '」</li>').join('') + '</ol>';
         h += '</div><div class="xjm-acts">';
         if (mode === 'off') {
-            h += '<button type="button" class="xjm-ic" data-act="unstow" data-id="' + id + '" title="放回去"><i class="fa-solid fa-rotate-left"></i></button>';
+            h += '<button type="button" class="xjm-ic" data-act="unstow" data-id="' + esc(id) + '" title="放回去"><i class="fa-solid fa-rotate-left"></i></button>';
         } else {
             const armed = S.ui.armed === 'stow' + id;
-            h += '<button type="button" class="xjm-ic" data-act="edit" data-id="' + id + '" title="改"><i class="fa-solid fa-pen"></i></button>'
-                + '<button type="button" class="xjm-ic" data-act="wrong" data-id="' + id + '" title="記錯了"><i class="fa-solid fa-flag"></i></button>'
-                + '<button type="button" class="xjm-ic' + (armed ? ' is-armed' : '') + '" data-act="stow" data-id="' + id + '" title="' + (armed ? '再按一次收起' : '收起') + '">'
+            h += '<button type="button" class="xjm-ic" data-act="edit" data-id="' + esc(id) + '" title="改"><i class="fa-solid fa-pen"></i></button>'
+                + '<button type="button" class="xjm-ic" data-act="wrong" data-id="' + esc(id) + '" title="記錯了"><i class="fa-solid fa-flag"></i></button>'
+                + '<button type="button" class="xjm-ic' + (armed ? ' is-armed' : '') + '" data-act="stow" data-id="' + esc(id) + '" title="' + (armed ? '再按一次收起' : '收起') + '">'
                 + (armed ? '<span>收起？</span>' : '<i class="fa-solid fa-box-archive"></i>') + '</button>';
         }
         return h + '</div></div>';
@@ -290,8 +295,8 @@
                 const days = Array.from(new Set((t.from || []).map(f => _date((S.evMap.get(f) || {}).at)).filter(Boolean)));
                 h += '<div class="xjm-trait"><div class="xjm-trait-txt">' + esc(t.text) + '</div>'
                     + '<div class="xjm-meta"><span>因為 ' + esc(days.slice(-3).join('、') || '以前') + ' 的事</span>'
-                    + '<button type="button" class="xjm-link" data-act="src" data-id="' + t.id + '">' + (srcOpen ? '收起原話' : '原話') + '</button>'
-                    + '<button type="button" class="xjm-ic xjm-trait-x' + (armed ? ' is-armed' : '') + '" data-act="trait-remove" data-id="' + t.id + '" title="' + (armed ? '再按一次拿掉' : '拿掉') + '">'
+                    + '<button type="button" class="xjm-link" data-act="src" data-id="' + esc(t.id) + '">' + (srcOpen ? '收起原話' : '原話') + '</button>'
+                    + '<button type="button" class="xjm-ic xjm-trait-x' + (armed ? ' is-armed' : '') + '" data-act="trait-remove" data-id="' + esc(t.id) + '" title="' + (armed ? '再按一次拿掉' : '拿掉') + '">'
                     + (armed ? '<span>拿掉？</span>' : '<i class="fa-solid fa-xmark"></i>') + '</button></div>'
                     + (srcOpen ? '<div class="xjm-src">' + (t.from || []).slice(-3).map(f => '<div class="xjm-src-line"><span class="xjm-src-d">' + esc(_date((S.evMap.get(f) || {}).at)) + '</span>「' + esc(_clip(_srcText(f), 120)) + '」</div>').join('') + '</div>' : '')
                     + '</div>';
@@ -345,7 +350,7 @@
             if (d !== lastDay) { h += '<div class="xjm-day">' + esc(d) + '</div>'; lastDay = d; }
             const can = S.ui.selecting && ERASABLE[e.kind] && e.state !== 'erased';
             const on = S.ui.sel.has(e.id);
-            h += '<div class="xjm-ev' + (e.state !== 'ok' ? ' is-void' : '') + (on ? ' is-sel' : '') + '"' + (can ? ' data-act="pick" data-id="' + e.id + '"' : '') + '>'
+            h += '<div class="xjm-ev' + (e.state !== 'ok' ? ' is-void' : '') + (on ? ' is-sel' : '') + '"' + (can ? ' data-act="pick" data-id="' + esc(e.id) + '"' : '') + '>'
                 + (S.ui.selecting ? '<span class="xjm-check' + (can ? '' : ' is-na') + (on ? ' is-on' : '') + '"><i class="fa-solid fa-check"></i></span>' : '')
                 + '<span class="xjm-ev-t">' + esc(_time(e.at)) + '</span>'
                 + '<i class="xjm-ev-ic fa-solid ' + (EV_ICON[e.kind] || 'fa-circle') + '"></i>'
@@ -381,8 +386,8 @@
         let h = '<div class="xjm-confirm"><div class="xjm-confirm-ttl">抹掉 ' + n + ' 行？抹掉的只剩「這裡被抹掉了」，救不回來。</div>';
         if (ask.mems.length || ask.traits.length) {
             h += '<div class="xjm-confirm-sub">這些是從那幾行來的，要不要一起收起／拿掉？（不勾就照留）</div>';
-            ask.mems.forEach(m => { h += '<button type="button" class="xjm-confirm-row' + (ask.chkM.has(m.id) ? ' is-on' : '') + '" data-act="ask-m" data-id="' + m.id + '"><span class="xjm-check' + (ask.chkM.has(m.id) ? ' is-on' : '') + '"><i class="fa-solid fa-check"></i></span>記得的事：' + esc(_clip(m.text, 40)) + '</button>'; });
-            ask.traits.forEach(t => { h += '<button type="button" class="xjm-confirm-row' + (ask.chkT.has(t.id) ? ' is-on' : '') + '" data-act="ask-t" data-id="' + t.id + '"><span class="xjm-check' + (ask.chkT.has(t.id) ? ' is-on' : '') + '"><i class="fa-solid fa-check"></i></span>樣子：' + esc(_clip(t.text, 40)) + '</button>'; });
+            ask.mems.forEach(m => { h += '<button type="button" class="xjm-confirm-row' + (ask.chkM.has(m.id) ? ' is-on' : '') + '" data-act="ask-m" data-id="' + esc(m.id) + '"><span class="xjm-check' + (ask.chkM.has(m.id) ? ' is-on' : '') + '"><i class="fa-solid fa-check"></i></span>記得的事：' + esc(_clip(m.text, 40)) + '</button>'; });
+            ask.traits.forEach(t => { h += '<button type="button" class="xjm-confirm-row' + (ask.chkT.has(t.id) ? ' is-on' : '') + '" data-act="ask-t" data-id="' + esc(t.id) + '"><span class="xjm-check' + (ask.chkT.has(t.id) ? ' is-on' : '') + '"><i class="fa-solid fa-check"></i></span>樣子：' + esc(_clip(t.text, 40)) + '</button>'; });
         }
         h += '<div class="xjm-edit-acts"><button type="button" class="xjm-btn" data-act="erase-cancel">先不要</button>'
             + '<button type="button" class="xjm-btn is-danger" data-act="erase-go">抹掉</button></div></div>';
@@ -437,6 +442,15 @@
         if (act === 'sdel' && S.ui.armed !== 's' + id) { _arm('s' + id); _render(); return; }
         if (act === 'tidy-revert' && S.ui.armed !== 'tidy') { _arm('tidy'); _renderStatus(); return; }
         if (act === 'export') { await _export(); return; }
+        if (act === 'tidy-retry') {
+            if (!X || !X.tidyNow) { S.msg = '要奧瑞亞更新到新版才能再試'; _render(); return; }
+            S.busy = true; _renderStatus();
+            try { const r = await X.tidyNow(S.rid); if (r && r.tidy && !r.tidy.ok) S.msg = '還是沒成功：' + (r.tidy.why || ''); }
+            catch (err) { S.msg = '還是沒成功：' + ((err && err.message) || err); }
+            S.busy = false;
+            await _load();
+            return;
+        }
         S.ui.armed = null;
         S.busy = true;
         try {
