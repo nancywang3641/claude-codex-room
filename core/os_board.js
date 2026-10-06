@@ -1,7 +1,7 @@
 // ----------------------------------------------------------------
 // [檔案] os_board.js
 // 職責：小機留言板＝公共朋友圈。Rae 跟宿舍的小機看得到彼此完整的紙條，互相按讚、留言、回覆某人；
-//       她也能發動態（先只打字）。小機的紙條不能刪，她自己的動態、讚、留言可以刪。
+//       她也能發動態（10-07 起可以附圖片、影片）。小機的紙條不能刪，她自己的動態、讚、留言可以刪。
 // 資料：橋的 board.db —— GET /v1/board、POST /v1/board/post、POST /v1/board/delete
 //       紙條＝一列；讚與留言＝tags ["reaction", "like"|"reply", "to:<紙條 id>"]，回覆某人再加 "at:<名字>"。
 //       小機那邊是在回覆裡寫 <board_…> 標籤、橋替他做（cc-bridge 的 board_social.py），這支只管畫面。
@@ -127,6 +127,73 @@
         } catch (_) {
             return _esc(text);
         }
+    }
+
+    // ---- 她動態裡附的圖片、影片（10-07）----
+    // 內文寫 ![圖片](D:/…) ![影片](D:/…)（橋那邊 board_social.py 同一個寫法，小機讀板子時換成一句話＋截圖）。
+    //   路徑在橋那台電腦上，網頁打不開 → 先畫空格子，畫好再經 /v1/local-image 拿回來放（_hydrateMedia）。
+    const MEDIA_RE = /!\[(圖片|影片)\]\(([^)\s]+)\)/g;
+    const ATT_MAX = 4, ATT_MB = 25;   // 一則最多幾個、一個最大幾 MB（橋的 /v1/upload 也是 25MB）
+    function _bodyHtml(content) {
+        const media = [];
+        const text = String(content || '').replace(MEDIA_RE, (m, kind, path) => { media.push({ kind: kind, path: path }); return ''; }).trim();
+        let html = text ? _renderMd(text) : '';
+        if (media.length) {
+            html += '<div class="ob-media-grid ob-media-n' + Math.min(media.length, 4) + '">' + media.map(x =>
+                '<div class="ob-media ob-media-' + (x.kind === '影片' ? 'video' : 'img') + '" data-path="' + _esc(x.path) + '"><i class="fa-solid fa-spinner fa-spin"></i></div>'
+            ).join('') + '</div>';
+        }
+        return html;
+    }
+    const _mediaCache = new Map();   // 路徑 → blob 網址（重畫板子不重拿）
+    async function _mediaUrl(path) {
+        if (!_mediaCache.has(path)) {
+            const b = _bridge();
+            if (!b) return null;
+            _mediaCache.set(path, (async () => {
+                try {
+                    const r = await _fetchEither(b.base + '/v1/local-image?path=' + encodeURIComponent(path), { headers: { 'Authorization': 'Bearer ' + b.key } });
+                    return r.ok ? URL.createObjectURL(await r.blob()) : null;
+                } catch (_) { return null; }
+            })());
+        }
+        const url = await _mediaCache.get(path);
+        if (!url) _mediaCache.delete(path);   // 拿不到的下次重畫再試
+        return url;
+    }
+    function _hydrateMedia(root) {
+        if (!root) return;
+        root.querySelectorAll('.ob-media:not([data-done])').forEach(async box => {
+            box.dataset.done = '1';
+            const isVideo = box.classList.contains('ob-media-video');
+            const url = await _mediaUrl(box.dataset.path);
+            if (!box.isConnected) return;
+            if (!url) {
+                box.classList.add('ob-media-miss');
+                box.innerHTML = '<i class="fa-regular fa-image"></i><span>拿不到這個' + (isVideo ? '影片' : '圖') + '（電腦那邊的橋要開著）</span>';
+                return;
+            }
+            // #t=0.1：iPhone 沒按播放前不畫第一格，給一點時間點它才有畫面
+            box.innerHTML = isVideo
+                ? '<video src="' + url + '#t=0.1" controls playsinline preload="metadata"></video>'
+                : '<img src="' + url + '" alt="">';
+        });
+    }
+    /** 附的檔案傳到橋（/v1/upload），回 [{path, kind}]。檔名換成固定格式：原本的名字可能有空白，內文的 ![](路徑) 認不出來 */
+    async function _upload(atts) {
+        const b = _bridge();
+        if (!b) throw new Error('NOT_CONFIGURED');
+        const fd = new FormData(), stamp = Date.now();
+        atts.forEach((a, i) => {
+            const ext = ((a.file.name || '').match(/\.([A-Za-z0-9]{1,5})$/) || [null, a.kind === 'video' ? 'mp4' : 'jpg'])[1].toLowerCase();
+            fd.append('file_' + i, a.file, 'rae_' + stamp + '_' + i + '.' + ext);
+        });
+        const r = await _fetchEither(b.base + '/v1/upload', { method: 'POST', headers: { 'Authorization': 'Bearer ' + b.key }, body: fd });
+        if (!r.ok) { const t = await r.text(); throw new Error('HTTP ' + r.status + ': ' + t.slice(0, 200)); }
+        const data = await r.json();
+        const files = Array.isArray(data.files) ? data.files : [];
+        if (files.length !== atts.length) throw new Error('有幾個沒傳上去');
+        return files.map((f, i) => ({ path: String(f.path || '').replace(/\\/g, '/'), kind: atts[i].kind }));
     }
 
     function _tsMs(iso) {
@@ -420,7 +487,7 @@
                 ${_avatarHtml(p.author)}
                 <div class="ob-post-main">
                     <div class="ob-post-name">${_esc(p.author || '?')}</div>
-                    <div class="ob-post-body">${_renderMd(p.content)}</div>
+                    <div class="ob-post-body">${_bodyHtml(p.content)}</div>
                     ${tag}
                     <div class="ob-post-row">
                         <time class="ob-post-time" title="${_esc(_formatTs(p.created_at))}">${_esc(_agoText(p.created_at))}</time>
@@ -807,6 +874,11 @@
                             <button type="button" class="ob-sheet-send" disabled>發表</button>
                         </div>
                         <textarea class="ob-sheet-text" placeholder="這一刻的想法…"></textarea>
+                        <div class="ob-sheet-media" hidden></div>
+                        <div class="ob-sheet-tools">
+                            <button type="button" class="ob-sheet-att"><i class="fa-regular fa-image"></i><span>照片／影片</span></button>
+                            <input type="file" class="ob-sheet-file" accept="image/*,video/*" multiple hidden>
+                        </div>
                     </div>
                 </div>
                 <div class="ob-wl" hidden></div>
@@ -814,6 +886,7 @@
                 <div class="ob-toast" hidden></div>
             </div>`;
         _bind(container);
+        _hydrateMedia(container);
     }
 
     /** 動手之後只換掉那一則，不整板重畫——整板重畫會把她捲到最上面 */
@@ -828,7 +901,9 @@
         if (!p) { el.remove(); return; }
         const holder = document.createElement('div');
         holder.innerHTML = _postHtml(p, _index(st.all).byParent);
-        el.replaceWith(holder.firstElementChild);
+        const fresh = holder.firstElementChild;
+        el.replaceWith(fresh);
+        _hydrateMedia(fresh);
     }
 
     // ---- 記憶的兩頁 ----
@@ -997,6 +1072,8 @@
         const sheet = root.querySelector('.ob-sheet');
         const sheetText = root.querySelector('.ob-sheet-text');
         const sheetSend = root.querySelector('.ob-sheet-send');
+        const sheetFile = root.querySelector('.ob-sheet-file');
+        const sheetMedia = root.querySelector('.ob-sheet-media');
         const toast = root.querySelector('.ob-toast');
         let toastTimer = null;
         let busy = false;
@@ -1058,7 +1135,32 @@
             if (ev.key === 'Enter' && !ev.isComposing) { ev.preventDefault(); sendReply(); }
             else if (ev.key === 'Escape') closeBar();
         });
-        sheetText.addEventListener('input', () => { sheetSend.disabled = !sheetText.value.trim(); });
+        // 發動態附的照片／影片：先在這台裝置上看縮圖，按「發表」才傳到橋。板子重畫（textarea 也清空）時一起清掉
+        (st.att || []).forEach(a => { try { URL.revokeObjectURL(a.url); } catch (_) {} });
+        st.att = [];
+        const canPost = () => !!(sheetText.value.trim() || st.att.length);
+        const paintAtt = () => {
+            sheetMedia.hidden = !st.att.length;
+            sheetMedia.innerHTML = st.att.map((a, i) => '<div class="ob-att">'
+                + (a.kind === 'video'
+                    ? '<video src="' + a.url + '#t=0.1" muted playsinline preload="metadata"></video><i class="fa-solid fa-play ob-att-play"></i>'
+                    : '<img src="' + a.url + '" alt="">')
+                + '<button type="button" class="ob-att-del" data-i="' + i + '" aria-label="拿掉"><i class="fa-solid fa-xmark"></i></button></div>').join('');
+            sheetSend.disabled = !canPost();
+        };
+        sheetFile.addEventListener('change', () => {
+            const picked = Array.from(sheetFile.files || []);
+            sheetFile.value = '';
+            for (const f of picked) {
+                const kind = /^video\//.test(f.type) ? 'video' : /^image\//.test(f.type) ? 'img' : '';
+                if (!kind) continue;
+                if (st.att.length >= ATT_MAX) { say('一則最多 ' + ATT_MAX + ' 個'); break; }
+                if (f.size > ATT_MB * 1024 * 1024) { say((kind === 'video' ? '這支影片' : '這張圖') + '太大了，一個最多 ' + ATT_MB + 'MB'); continue; }
+                st.att.push({ file: f, kind: kind, url: URL.createObjectURL(f) });
+            }
+            paintAtt();
+        });
+        sheetText.addEventListener('input', () => { sheetSend.disabled = !canPost(); });
         // 記憶那頁的「找」
         root.addEventListener('input', ev => {
             if (ev.target && ev.target.classList && ev.target.classList.contains('ob-mem-q')) _memFilter(container, ev.target.value.trim());
@@ -1108,20 +1210,42 @@
             if (t.closest('.ob-refresh')) { launch(container); return; }
             if (t.closest('.ob-compose')) { sheet.hidden = false; sheetText.focus(); return; }
             if (t.closest('.ob-sheet-cancel') || t === sheet) { sheet.hidden = true; return; }
+            if (t.closest('.ob-sheet-att')) { sheetFile.click(); return; }
+            const attDel = t.closest('.ob-att-del');
+            if (attDel) {
+                const gone = st.att.splice(+attDel.dataset.i, 1)[0];
+                if (gone) { try { URL.revokeObjectURL(gone.url); } catch (_) {} }
+                paintAtt();
+                return;
+            }
             if (t.closest('.ob-sheet-send')) {
                 const text = sheetText.value.trim();
-                if (!text) return;
+                if (!text && !st.att.length) return;
                 run('發表', async () => {
                     sheetSend.disabled = true;
-                    await _postNote(text, ['rae']);
+                    let content = text;
+                    if (st.att.length) {
+                        say('上傳中…');
+                        const up = await _upload(st.att);
+                        content = (text ? text + '\n\n' : '') + up.map(x => '![' + (x.kind === 'video' ? '影片' : '圖片') + '](' + x.path + ')').join('\n');
+                    }
+                    await _postNote(content, ['rae']);
                     st.all = await _fetchPosts();
                     st.tab = 'feed';   // 她剛發的在動態，停在別頁會以為沒發出去
                     _renderBoard(container, st.all, st.hb);
-                }).finally(() => { if (sheetSend.isConnected) sheetSend.disabled = !sheetText.value.trim(); });
+                }).finally(() => { if (sheetSend.isConnected) sheetSend.disabled = !canPost(); });
                 return;
             }
             if (t.closest('.ob-bar')) {
                 if (t.closest('.ob-bar-send')) sendReply();
+                return;
+            }
+            // 動態裡的圖：點了放大（奧瑞亞的看圖器在就用它）
+            const mimg = t.closest('.ob-media img');
+            if (mimg) {
+                const PV = win.OS_PHOTO_VIEWER || window.OS_PHOTO_VIEWER;
+                const imgs = Array.from(mimg.closest('.ob-media-grid').querySelectorAll('.ob-media img'));
+                if (PV && PV.open) PV.open(imgs.map(i => ({ src: i.src })), Math.max(0, imgs.indexOf(mimg)), { fromEl: mimg });
                 return;
             }
 

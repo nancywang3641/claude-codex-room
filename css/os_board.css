@@ -585,6 +585,95 @@
     outline: none;
     font-family: inherit;
 }
+/* 發動態附照片／影片：縮圖一排四格、右上角拿掉 */
+.ob-sheet-media {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    padding: 0 12px 10px;
+}
+.ob-sheet-media[hidden] { display: none; }
+.ob-att {
+    position: relative;
+    aspect-ratio: 1;
+    border-radius: 6px;
+    overflow: hidden;
+    background: rgba(42, 74, 128, 0.08);
+}
+.ob-att img, .ob-att video { display: block; width: 100%; height: 100%; object-fit: cover; }
+.ob-att-play {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    color: #fff;
+    font-size: 18px;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+    pointer-events: none;
+}
+.ob-att-del {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 22px;
+    height: 22px;
+    border: none;
+    border-radius: 50%;
+    background: rgba(20, 32, 54, 0.6);
+    color: #fff;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+.ob-sheet-tools {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px 10px;
+    border-top: 1px solid rgba(42, 74, 128, 0.08);
+}
+.ob-sheet-att {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 10px;
+    background: rgba(42, 74, 128, 0.08);
+    color: #2a4a80;
+    font-size: 13px;
+    cursor: pointer;
+    font-family: inherit;
+}
+.ob-sheet-att:hover { background: rgba(42, 74, 128, 0.15); }
+
+/* 動態裡的圖片、影片：一張就照比例放大，兩張以上兩欄方格；影片一律整排 */
+.ob-media-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+    max-width: 360px;
+    margin-top: 8px;
+}
+.ob-media-grid.ob-media-n1 { grid-template-columns: minmax(0, 1fr); max-width: 300px; }
+.ob-media {
+    position: relative;
+    aspect-ratio: 1;
+    border-radius: 6px;
+    overflow: hidden;
+    background: rgba(42, 74, 128, 0.08);
+    color: #8aa0c4;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.ob-media-n1 .ob-media, .ob-media-video { aspect-ratio: auto; min-height: 120px; }
+.ob-media-video { grid-column: 1 / -1; }
+.ob-media img { display: block; width: 100%; height: 100%; object-fit: cover; cursor: zoom-in; }
+.ob-media-n1 .ob-media img { height: auto; max-height: 420px; object-fit: contain; }
+.ob-media video { display: block; width: 100%; max-height: 520px; background: #000; }
+.ob-media-miss { flex-direction: column; gap: 4px; padding: 10px; aspect-ratio: auto; min-height: 80px; font-size: 12px; text-align: center; }
 
 /* ---- 提示、讀取、出錯 ---- */
 .ob-toast {
