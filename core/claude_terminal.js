@@ -1439,6 +1439,25 @@ ${withOthers}
     }
     function _turnNotes(rid) { return [_langNote(rid), _tagNote(rid)].filter(Boolean).join('\n\n'); }
 
+    /** 某一隻小機的全部會話（奧瑞亞記憶搬家、單隻匯出用）：只有它的、只要編號標題時間（meta 沒有建立時間，拿最後動過的時間當後備） */
+    ClaudeTerminal.xiaojiConvList = function(rid) {
+        return _allConvs('xiaoji').filter(c => c && c.residentId === rid)
+            .map(c => ({ id: c.id, title: c.title || '', created: c.createdAt || c.created || c.lastActive || 0 }));
+    };
+    /** 匯入一隻小機（奧瑞亞 OS_XIAOJI_MEM.importOne 寫好資料之後）：名冊與對話清單寫回，已經有的不重複 */
+    ClaudeTerminal.restoreXiaoji = function(o) {
+        if (!o || !o.resident || !o.resident.id) return false;
+        const list = ClaudeTerminal.listResidents();
+        if (!list.some(r => r.id === o.resident.id)) {
+            list.push(_normResident(Object.assign({}, o.resident, { provider: 'xiaoji' })));
+            if (!_cfgWriteResidents(list)) return false;
+        }
+        const all = _allConvs('xiaoji');
+        (o.convs || []).forEach(c => { if (c && c.id && !all.some(x => x && x.id === c.id)) all.push(Object.assign({}, c, { residentId: o.resident.id })); });
+        _lsSetJson(_convsKey('xiaoji'), all);
+        return true;
+    };
+
     /** 某一隻小機最近那一串的最後 n 則（小劇場用，奧瑞亞 OS_XIAOJI.theater 的 opt.recent）。
      *  只讀本機那份、不等橋；它開著的那串優先，沒有就挑最近動過的。標籤拿掉、等她按「讓他回」的不算。 */
     ClaudeTerminal.xiaojiRecent = async function(rid, n) {
@@ -1469,11 +1488,21 @@ ${withOthers}
                    && loaded[loaded.length - 1 - heldN].held) heldN++;
         }
         const history = heldN ? loaded.slice(0, loaded.length - heldN) : loaded;
+        const nowTs = Date.now();
         const updated = heldN
             ? [...history, ...loaded.slice(-heldN).map(m => { const c = Object.assign({}, m); delete c.held; return c; })]
-            : [...history, { role: 'user', content: userText, timestamp: Date.now() }];
+            : [...history, { role: 'user', content: userText, timestamp: nowTs }];
+        // 經歷簿對帳用（奧瑞亞 OS_XIAOJI_MEM）：這一句是哪一則；一起送的那幾則記最後一則
+        const userTs = heldN ? (loaded[loaded.length - 1].timestamp || nowTs) : nowTs;
         const rollback = heldN ? loaded : history;
         await ClaudeTerminal.saveHistory(updated, ctx);
+        // 🧠 記憶（奧瑞亞 OS_XIAOJI_MEM，10-06）：新版第一次送話時把它以前的記事、對話、上課紀錄搬進經歷簿（只做一次、不花錢）
+        const MEM = window.OS_XIAOJI_MEM || (window.parent && window.parent.OS_XIAOJI_MEM) || null;
+        if (MEM && typeof MEM.ensureMigrated === 'function') {
+            try { await MEM.ensureMigrated(me.id, () => ClaudeTerminal.xiaojiConvList(me.id)); }
+            catch (e) { console.warn('[ClaudeTerminal] 小機記憶搬家沒做完（下次再試）：', e); }
+        }
+        const _memLog = ev => { if (MEM && typeof MEM.log === 'function') MEM.log(me.id, ev).catch(e => console.warn('[ClaudeTerminal] 經歷沒記成：', e)); };
         // 🧥 布置房間與打扮（天生就會）：說明最後接「你的房間」「你的樣子」，回完照它寫的標籤動手、存在小機存檔
         //   （規則在 wear_local.js，跟橋 room_decor.py 同一套；房間 10-05 補的）
         const RW = window.RoomWear;
@@ -1494,7 +1523,7 @@ ${withOthers}
         try {
             const t = await X.turn({
                 // conv：這一串的編號，奧瑞亞用它存這一串舊聊天的摘要（一串一份，10-05）
-                rid: me.id, conv: ctx.convId, history, userText, signal: sendOpts && sendOpts.signal, extraNote: [roomNote, wearNote, bubbleNote, _turnNotes(me.id)].filter(Boolean).join('\n\n'),
+                rid: me.id, conv: ctx.convId, userTs: userTs, history, userText, signal: sendOpts && sendOpts.signal, extraNote: [roomNote, wearNote, bubbleNote, _turnNotes(me.id)].filter(Boolean).join('\n\n'),
                 onProgress: ev => {
                     if (typeof onProgress !== 'function' || !ev) return;
                     try {
@@ -1514,7 +1543,7 @@ ${withOthers}
             if (RW && wearNote && typeof X.save === 'function') {
                 try {
                     const rec = await X.get(me.id);
-                    if (byRae) RW.popByRae(rec);              // 這一句已經跟它說過是她換的
+                    if (byRae) { RW.popByRae(rec); _memLog({ kind: 'wear', by: 'rae', text: '使用者幫你換了打扮' }); }   // 這一句已經跟它說過是她換的
                     const res = RW.apply(rec, t.reply || '');
                     if (res.changed || byRae) {
                         const patch = { wear: rec.wear, closet: rec.closet };
@@ -1523,17 +1552,18 @@ ${withOthers}
                     }
                     if (res.changed) {
                         dressed = true;
+                        _memLog({ kind: 'wear', text: res.done.join('；') });
                         console.log('[ClaudeTerminal] 小機房間／打扮：' + res.done.join('；'));
                         if (window.ChatWindow && typeof window.ChatWindow.refreshDecor === 'function') window.ChatWindow.refreshDecor();
                     }
                 } catch (e) { console.warn('[ClaudeTerminal] 小機房間／打扮沒存成：', e); }
             }
             if (RB && bubbleNote && typeof RB.applyTags === 'function') {
-                try { const said = RB.applyTags(me.id, t.reply || ''); if (said) console.log('[ClaudeTerminal] 小機泡泡：' + said); }
+                try { const said = RB.applyTags(me.id, t.reply || ''); if (said) { console.log('[ClaudeTerminal] 小機泡泡：' + said); _memLog({ kind: 'bubble', text: said }); } }
                 catch (e) { console.warn('[ClaudeTerminal] 小機泡泡沒換成：', e); }
             }
             return { reply: t.reply, thinking: null, usage, toolsUsed: [],
-                xiaoji: { calls: t.calls, props: t.props || [], log: t.log || [], stopped: !!t.stopped, dressed } };
+                xiaoji: { calls: t.calls, props: t.props || [], log: t.log || [], stopped: !!t.stopped, dressed, memErr: t.memErr || '' } };
         } catch (e) {
             await ClaudeTerminal.saveHistory(rollback, ctx);
             throw e;
@@ -1654,11 +1684,11 @@ ${withOthers}
     // 容錯跟橋同一套：全形括號與引號、屬性不加引號、讚沒寫斜線；反引號與程式碼區塊裡的是他在講解，原樣留著。
     const _BOARD_CODE_RE = /```[\s\S]*?```|`[^`\n]*`/g;
     // board_bug（待修，09-29 橋就認了）以前漏在這份清單外：整段給丹的細節直接畫進泡泡。現在藏起來，房間換成一張待修卡（boardBugs）
-    // memory_add／memory_edit／memory_remove：小機記事（奧瑞亞 os_xiaoji 收完會從回話拿掉，這裡是串流中先藏著，10-05）
+    // memory_add／update／fix／edit／remove：小機記事（奧瑞亞 os_xiaoji 收完會從回話拿掉，這裡是串流中先藏著，10-05）
     // bubble_use／bubble_reset：小機換自己房間的泡泡（room_bubbles.js，10-05）
-    const _BOARD_PAIR_RE = /[<＜]\s*(board_(?:post|comment|reply|like|proposal|bug)|room_place|wear_put|look_set|memory_add|memory_edit)\b[^>＞]*?(?:\/\s*[>＞]|[>＞][\s\S]*?[<＜]\s*\/\s*\1\s*[>＞])/gi;
+    const _BOARD_PAIR_RE = /[<＜]\s*(board_(?:post|comment|reply|like|proposal|bug)|room_place|wear_put|look_set|memory_add|memory_edit|memory_update|memory_fix)\b[^>＞]*?(?:\/\s*[>＞]|[>＞][\s\S]*?[<＜]\s*\/\s*\1\s*[>＞])/gi;
     const _BOARD_SINGLE_RE = /[<＜]\s*(?:board_like|room_(?:paint|move|remove)|wear_(?:color|move|remove|outfit|keep)|look_reset|memory_remove|bubble_(?:use|reset))\b[^>＞]*?\/?\s*[>＞]/gi;
-    const _BOARD_OPEN_RE = /[<＜]\s*(?:board_(?:post|comment|reply|proposal|bug)|room_place|wear_put|look_set|memory_add|memory_edit)\b[\s\S]*$/i;
+    const _BOARD_OPEN_RE = /[<＜]\s*(?:board_(?:post|comment|reply|proposal|bug)|room_place|wear_put|look_set|memory_add|memory_edit|memory_update|memory_fix)\b[\s\S]*$/i;
     const _BOARD_BUG_RE = /[<＜]\s*board_bug\b[^>＞]*[>＞]([\s\S]*?)[<＜]\s*\/\s*board_bug\s*[>＞]/gi;
     const _BOARD_TAIL_RE = /[<＜]\s*\/?\s*(?:b(?:o(?:a(?:r(?:d(?:_[^>＞]*)?)?)?)?|u(?:b(?:b(?:l(?:e(?:_[^>＞]*)?)?)?)?)?)?|r(?:o(?:o(?:m(?:_[^>＞]*)?)?)?)?|w(?:e(?:a(?:r(?:_[^>＞]*)?)?)?)?|l(?:o(?:o(?:k(?:_[^>＞]*)?)?)?)?|m(?:e(?:m(?:o(?:r(?:y(?:_[^>＞]*)?)?)?)?)?)?)?$/i;
     function _boardInCode(s, pos) {

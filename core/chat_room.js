@@ -1414,6 +1414,15 @@
             rec.text = _propLine({ prop: p });
             _paintPropCard(card, { prop: p, state: p.state });
             _scheduleSave();
+            // 🧠 她按了什麼記進小機的經歷簿（奧瑞亞 OS_XIAOJI_MEM，10-06）
+            try {
+                const MEM = w.OS_XIAOJI_MEM || window.OS_XIAOJI_MEM;
+                const CT = window.ClaudeTerminal;
+                const me = (CT && CT.getActiveResident) ? CT.getActiveResident('xiaoji') : null;
+                if (MEM && MEM.log && me && me.id && me.provider === 'xiaoji') {
+                    MEM.log(me.id, { kind: 'prop', pid: p.id, state: p.state, text: (PROP_CHIP[p.state] || p.state) + '：' + _propLine({ prop: p }) }).catch(() => {});
+                }
+            } catch (_) {}
         });
     }
     function _buildPropCards(list) {
@@ -2185,6 +2194,7 @@
                 setTimeout(() => _setClaudePortraitState('living'), 600);
             }
             _scheduleSave();
+            if (xj && xj.memErr) _renderClaudeNotice(xj.memErr);   // 小機的記憶這一句出了狀況（奧瑞亞 OS_XIAOJI_MEM）：照實說
             // 新 conv 的標題會在 saveHistory 自動從第一條 user msg 抓 → 更新左上角小卡
             if (typeof window._VoidClaudeUpdateChip === 'function') {
                 try { window._VoidClaudeUpdateChip(); } catch (_) {}
