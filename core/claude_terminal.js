@@ -1444,16 +1444,26 @@ ${withOthers}
         return _allConvs('xiaoji').filter(c => c && c.residentId === rid)
             .map(c => ({ id: c.id, title: c.title || '', created: c.createdAt || c.created || c.lastActive || 0 }));
     };
-    /** 匯入一隻小機（奧瑞亞 OS_XIAOJI_MEM.importOne 寫好資料之後）：名冊與對話清單寫回，已經有的不重複 */
+    /** 匯入一隻小機（奧瑞亞 OS_XIAOJI_MEM.importOne 寫好資料之後）：名冊與對話清單寫回，已經有的不重複。
+     *  o.replace：她選了「整隻蓋掉」——這隻原本的對話清單換成檔案裡的，原本的逐字稿清掉（記憶那邊奧瑞亞已經清過） */
     ClaudeTerminal.restoreXiaoji = function(o) {
         if (!o || !o.resident || !o.resident.id) return false;
+        const rid = o.resident.id;
         const list = ClaudeTerminal.listResidents();
-        if (!list.some(r => r.id === o.resident.id)) {
+        if (!list.some(r => r.id === rid)) {
             list.push(_normResident(Object.assign({}, o.resident, { provider: 'xiaoji' })));
             if (!_cfgWriteResidents(list)) return false;
         }
-        const all = _allConvs('xiaoji');
-        (o.convs || []).forEach(c => { if (c && c.id && !all.some(x => x && x.id === c.id)) all.push(Object.assign({}, c, { residentId: o.resident.id })); });
+        let all = _allConvs('xiaoji');
+        if (o.replace) {
+            const keep = new Set((o.convs || []).map(c => c && c.id));
+            const gone = all.filter(c => c && c.residentId === rid && !keep.has(c.id)).map(c => c.id);
+            all = all.filter(c => !(c && c.residentId === rid));
+            if (window.OS_DB && typeof window.OS_DB.clearStudioChat === 'function') {
+                gone.forEach(id => { window.OS_DB.clearStudioChat(XIAOJI_IDB_PREFIX + id).catch(() => {}); });
+            }
+        }
+        (o.convs || []).forEach(c => { if (c && c.id && !all.some(x => x && x.id === c.id)) all.push(Object.assign({}, c, { residentId: rid })); });
         _lsSetJson(_convsKey('xiaoji'), all);
         return true;
     };

@@ -531,7 +531,7 @@
                     }
                 }
                 const r = await M.importOne(data, { asNew });
-                if (!CT.restoreXiaoji(r)) throw new Error('名冊寫不進去');
+                if (!CT.restoreXiaoji(Object.assign({}, r, { replace: exists && !asNew }))) throw new Error('名冊寫不進去');
                 say('「' + name + '」回來了', 'success');
                 _render();
             } catch (e) { say('沒帶回來：' + ((e && e.message) || e), 'error'); }
