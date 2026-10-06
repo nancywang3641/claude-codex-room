@@ -18,6 +18,7 @@
     // ---- API 小機（provider xiaoji，引擎在奧瑞亞 OS_XIAOJI）：門卡副標、編輯列要讀它的存檔 ----
     const _xj = {};
     function _XJ() { return window.OS_XIAOJI || (window.parent && window.parent.OS_XIAOJI) || null; }
+    function _MEM() { return window.OS_XIAOJI_MEM || (window.parent && window.parent.OS_XIAOJI_MEM) || null; }
     async function _xjLoad() {
         const X = _XJ(), CT = _CT();
         if (!X || !CT) return;
@@ -491,6 +492,8 @@
         h += '<div class="dorm-hall">'
             + '<button type="button" class="dorm-hall-btn" data-panel="board"><i class="fa-solid fa-note-sticky"></i><span>留言板</span></button>'
             + '<button type="button" class="dorm-hall-btn" data-panel="spend"><i class="fa-solid fa-coins"></i><span>額度</span></button>'
+            // 帶小機回來：羽毛筆那本匯出的檔（換電腦、從酒館搬到手機版）。要奧瑞亞新版才有（OS_XIAOJI_MEM）
+            + (_XJ() && _MEM() ? '<button type="button" class="dorm-hall-btn" data-act="xj-import"><i class="fa-solid fa-file-import"></i><span>帶小機回來</span></button>' : '')
             + '</div>';
         _el.innerHTML = h;
         _bind();
@@ -503,9 +506,44 @@
         _delArmed = null;
     }
 
+    /** 帶小機回來：選羽毛筆那本匯出的檔 → 奧瑞亞寫回記憶、對話、存檔 → 這裡寫回名冊與對話清單。
+     *  已經住著同一隻：先問要不要整隻蓋掉；不要的話，問要不要當成另一隻（換新的編號，兩隻都在） */
+    function _xjImport() {
+        const f = document.createElement('input');
+        f.type = 'file';
+        f.accept = 'application/json,.json';
+        f.addEventListener('change', async () => {
+            const file = f.files && f.files[0];
+            if (!file) return;
+            const M = _MEM(), CT = _CT(), A = window.AUI || (window.parent && window.parent.AUI);
+            const say = (t, type) => { if (A && A.toast) A.toast(t, { type: type || 'info' }); };
+            try {
+                const data = JSON.parse(await file.text());
+                if (!data || data.kind !== 'aurelia-xiaoji' || !data.resident) throw new Error('這不是小機的檔案');
+                const name = data.resident.name || '小機';
+                const exists = CT.listResidents().some(r => r.id === data.resident.id);
+                let asNew = false;
+                if (exists) {
+                    const over = A && A.confirm ? await A.confirm('「' + name + '」已經住在宿舍了。要用檔案裡的整隻蓋掉現在這隻嗎？', { okText: '蓋掉', cancelText: '不要', danger: true }) : false;
+                    if (!over) {
+                        asNew = A && A.confirm ? await A.confirm('那要把檔案裡的「' + name + '」當成另一隻帶回來嗎？（兩隻都會在）', { okText: '帶回來', cancelText: '算了' }) : false;
+                        if (!asNew) return;
+                    }
+                }
+                const r = await M.importOne(data, { asNew });
+                if (!CT.restoreXiaoji(r)) throw new Error('名冊寫不進去');
+                say('「' + name + '」回來了', 'success');
+                _render();
+            } catch (e) { say('沒帶回來：' + ((e && e.message) || e), 'error'); }
+        });
+        f.click();
+    }
+
     function _bind() {
         const x = _el.querySelector('.dorm-x');   // 嵌進主窗之後就沒有這顆了
         if (x) x.addEventListener('click', DormPanel.close);
+        const imp = _el.querySelector('[data-act="xj-import"]');
+        if (imp) imp.addEventListener('click', _xjImport);
 
         _el.querySelectorAll('.dorm-card').forEach(card => {
             const id = card.dataset.id;

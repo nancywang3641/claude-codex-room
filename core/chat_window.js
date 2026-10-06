@@ -98,7 +98,7 @@
                     <img id="claude-portrait-img" class="claude-portrait-img" alt="Clawd">
                     <div id="codex-portrait-sprite" class="codex-portrait-sprite"></div>
                     <button type="button" class="cw-room-closet" id="cw-room-closet" title="衣櫃" hidden><i class="fa-solid fa-shirt"></i></button>
-                    <button type="button" class="cw-room-memo" id="cw-room-memo" title="它記得的事" hidden><i class="fa-solid fa-feather-pointed"></i></button>
+                    <button type="button" class="cw-room-memo" id="cw-room-memo" title="它的記憶" hidden><i class="fa-solid fa-feather-pointed"></i></button>
                     <div class="claude-conv-chip" id="claude-conv-chip" title="點開 Recents 多會話列表">
                         <span class="ccc-tab" id="ccc-tab">☕</span>
                         <span class="ccc-title" id="ccc-title">—</span>
@@ -1380,7 +1380,7 @@
         settings: '設置',
         spend: '額度', board: '留言板', recents: '會話',
         xiaoji_train: '培養室', xiaoji_box: '404 寄來的箱子',
-        wardrobe: '衣櫃', notebook: '紀錄', xiaoji_memory: '它記得的事',
+        wardrobe: '衣櫃', notebook: '紀錄', xiaoji_memory: '它的記憶',
     };
 
     // 培養室正在考試的話先停掉：換到別的子頁、關子頁、整個窗關掉，考試都不該在背後繼續叫模型
@@ -1421,7 +1421,7 @@
             else body.innerHTML = '<div class="cw-sub-missing">衣櫃模組未載入</div>';
         } else if (name === 'xiaoji_memory') {
             if (window.XiaojiMemory && typeof window.XiaojiMemory.launch === 'function') window.XiaojiMemory.launch(body);
-            else body.innerHTML = '<div class="cw-sub-missing">它記得的事模組未載入</div>';
+            else body.innerHTML = '<div class="cw-sub-missing">它的記憶模組未載入</div>';
         } else if (name === 'notebook') {
             if (window.RoomNotebook && typeof window.RoomNotebook.launch === 'function') window.RoomNotebook.launch(body);
             else body.innerHTML = '<div class="cw-sub-missing">紀錄模組未載入</div>';
