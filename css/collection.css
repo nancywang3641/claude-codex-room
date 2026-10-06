@@ -1,6 +1,7 @@
 /* ============================================================
  * css/collection.css — 收藏（core/collection.js，子面板 collection）
  * 小劇場一場一張票：白底深藍字、左邊一條金（跟大廳小劇場回顧那張票同一家），右邊虛線撕口後面是日期和播放。
+ * 語音一段一列；聊天裡收藏過的語音尾巴一顆小星（.rcol-vstar）。
  * class 一律 rcol- 開頭、掛在 #aurelia-chat-window 底下（別用菜市場名，酒館全域樣式會蓋過來）。
  * ============================================================ */
 #aurelia-chat-window .rcol-wrap {
@@ -17,11 +18,18 @@
     color: #6a7fa6;
     font-size: 14px;
 }
-#aurelia-chat-window .rcol-top {
+/* 一區一節：小劇場、語音；小問號掛在第一節標題右邊 */
+#aurelia-chat-window .rcol-part {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+#aurelia-chat-window .rcol-head {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 12px 14px 4px;
+    min-height: 24px;
+    padding: 4px 2px 0;
 }
 #aurelia-chat-window .rcol-sec {
     flex: 1;
@@ -49,10 +57,10 @@
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    padding: 6px 12px 18px;
+    padding: 10px 12px 18px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 22px;
 }
 
 /* ---- 一場一張票 ---- */
@@ -178,8 +186,8 @@
     cursor: pointer;
 }
 #aurelia-chat-window .rcol-go:hover { background: #eef2fa; }
+#aurelia-chat-window .rcol-hint:empty { display: none; }
 #aurelia-chat-window .rcol-hint {
-    min-height: 16px;
     font-size: 12px;
     color: #b0503c;
     text-align: center;
@@ -187,22 +195,85 @@
 
 /* ---- 空的 ---- */
 #aurelia-chat-window .rcol-empty {
-    margin: auto 0;
-    padding: 30px 18px;
+    padding: 22px 18px;
+    border: 1px dashed rgba(42, 74, 128, 0.2);
+    border-radius: 10px;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     text-align: center;
 }
-#aurelia-chat-window .rcol-empty > i { font-size: 30px; color: #c9a24a; opacity: 0.8; }
+#aurelia-chat-window .rcol-empty > i { font-size: 26px; color: #c9a24a; opacity: 0.8; }
 #aurelia-chat-window .rcol-empty-ttl { font-size: 14px; font-weight: 600; color: #2a4a80; }
 #aurelia-chat-window .rcol-soft { font-size: 12px; line-height: 1.6; color: #6a7fa6; max-width: 260px; }
 
-/* 房間圖右下：羽毛筆左邊那顆星（只有小機） */
+/* ---- 語音：一段一列（播放、說了什麼、誰哪天幾秒、取消收藏） ---- */
+#aurelia-chat-window .rcol-voice {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 8px 10px 12px;
+    border: 1px solid rgba(42, 74, 128, 0.14);
+    border-radius: 10px;
+    background: #ffffff;
+    box-shadow: 0 1px 5px rgba(31, 58, 104, 0.07);
+}
+#aurelia-chat-window .rcol-vplay {
+    flex: 0 0 auto;
+    width: 34px;
+    height: 34px;
+    padding: 0 0 0 2px;
+    border: none;
+    border-radius: 50%;
+    background: #2a4a80;
+    color: #ffffff;
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+#aurelia-chat-window .rcol-vplay.is-on { background: #c9a24a; padding: 0; }
+#aurelia-chat-window .rcol-vtxt { flex: 1; min-width: 0; }
+#aurelia-chat-window .rcol-vsaid {
+    font-size: 13.5px;
+    line-height: 1.5;
+    color: #1f3a68;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+}
+#aurelia-chat-window .rcol-vmeta { margin-top: 2px; font-size: 11.5px; color: #8a99b8; }
+#aurelia-chat-window .rcol-vdel {
+    flex: 0 0 auto;
+    min-width: 28px;
+    height: 28px;
+    padding: 0 6px;
+    border: none;
+    border-radius: 14px;
+    background: transparent;
+    color: #9aaacb;
+    font: inherit;
+    font-size: 13px;
+    white-space: nowrap;
+    cursor: pointer;
+}
+#aurelia-chat-window .rcol-vdel:hover { background: #eef2fa; color: #2a4a80; }
+#aurelia-chat-window .rcol-vdel.is-armed { padding: 0 10px; background: #fbeae6; color: #b0503c; font-size: 12px; }
+
+/* 聊天裡收藏過的那顆語音：播放列尾巴一顆小星 */
+#aurelia-chat-window .claude-voice .rcol-vstar { align-self: center; margin-left: 6px; color: #c9a24a; font-size: 11px; }
+#aurelia-chat-window .claude-voice:not(.rcol-faved) .rcol-vstar { display: none; }
+
+/* 房間圖右下那排小圓鈕最左邊那顆星；右邊有幾顆（衣櫃、羽毛筆）往左挪幾格（chat_window.js 掛 rcol-at-1／2） */
+#aurelia-chat-window .cw-room-fav.rcol-at-1 { right: 54px; }
+#aurelia-chat-window .cw-room-fav.rcol-at-2 { right: 98px; }
 #aurelia-chat-window .cw-room-fav {
     position: absolute;
-    right: 98px;
+    right: 10px;
     bottom: 10px;
     z-index: 5;
     width: 36px;

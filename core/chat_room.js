@@ -1072,7 +1072,40 @@
         if (code === 'NOTHING_TO_SAY') return '這段沒有可以念的字';
         return '沒念出來：' + code;
     }
-    /** 點了播、再點停。她的錄音從圖庫拿；他的話現在才合成（第一次按才花錢），合成好的留著重播 */
+    /** 他的一句話合成成聲音：合成過的拿記憶體那份，不再扣錢。回 { blob, src }；
+     *  舊版奧瑞亞沒有只合成那支：回 { legacy, voiceId, src } 交給它自己播。錯了丟 NO_VOICE／NO_TTS（帶 src，說明照哪家講） */
+    async function _synthVoice(text, v) {
+        let src = 'minimax';
+        const tag = (code) => Object.assign(new Error(code), { src: src });
+        const VC = window.OS_VOICE_CAST;
+        let MM = window.OS_MINIMAX, voiceId = '';
+        if (VC && typeof VC.find === 'function') {
+            const ent = VC.find(v.who, null, text);   // 帶這句話：同一個人中文、英文可以綁不同聲音
+            if (!ent) throw tag('NO_VOICE');
+            src = ent.src;
+            voiceId = ent.voiceId;
+            MM = src === 'elevenlabs' ? window.OS_ELEVENLABS : window.OS_MINIMAX;
+            if (!MM || typeof MM.synth !== 'function') throw tag('NO_TTS');
+        } else {
+            if (!MM || typeof MM.findVoiceId !== 'function') throw tag('NO_TTS');
+            voiceId = MM.findVoiceId(v.who);
+            if (!voiceId) throw tag('NO_VOICE');
+        }
+        const key = src + '§' + voiceId + '§' + text;
+        let blob = _voiceCache.get(key);
+        if (!blob) {
+            if (typeof MM.synth !== 'function') return { legacy: MM, voiceId: voiceId, src: src };
+            try {
+                blob = await MM.synth(text, voiceId, { keepTags: true });   // 🎭 他寫的 [laughs] 這種語氣標籤留著（只有 ElevenLabs 會用到）
+            } catch (e) {
+                if (e && typeof e === 'object' && !e.src) e.src = src;
+                throw e;
+            }
+            _voiceCache.set(key, blob);
+        }
+        return { blob: blob, src: src };
+    }
+    /** 點了播、再點停。她的錄音從圖庫拿；他的話收藏過的播存下來那份，沒收藏的現在才合成（第一次按才花錢），合成好的留著重播 */
     async function _toggleVoice(row, text, v, note, body) {
         if (_voiceRow === row) { _stopVoice(); return; }
         _stopVoice();
@@ -1089,33 +1122,20 @@
                 blobUrl = window.OS_DB && typeof window.OS_DB.getImage === 'function' ? await window.OS_DB.getImage(v.audioId) : null;
                 if (!blobUrl) throw new Error('GONE');
             } else {
-                const VC = window.OS_VOICE_CAST;
-                let MM = window.OS_MINIMAX, voiceId = '';
-                if (VC && typeof VC.find === 'function') {
-                    const ent = VC.find(v.who, null, text);   // 帶這句話：同一個人中文、英文可以綁不同聲音
-                    if (!ent) throw new Error('NO_VOICE');
-                    src = ent.src;
-                    voiceId = ent.voiceId;
-                    MM = src === 'elevenlabs' ? window.OS_ELEVENLABS : window.OS_MINIMAX;
-                    if (!MM || typeof MM.synth !== 'function') throw new Error('NO_TTS');
-                } else {
-                    if (!MM || typeof MM.findVoiceId !== 'function') throw new Error('NO_TTS');
-                    voiceId = MM.findVoiceId(v.who);
-                    if (!voiceId) throw new Error('NO_VOICE');
-                }
-                const key = src + '§' + voiceId + '§' + text;
-                let blob = _voiceCache.get(key);
-                if (!blob) {
-                    if (typeof MM.synth !== 'function') {         // 舊版奧瑞亞沒有只合成那支：交給它自己播，不留著
-                        const ok = await MM.play(text, voiceId);
+                const RC = window.RoomCollection;
+                const kept = (RC && typeof RC.voiceUrl === 'function') ? await RC.voiceUrl(v.rid, text) : null;   // ⭐ 收藏過的
+                if (kept) blobUrl = kept;
+                else {
+                    const got = await _synthVoice(text, v);
+                    src = got.src;
+                    if (got.legacy) {         // 舊版奧瑞亞沒有只合成那支：交給它自己播，不留著
+                        const ok = await got.legacy.play(text, got.voiceId);
                         if (_voiceRow === row) _stopVoice();
                         if (!ok) throw new Error('NO_KEY');
                         return;
                     }
-                    blob = await MM.synth(text, voiceId, { keepTags: true });   // 🎭 他寫的 [laughs] 這種語氣標籤留著（只有 ElevenLabs 會用到）
-                    _voiceCache.set(key, blob);
+                    blobUrl = URL.createObjectURL(got.blob);
                 }
-                blobUrl = URL.createObjectURL(blob);
             }
             if (_voiceRow !== row) { URL.revokeObjectURL(blobUrl); return; }   // 等的時候她又點了別顆
             _voiceUrl = blobUrl;
@@ -1128,7 +1148,7 @@
             if (ic) ic.className = 'fa-solid fa-pause claude-voice-icon';
         } catch (e) {
             if (_voiceRow === row) _stopVoice();
-            note.textContent = _voiceWhy(e, v.who || '他', src);
+            note.textContent = _voiceWhy(e, v.who || '他', (e && e.src) || src);
             note.hidden = false;
             body.hidden = false;
         }
@@ -1171,6 +1191,10 @@
         box.appendChild(bar);
         box.appendChild(body);
         box.appendChild(note);
+        // ⭐ 長按「收藏語音」要拿得到這句話（notebook.js 的長按小窗）；收藏過的掛一顆星（collection.js）
+        box._ccrVoice = { text: text, v: v };
+        const RC = window.RoomCollection;
+        if (RC && typeof RC.voiceMark === 'function') RC.voiceMark(box);
         return box;
     }
     function _residentName() {
@@ -1178,12 +1202,17 @@
         const r = (CT && typeof CT.getActiveResident === 'function') ? CT.getActiveResident(_provider()) : null;
         return (r && r.name) || '他';
     }
+    function _residentId() {
+        const CT = window.ClaudeTerminal;
+        const r = (CT && typeof CT.getActiveResident === 'function') ? CT.getActiveResident(_provider()) : null;
+        return (r && r.id) || '';
+    }
     /** 這段是他的語音就把語音放進泡泡、回 true */
     function _fillVoiceSeg(el, seg) {
         const text = _voiceSegText(seg);
         if (text === null) return false;
         el.classList.add('claude-bubble-voice');
-        el.appendChild(_buildVoice(text, { who: _residentName() }));
+        el.appendChild(_buildVoice(text, { who: _residentName(), rid: _residentId() }));
         return true;
     }
     const HER_VOICE_PREFIX = '（語音）';
@@ -2282,6 +2311,13 @@
     VoidClaudeRoom.modelErrorText     = _modelErrorText;   // 群聊也照這句話畫系統提示
     // 群聊也一顆一顆放泡泡，同一個節奏
     VoidClaudeRoom.createBubbleRevealer = _createBubbleRevealer;
+    /** ⭐ 收藏語音要那句話的聲音：合成過的拿記憶體那份，沒合成過現在合成（同她按播放）。回 { blob, src } */
+    VoidClaudeRoom.voiceBlob = async function (text, v) {
+        const got = await _synthVoice(text, v || {});
+        if (!got.blob) throw Object.assign(new Error('NO_TTS'), { src: got.src });
+        return got;
+    };
+    VoidClaudeRoom.voiceWhy = _voiceWhy;
     VoidClaudeRoom.DOTS_HTML          = DOTS_HTML;
     VoidClaudeRoom.renderUserSticker  = _renderUserSticker;   // 群聊她送的表情包也畫成圖
     VoidClaudeRoom.toolDoingLabel     = _toolDoingLabel;

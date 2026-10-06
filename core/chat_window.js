@@ -751,9 +751,14 @@
         // 它記得的事：只有小機（會員住戶的記憶在他們自己的資料夾）
         const memo = _winEl && _winEl.querySelector('#cw-room-memo');
         if (memo) memo.hidden = !(window.XiaojiMemory && window.XiaojiMemory.can(provider));
-        // 收藏：看過的技能小劇場（現在只有小機）
+        // 收藏（看過的技能小劇場、收藏的語音）：群聊以外都有；排在衣櫃、羽毛筆左邊（右邊有幾顆往左挪幾格）
         const fav = _winEl && _winEl.querySelector('#cw-room-fav');
-        if (fav) fav.hidden = !(window.RoomCollection && window.RoomCollection.can(provider));
+        if (fav) {
+            fav.hidden = !(window.RoomCollection && window.RoomCollection.can(provider));
+            const right = (memo && !memo.hidden) ? 2 : (closet && !closet.hidden) ? 1 : 0;   // 羽毛筆固定在第二格
+            fav.classList.toggle('rcol-at-1', right === 1);
+            fav.classList.toggle('rcol-at-2', right === 2);
+        }
         // 紀錄那顆：這位有沒看過的「想跟妳說的」就點一顆（群聊沒有）
         if (window.RoomNotebook && typeof window.RoomNotebook.peekRoom === 'function') window.RoomNotebook.peekRoom();
         // 🧹 摘要按鈕只在群聊房顯示
@@ -1390,7 +1395,10 @@
     };
 
     // 培養室正在考試的話先停掉：換到別的子頁、關子頁、整個窗關掉，考試都不該在背後繼續叫模型
-    function _stopXiaojiExam() { try { if (window.XiaojiTrain && typeof window.XiaojiTrain.stop === 'function') window.XiaojiTrain.stop(); } catch (_) {} }
+    function _stopXiaojiExam() {
+        try { if (window.XiaojiTrain && typeof window.XiaojiTrain.stop === 'function') window.XiaojiTrain.stop(); } catch (_) {}
+        try { if (window.RoomCollection && typeof window.RoomCollection.stop === 'function') window.RoomCollection.stop(); } catch (_) {}   // 收藏那頁在播的語音也停
+    }
 
     ChatWindow.openSubPanel = function (name) {
         if (!_winEl) return;

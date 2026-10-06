@@ -873,11 +873,14 @@
         stream._nbBound = true;
         stream.addEventListener('pointerdown', ev => {
             if (ev.button !== 0) return;
-            if (ev.target.closest('button, a, input, textarea, select, iframe, audio, .claude-tool-summary, .claude-thinking')) return;
+            // 語音那顆播放鍵可以長按（收藏語音）；其他按鈕照舊不算
+            const vrow = ev.target.closest('.claude-voice-row');
+            if (!vrow && ev.target.closest('button, a, input, textarea, select, iframe, audio, .claude-tool-summary, .claude-thinking')) return;
             const wrap = _msgOf(ev.target);
             if (!wrap) return;
+            const voice = vrow ? vrow.closest('.claude-voice') : null;
             clearTimeout(_lp && _lp.t);
-            _lp = { x: ev.clientX, y: ev.clientY, wrap: wrap, t: setTimeout(() => { _lp = null; _openMenu(wrap); }, LP_MS) };
+            _lp = { x: ev.clientX, y: ev.clientY, wrap: wrap, t: setTimeout(() => { _lp = null; _openMenu(wrap, voice); }, LP_MS) };
         });
         const cancel = () => { if (_lp) { clearTimeout(_lp.t); _lp = null; } };
         stream.addEventListener('pointermove', ev => {
@@ -891,7 +894,7 @@
             if (!wrap || ev.target.closest('a, input, textarea')) return;
             ev.preventDefault();
             cancel();
-            _openMenu(wrap);
+            _openMenu(wrap, ev.target.closest('.claude-voice'));
         });
         // 長按放開那一下會補一個 click（點到圖會放大、點到語音會播）：小窗剛開的 700ms 內吃掉
         stream.addEventListener('click', ev => {
@@ -903,20 +906,25 @@
         if (_menu) { _menu.remove(); _menu = null; }
     }
 
-    function _openMenu(wrap) {
+    function _openMenu(wrap, voice) {
         _closeMenu();
         const msg = wrap._ccrMsg;
         const win = document.getElementById('aurelia-chat-window');
         if (!msg || !win) return;
         _lpAt = Date.now();
         const text = _msgText(msg);
+        // ⭐ 按在他的語音上：收藏語音（存下聲音，之後重播不用再合成）；收過的變成取消收藏
+        const RC = window.RoomCollection;
+        const fav = (voice && RC && typeof RC.voiceState === 'function') ? RC.voiceState(voice) : null;   // null＝這顆不能收
         const m = document.createElement('div');
         m.className = 'nb-menu';
-        m.innerHTML = '<button type="button" data-act="keep"><i class="fa-regular fa-bookmark"></i><span>收進記事本</span></button>'
+        m.innerHTML = (fav ? '<button type="button" data-act="fav"><i class="fa-' + (fav === 'kept' ? 'solid' : 'regular') + ' fa-star"></i><span>'
+                + (fav === 'kept' ? '取消收藏' : '收藏語音') + '</span></button>' : '')
+            + '<button type="button" data-act="keep"><i class="fa-regular fa-bookmark"></i><span>收進記事本</span></button>'
             + (text ? '<button type="button" data-act="copy"><i class="fa-regular fa-copy"></i><span>複製</span></button>' : '');
         win.appendChild(m);
         const wr = win.getBoundingClientRect();
-        const bubble = wrap.querySelector('.claude-bubble, .cg-bubble') || wrap;
+        const bubble = voice || wrap.querySelector('.claude-bubble, .cg-bubble') || wrap;
         const br = bubble.getBoundingClientRect();
         const mw = m.offsetWidth, mh = m.offsetHeight;
         let left = br.left + br.width / 2 - mw / 2 - wr.left;
@@ -933,6 +941,7 @@
             _closeMenu();
             wrap.classList.remove('nb-picked');
             if (b.dataset.act === 'copy') _copy(text);
+            else if (b.dataset.act === 'fav') _toast(await RC.voiceToggle(voice));
             else await _keep(msg);
         });
         const off = () => { wrap.classList.remove('nb-picked'); };
