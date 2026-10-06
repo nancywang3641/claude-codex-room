@@ -99,6 +99,7 @@
                     <div id="codex-portrait-sprite" class="codex-portrait-sprite"></div>
                     <button type="button" class="cw-room-closet" id="cw-room-closet" title="衣櫃" hidden><i class="fa-solid fa-shirt"></i></button>
                     <button type="button" class="cw-room-memo" id="cw-room-memo" title="它的記憶" hidden><i class="fa-solid fa-feather-pointed"></i></button>
+                    <button type="button" class="cw-room-fav" id="cw-room-fav" title="收藏" hidden><i class="fa-solid fa-star"></i></button>
                     <div class="claude-conv-chip" id="claude-conv-chip" title="點開 Recents 多會話列表">
                         <span class="ccc-tab" id="ccc-tab">☕</span>
                         <span class="ccc-title" id="ccc-title">—</span>
@@ -173,6 +174,8 @@
         if (closet) closet.addEventListener('click', (e) => { e.stopPropagation(); ChatWindow.openSubPanel('wardrobe'); });
         const memo = el.querySelector('#cw-room-memo');
         if (memo) memo.addEventListener('click', (e) => { e.stopPropagation(); ChatWindow.openSubPanel('xiaoji_memory'); });
+        const fav = el.querySelector('#cw-room-fav');
+        if (fav) fav.addEventListener('click', (e) => { e.stopPropagation(); ChatWindow.openSubPanel('collection'); });
 
         const chip = el.querySelector('#claude-conv-chip');
         if (chip) chip.addEventListener('click', () => ChatWindow.openSubPanel('recents'));
@@ -748,6 +751,9 @@
         // 它記得的事：只有小機（會員住戶的記憶在他們自己的資料夾）
         const memo = _winEl && _winEl.querySelector('#cw-room-memo');
         if (memo) memo.hidden = !(window.XiaojiMemory && window.XiaojiMemory.can(provider));
+        // 收藏：看過的技能小劇場（現在只有小機）
+        const fav = _winEl && _winEl.querySelector('#cw-room-fav');
+        if (fav) fav.hidden = !(window.RoomCollection && window.RoomCollection.can(provider));
         // 紀錄那顆：這位有沒看過的「想跟妳說的」就點一顆（群聊沒有）
         if (window.RoomNotebook && typeof window.RoomNotebook.peekRoom === 'function') window.RoomNotebook.peekRoom();
         // 🧹 摘要按鈕只在群聊房顯示
@@ -1380,7 +1386,7 @@
         settings: '設置',
         spend: '額度', board: '留言板', recents: '會話',
         xiaoji_train: '培養室', xiaoji_box: '404 寄來的箱子',
-        wardrobe: '衣櫃', notebook: '紀錄', xiaoji_memory: '它的記憶',
+        wardrobe: '衣櫃', notebook: '紀錄', xiaoji_memory: '它的記憶', collection: '收藏',
     };
 
     // 培養室正在考試的話先停掉：換到別的子頁、關子頁、整個窗關掉，考試都不該在背後繼續叫模型
@@ -1422,6 +1428,9 @@
         } else if (name === 'xiaoji_memory') {
             if (window.XiaojiMemory && typeof window.XiaojiMemory.launch === 'function') window.XiaojiMemory.launch(body);
             else body.innerHTML = '<div class="cw-sub-missing">它的記憶模組未載入</div>';
+        } else if (name === 'collection') {
+            if (window.RoomCollection && typeof window.RoomCollection.launch === 'function') window.RoomCollection.launch(body);
+            else body.innerHTML = '<div class="cw-sub-missing">收藏模組未載入</div>';
         } else if (name === 'notebook') {
             if (window.RoomNotebook && typeof window.RoomNotebook.launch === 'function') window.RoomNotebook.launch(body);
             else body.innerHTML = '<div class="cw-sub-missing">紀錄模組未載入</div>';

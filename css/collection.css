@@ -1,0 +1,223 @@
+/* ============================================================
+ * css/collection.css — 收藏（core/collection.js，子面板 collection）
+ * 小劇場一場一張票：白底深藍字、左邊一條金（跟大廳小劇場回顧那張票同一家），右邊虛線撕口後面是日期和播放。
+ * class 一律 rcol- 開頭、掛在 #aurelia-chat-window 底下（別用菜市場名，酒館全域樣式會蓋過來）。
+ * ============================================================ */
+#aurelia-chat-window .rcol-wrap {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    background: #f4f6fb;
+    color: #1f3a68;
+}
+#aurelia-chat-window .rcol-msg {
+    padding: 40px 0;
+    text-align: center;
+    color: #6a7fa6;
+    font-size: 14px;
+}
+#aurelia-chat-window .rcol-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 14px 4px;
+}
+#aurelia-chat-window .rcol-sec {
+    flex: 1;
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #2a4a80;
+    letter-spacing: 0.04em;
+}
+#aurelia-chat-window .rcol-sec > i { color: #b8913a; }
+#aurelia-chat-window .rcol-n {
+    min-width: 18px;
+    padding: 0 6px;
+    border-radius: 9px;
+    background: rgba(42, 74, 128, 0.1);
+    color: #2a4a80;
+    font-size: 11px;
+    line-height: 18px;
+    text-align: center;
+}
+#aurelia-chat-window .rcol-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 6px 12px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* ---- 一場一張票 ---- */
+#aurelia-chat-window .rcol-tix {
+    display: flex;
+    align-items: stretch;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    border: 1px solid rgba(42, 74, 128, 0.14);
+    border-left: 4px solid #c9a24a;
+    border-radius: 10px;
+    background: #ffffff;
+    box-shadow: 0 1px 5px rgba(31, 58, 104, 0.07);
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+#aurelia-chat-window .rcol-tix:hover { box-shadow: 0 3px 10px rgba(31, 58, 104, 0.13); }
+#aurelia-chat-window .rcol-tix:active { transform: scale(0.99); }
+#aurelia-chat-window .rcol-tix.is-busy { opacity: 0.6; cursor: progress; }
+#aurelia-chat-window .rcol-face {
+    position: relative;
+    flex: 0 0 auto;
+    align-self: center;
+    width: 44px;
+    height: 44px;
+    margin: 10px 0 10px 10px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: #e8edf7;
+    color: #9aaacb;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+/* 全身立繪（細長）：放大到框裡只露頭；丹那張半身（is-half，collection.js 載完看比例掛）放大少一點 */
+#aurelia-chat-window .rcol-face img {
+    position: absolute;
+    left: 50%;
+    top: 2px;
+    width: 175%;
+    height: auto;
+    max-width: none;
+    transform: translateX(-50%);
+}
+#aurelia-chat-window .rcol-face img.is-half { width: 130%; top: 0; }
+#aurelia-chat-window .rcol-txt {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 3px;
+    padding: 10px 10px 10px 12px;
+}
+#aurelia-chat-window .rcol-ttl {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1f3a68;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+#aurelia-chat-window .rcol-sub {
+    font-size: 12px;
+    color: #6a7fa6;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+#aurelia-chat-window .rcol-dot { margin: 0 5px; color: #b9c4dc; }
+#aurelia-chat-window .rcol-end {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 72px;
+    border-left: 1px dashed rgba(42, 74, 128, 0.22);
+    color: #2a4a80;
+}
+#aurelia-chat-window .rcol-date {
+    font-size: 11px;
+    color: #8a99b8;
+    font-variant-numeric: tabular-nums;
+}
+#aurelia-chat-window .rcol-end > i {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: #2a4a80;
+    color: #ffffff;
+    font-size: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding-left: 2px;
+}
+
+/* ---- 還有幾門沒看、去培養室 ---- */
+#aurelia-chat-window .rcol-more {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 4px 2px;
+    font-size: 12px;
+    color: #6a7fa6;
+}
+#aurelia-chat-window .rcol-go {
+    flex: 0 0 auto;
+    padding: 6px 12px;
+    border: 1px solid rgba(42, 74, 128, 0.25);
+    border-radius: 16px;
+    background: #ffffff;
+    color: #2a4a80;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+#aurelia-chat-window .rcol-go:hover { background: #eef2fa; }
+#aurelia-chat-window .rcol-hint {
+    min-height: 16px;
+    font-size: 12px;
+    color: #b0503c;
+    text-align: center;
+}
+
+/* ---- 空的 ---- */
+#aurelia-chat-window .rcol-empty {
+    margin: auto 0;
+    padding: 30px 18px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    text-align: center;
+}
+#aurelia-chat-window .rcol-empty > i { font-size: 30px; color: #c9a24a; opacity: 0.8; }
+#aurelia-chat-window .rcol-empty-ttl { font-size: 14px; font-weight: 600; color: #2a4a80; }
+#aurelia-chat-window .rcol-soft { font-size: 12px; line-height: 1.6; color: #6a7fa6; max-width: 260px; }
+
+/* 房間圖右下：羽毛筆左邊那顆星（只有小機） */
+#aurelia-chat-window .cw-room-fav {
+    position: absolute;
+    right: 98px;
+    bottom: 10px;
+    z-index: 5;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid rgba(42, 74, 128, 0.3);
+    background: rgba(251, 252, 254, 0.88);
+    color: #b8913a;
+    font-size: 15px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+#aurelia-chat-window .cw-room-fav[hidden] { display: none; }
+#aurelia-chat-window .cw-room-fav:hover { background: #ffffff; }

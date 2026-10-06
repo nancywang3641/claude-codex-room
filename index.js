@@ -226,7 +226,7 @@
     // 手機瀏覽器把這批靜態檔快取得很兇,沒版本參數的話核心檔更新永遠到不了手機
     // (症狀:桌機是新版、手機停在幾個月前,甚至 chat_window 跟 chat_room 各停在不同版本)。
     // 檔案有改就把 VER +1,跟奧瑞亞 sw.js 的 CACHE_VERSION 同一套習慣。
-    const VER = 140;
+    const VER = 141;
 
     function loadCSS(href) {
         if (document.querySelector('link[data-ccr="' + href + '"]')) return;
@@ -261,6 +261,7 @@
     loadCSS(HERE + 'css/wardrobe.css');         // 👕 衣櫃
     loadCSS(HERE + 'css/notebook.css');         // 📒 紀錄（記事本＋相簿）
     loadCSS(HERE + 'css/xiaoji_memory.css');    // 🪶 小機「它記得的事」
+    loadCSS(HERE + 'css/collection.css');       // ⭐ 收藏（看過的技能小劇場）
     loadCSS(HERE + 'css/launcher.css');
 
     const FILES = [
@@ -272,6 +273,7 @@
         'core/wardrobe.js',        // 👕 衣櫃（RoomWardrobe，橋 /v1/wardrobe；小機走 RoomWear；小圖借 ClawdPortrait 畫）
         'core/room_bubbles.js',    // 🫧 房間的泡泡（RoomBubbles：一間一套，從聊天 app 的泡泡庫挑；衣櫃最底下那區；小機學會泡泡課能自己換）
         'core/xiaoji_memory.js',   // 🪶 小機「它記得的事」（XiaojiMemory：它自己記的事＋這一串更早的聊天，資料在奧瑞亞 OS_XIAOJI）
+        'core/collection.js',      // ⭐ 收藏（RoomCollection：看過的技能小劇場一場一張票，點了重播不叫模型）
         'core/notebook.js',        // 📒 紀錄（RoomNotebook：記事本＋相簿＋找字，橋 /v1/notebook、/v1/room/media、/v1/room/search）
         'core/chat_window.js',     // window.ChatWindow（外殼）
         'core/chat_room.js',       // window.VoidClaudeRoom
