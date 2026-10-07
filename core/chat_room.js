@@ -923,9 +923,24 @@
         document.body.appendChild(ov);
     }
 
-    /** 模型那邊擋下或出錯（送出時丟的 REFUSED: / MODEL_ERROR:<種類>）→ 給她看的一句話；其他錯誤 → null */
+    // 官方接口的自動安全檢查擋下來的類別（API 小機直接打官方接口時，奧瑞亞把類別帶在錯誤字裡）
+    const REFUSE_WHY = {
+        reasoning_extraction: '看起來像在要他把腦中的思考過程講出來',
+        cyber: '碰到資安攻擊那類的話題',
+        bio: '碰到生物、病原那類的話題',
+        frontier_llm: '碰到訓練 AI 模型那類的話題',
+        general_harms: '覺得可能有害',
+    };
+    /** 模型那邊擋下或出錯（送出時丟的 REFUSED: / MODEL_ERROR:<種類>，或奧瑞亞的「模型拒絕回答這一則（refusal：類別）」）→ 給她看的一句話；其他錯誤 → null */
     function _modelErrorText(err) {
-        const m = /^(REFUSED|MODEL_ERROR):(.*)$/.exec(String((err && err.message) || err || ''));
+        const s = String((err && err.message) || err || '');
+        const r = /（refusal(?:：([\w-]+))?）/.exec(s);
+        if (r) {
+            const why = REFUSE_WHY[r[1]];
+            return '這幾句被官方的自動檢查擋下來了' + (why ? '（' + why + '）' : '') + '，他根本沒收到。點放著那幾句旁邊的「收回」，或換個說法再叫他。'
+                + (r[1] === 'reasoning_extraction' ? '想看他在想什麼，看他回話上面的「思考」就好。' : '');
+        }
+        const m = /^(REFUSED|MODEL_ERROR):(.*)$/.exec(s);
         if (!m) return null;
         if (m[1] === 'REFUSED') return '這則被模型那邊的安全檢查擋下來了，他沒收到。再傳一次通常就會過。';
         switch (m[2]) {
@@ -1701,6 +1716,7 @@
             wrap.appendChild(footer);
         }
 
+        if (isUser && opts.msg && opts.msg.held) wrap.appendChild(_heldUndoBtn(opts.msg, wrap));   // 還放著沒送：可以收回
         stream.appendChild(wrap);
         if (!opts.noScroll) _scrollClaudeChatToBottom();
     }
@@ -1856,7 +1872,33 @@
         for (let i = h.length - 1; i >= 0 && h[i].role === 'user' && h[i].held; i--) out.unshift(h[i]);
         return out;
     }
+    // ↩ 收回放著的那一則（10-08 她：送不出去的那幾句卡在那，每按一次魔杖就整批再送一次、再被擋一次）。
+    //   只收還放著的；他正在回的時候不收（那幾句正在路上，收了會跟送出去的對不上）
+    function _heldUndoBtn(msg, wrap) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'claude-held-undo';
+        b.innerHTML = '<i class="fa-solid fa-rotate-left"></i> 收回';
+        b._ccrMsg = msg;
+        b.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            const CT = window.ClaudeTerminal;
+            const rid = (CT && typeof CT.getActiveResidentId === 'function') ? CT.getActiveResidentId() : '';
+            if (rid && _inflight[rid]) { _renderClaudeNotice('他正在回，等他回完再收回。'); return; }
+            const h = _activeHistory() || [];
+            const i = h.indexOf(msg);
+            if (i < 0 || !msg.held) { b.remove(); return; }
+            h.splice(i, 1);
+            if (wrap && wrap.parentNode) wrap.parentNode.removeChild(wrap);
+            _scheduleSave();
+            _paintHeld();
+        });
+        return b;
+    }
     function _paintHeld() {
+        // 送出去了的那幾則（held 拿掉了）：收回鈕跟著拿掉
+        const st = _el('claude-chat-stream');
+        if (st) st.querySelectorAll('.claude-held-undo').forEach(b => { if (!b._ccrMsg || !b._ccrMsg.held) b.remove(); });
         const n = _heldTail().length;
         const btn = _el('cw-reply-btn');
         if (btn) btn.classList.toggle('has-held', n > 0);

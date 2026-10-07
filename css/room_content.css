@@ -192,6 +192,22 @@
 .claude-thinking-content.is-md p { margin: 0 0 4px; }
 .claude-thinking-content.is-md p:last-child { margin-bottom: 0; }
 
+/* ↩ 放著還沒送的那則：泡泡底下一顆小小的「收回」 */
+.claude-held-undo {
+    align-self: flex-end;
+    margin: 2px 4px 0 0;
+    padding: 1px 9px;
+    border: 1px solid rgba(70, 99, 155, 0.35);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.55);
+    color: var(--cl-cafe-latte, #46639b);
+    font-size: 11px;
+    line-height: 1.6;
+    cursor: pointer;
+}
+.claude-held-undo:hover { background: rgba(255, 255, 255, 0.85); }
+.claude-held-undo i { font-size: 10px; margin-right: 2px; }
+
 /* 一行系統提示（模型那邊擋下或出錯）：置中小字，不是誰講的話 */
 .claude-sys-line {
     align-self: center;

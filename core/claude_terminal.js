@@ -1572,7 +1572,7 @@ ${withOthers}
                 try { const said = RB.applyTags(me.id, t.reply || ''); if (said) { console.log('[ClaudeTerminal] 小機泡泡：' + said); _memLog({ kind: 'bubble', text: said }); } }
                 catch (e) { console.warn('[ClaudeTerminal] 小機泡泡沒換成：', e); }
             }
-            return { reply: t.reply, thinking: null, usage, toolsUsed: [],
+            return { reply: t.reply, thinking: t.thinking || null, usage, toolsUsed: [],   // thinking：官方給的思考摘要（奧瑞亞 OS_XIAOJI 收的）
                 xiaoji: { calls: t.calls, props: t.props || [], log: t.log || [], stopped: !!t.stopped, dressed, memErr: t.memErr || '' } };
         } catch (e) {
             await ClaudeTerminal.saveHistory(rollback, ctx);
