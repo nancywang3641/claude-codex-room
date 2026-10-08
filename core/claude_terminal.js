@@ -1357,6 +1357,30 @@ ${withOthers}
         return ClaudeTerminal.createConversation(tab);
     };
 
+    // 🌙 住戶醒來時傳給她的訊息（10-08）：橋把那則補進他跟她最近用的那一串（wake:true、wid），
+    //   房間開著時她回到畫面要看得到——只看一眼橋上現在開著那串，不回寫、不拉清單（拉清單會換掉 active）
+    ClaudeTerminal.peekBridgeHistory = async function() {
+        const convId = ClaudeTerminal.getActiveConvId(ClaudeTerminal.getActiveTab());
+        if (!convId) return null;
+        try {
+            const res = await _api('/v1/room/history?conv=' + encodeURIComponent(convId));
+            return (res && Array.isArray(res.messages)) ? res.messages : null;
+        } catch (_) { return null; }
+    };
+    /** 橋上有、本機還沒有的「醒來傳的」那幾則照時間插進來（只補這種，其他照本機為準）。回 { list, added } */
+    ClaudeTerminal.mergeWakeMessages = function(local, remote) {
+        const list = Array.isArray(local) ? local.slice() : [];
+        if (!Array.isArray(remote)) return { list, added: 0 };
+        const have = new Set(list.filter(m => m && m.wid).map(m => m.wid));
+        const add = remote.filter(m => m && m.wake && m.wid && !have.has(m.wid)).sort((a, b) => (a.ts || 0) - (b.ts || 0));
+        add.forEach(w => {
+            let i = list.length;
+            for (let j = 0; j < list.length; j++) { if (list[j] && (list[j].ts || 0) > (w.ts || 0)) { i = j; break; } }
+            list.splice(i, 0, w);
+        });
+        return { list, added: add.length };
+    };
+
     // ============== 檔案上傳 ==============
 
     /** 把 File 物件清單上傳到 cc-bridge /v1/upload。

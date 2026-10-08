@@ -1717,6 +1717,12 @@
         }
 
         if (isUser && opts.msg && opts.msg.held) wrap.appendChild(_heldUndoBtn(opts.msg, wrap));   // 還放著沒送：可以收回
+        if (!isUser && opts.msg && opts.msg.wake) {   // 🌙 他醒來時自己傳給她的（橋補進來的那則）
+            const note = document.createElement('div');
+            note.className = 'claude-wake-note';
+            note.innerHTML = '<i class="fa-regular fa-moon"></i> 醒來時傳給妳的';
+            wrap.appendChild(note);
+        }
         stream.appendChild(wrap);
         if (!opts.noScroll) _scrollClaudeChatToBottom();
     }
@@ -1872,6 +1878,31 @@
         for (let i = h.length - 1; i >= 0 && h[i].role === 'user' && h[i].held; i--) out.unshift(h[i]);
         return out;
     }
+    // 🌙 住戶醒來時傳給她的訊息（10-08）：房間開著也要看得到——回到這個畫面時、開著的時候每三分鐘，去橋上看一眼，
+    //   有新的「醒來傳的」就照時間插進來（只補這種，其他照本機為準；他正在回的時候不動）。橋那邊存檔也會保住它
+    let _wakePeekAt = 0;
+    async function _pullWakeMessages() {
+        const CT = window.ClaudeTerminal;
+        if (!CT || typeof CT.peekBridgeHistory !== 'function' || typeof CT.mergeWakeMessages !== 'function') return;
+        if (_provider() === 'group' || !_el('claude-chat-stream')) return;
+        if (Date.now() - _wakePeekAt < 20000) return;   // 切來切去別一直打橋
+        _wakePeekAt = Date.now();
+        const rid = typeof CT.getActiveResidentId === 'function' ? CT.getActiveResidentId() : '';
+        if (rid && _inflight[rid]) return;
+        const remote = await CT.peekBridgeHistory();
+        const h = _activeHistory();
+        if (!h || (rid && _inflight[rid])) return;
+        const r = CT.mergeWakeMessages(h, remote);
+        if (!r.added) return;
+        h.splice(0, h.length, ...r.list);
+        _hydrateClaudeStream();
+        _scheduleSave();   // 本機那份也存一下（橋上本來就有）
+    }
+    try {
+        document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') _pullWakeMessages().catch(() => {}); });
+        setInterval(() => { if (document.visibilityState === 'visible') _pullWakeMessages().catch(() => {}); }, 180000);
+    } catch (_) {}
+
     // ↩ 收回放著的那一則（10-08 她：送不出去的那幾句卡在那，每按一次魔杖就整批再送一次、再被擋一次）。
     //   只收還放著的；他正在回的時候不收（那幾句正在路上，收了會跟送出去的對不上）
     function _heldUndoBtn(msg, wrap) {
