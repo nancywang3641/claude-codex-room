@@ -273,14 +273,25 @@
     let _looksAt = 0, _looksJob = null;
     // 裁空白那段搬到 ClawdPortrait.crop（小機的頭像也用同一支）
     function _cropLook(cv) { return window.ClawdPortrait.crop(cv); }
+    // 他現在穿什麼（橋 /v1/decor 的 wear）。fresh＝不看快取（門卡重拿、房間裡剛換裝）；
+    //   沒連線、舊的橋、讀不到都回 null。奧瑞亞 SN 32 樓白板也拿這個畫值班的人（DormPanel.wearOf）。
+    const _wears = {};          // rid → { wear, at }
+    async function _wearOf(rid, fresh) {
+        const c = _wears[rid];
+        if (!fresh && c && Date.now() - c.at < LOOK_TTL) return c.wear;
+        const b = _bridge();
+        if (!b) return null;
+        const res = await fetch(b.base + '/v1/decor?rid=' + encodeURIComponent(rid), { headers: { 'Authorization': 'Bearer ' + b.key } });
+        if (!res.ok) return null;
+        const st = await res.json();
+        const wear = (st && st.wear) || null;
+        _wears[rid] = { wear, at: Date.now() };
+        return wear;
+    }
     async function _lookFor(r) {
         const CP = window.ClawdPortrait;
-        const b = _bridge();
-        if (!CP || typeof CP.renderStill !== 'function' || !b) return '';
-        const res = await fetch(b.base + '/v1/decor?rid=' + encodeURIComponent(r.id), { headers: { 'Authorization': 'Bearer ' + b.key } });
-        if (!res.ok) return '';
-        const st = await res.json();
-        const wear = st && st.wear;
+        if (!CP || typeof CP.renderStill !== 'function' || !_bridge()) return '';
+        const wear = await _wearOf(r.id, true);
         const base = r.provider === 'codex' ? 'lorde' : 'crab';
         if (base === 'crab' && !(wear && wear.own)) return '';
         const cv = document.createElement('canvas');
@@ -792,6 +803,8 @@
     // 群成員格也用同一份打扮小圖；房間裡他換了打扮就叫 forgetLooks 重拿
     DormPanel.lookSrc = _lookSrc;
     DormPanel.forgetLooks = function () { _looksAt = 0; return _loadLooks(true); };
+    // 奧瑞亞 SN 32 樓白板：值班的人要畫成他現在的打扮（站場景那張還要描框，所以給衣服、不給裁好的小圖）
+    DormPanel.wearOf = function (rid) { return _wearOf(String(rid || '')).catch(() => null); };
 
     DormPanel.renderInto = function (container) {
         if (!container) return;
