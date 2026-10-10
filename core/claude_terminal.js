@@ -2339,6 +2339,38 @@ ${withOthers}
         return { reply: r.reply, usage: r.usage, images: r.images || [] };
     };
 
+    /**
+     * 叫某一位住戶「在他自己家」做一件事，一次就好（奧瑞亞 SN 32 樓的白板值班用）。
+     * 不綁他的聊天串、不帶房間的 system、不存逐字稿；模型照他自己的（鎖了用鎖的、沒鎖用他挑過的、都沒有用房間那格）。
+     * 只收 claude／codex（他們才有自己的家）；小機、蘇景明丟 NOT_RESIDENT。
+     * opts: { onProgress, signal, taskId }；回 { reply, usage }
+     */
+    ClaudeTerminal.sendAs = async function (rid, messages, opts) {
+        opts = opts || {};
+        const r = ClaudeTerminal.getResident(rid);
+        if (!r || (r.provider !== 'claude' && r.provider !== 'codex')) {
+            throw new Error('NOT_RESIDENT:找不到這位住戶，或他沒有自己的家。');
+        }
+        const cfg = ClaudeTerminal.getConfig();
+        if (!cfg || !cfg.url || !cfg.key) throw new Error('NOT_CONFIGURED:還沒設定連線（URL / 密鑰）。');
+        const raw = _cfgRead() || {};
+        const body = {
+            model: r.modelId || _residentPicked(r) || _modelFor(raw, r.provider),
+            messages: Array.isArray(messages) ? messages : [],
+            stream: true,
+            max_tokens: cfg.maxTokens,
+            keep_system: true,
+        };
+        if (r.provider === 'codex') body.cc_backend = 'codex';
+        const home = _residentHome(rid);
+        if (home) {
+            body.cc_cwd = home;
+            if (r.provider === 'codex') body.cc_sandbox = 'workspace-write';
+        }
+        const res = await _ccBridgePostQueued(cfg, body, opts.onProgress, opts.signal, opts.taskId);
+        return { reply: res.reply, usage: res.usage };
+    };
+
     /** 對話總數（給 UI badge / 標題用） */
     ClaudeTerminal.getMessageCount = async function() {
         const h = await ClaudeTerminal.loadHistory();
