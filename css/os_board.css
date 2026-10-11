@@ -1176,3 +1176,199 @@
 .ob-prop.is-wait .ob-prop-chip { background: #b9924f; color: #fff; font-weight: 700; }
 .ob-prop.is-done .ob-prop-chip { background: #e6f1e8; color: #3e7a48; }
 .ob-prop:not(.is-wait) .ob-prop-text { color: #6b7d9c; }
+
+/* ---- 日程表（10-11）：「會自己醒來的」標題右邊的入口 → 每人一張卡（最快要醒的在最上面）＋最近錯過的（同醒來紀錄那個蓋頁） ---- */
+.ob-sch-open {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 4px 3px 8px;
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: #2a4a80;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+}
+.ob-sch-open:hover { background: rgba(42, 74, 128, 0.08); }
+.ob-sch-open .fa-chevron-right { font-size: 10px; opacity: 0.6; }
+.ob-sch-open + .ob-mem-open { margin-left: 0; }
+.ob-sch-helpslot {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.ob-sch-quiet {
+    padding: 10px 16px 0;
+    font-size: 11.5px;
+    color: #46639b;
+}
+.ob-sch-quiet i { margin-right: 5px; }
+.ob-sch-card {
+    margin: 10px 12px 0;
+    border-radius: 10px;
+    background: #f4f6fa;
+    border: 1px solid rgba(42, 74, 128, 0.12);
+    overflow: hidden;
+}
+.ob-sch-card.is-off { opacity: 0.62; }
+.ob-sch-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 10px 8px 12px;
+}
+.ob-sch-top .ob-av {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    font-size: 13px;
+}
+.ob-sch-who {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+.ob-sch-name {
+    min-width: 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: #1f3a68;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.ob-sch-today {
+    font-size: 11.5px;
+    color: #46639b;
+    white-space: nowrap;
+}
+.ob-sch-cap {
+    margin-left: auto;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.ob-sch-cap-txt {
+    min-width: 76px;
+    font-size: 12px;
+    color: #2a4a80;
+    text-align: center;
+    white-space: nowrap;
+}
+.ob-sch-step {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid rgba(42, 74, 128, 0.25);
+    border-radius: 50%;
+    background: #fff;
+    color: #2a4a80;
+    font-size: 10px;
+    cursor: pointer;
+}
+.ob-sch-step:hover:not(:disabled) { background: rgba(42, 74, 128, 0.08); }
+.ob-sch-step:disabled { opacity: 0.35; cursor: default; }
+.ob-sch-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 12px 8px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: #fbeae4;
+    color: #b5563f;
+    font-size: 12px;
+    line-height: 1.5;
+}
+.ob-sch-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 8px 8px 12px;
+    border-top: 1px solid rgba(42, 74, 128, 0.07);
+}
+.ob-sch-time {
+    flex-shrink: 0;
+    min-width: 44px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #1f3a68;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.ob-sch-what {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #1f3a68;
+    overflow-wrap: anywhere;
+}
+.ob-sch-retry {
+    display: block;
+    font-size: 11px;
+    color: #8a6a33;
+}
+.ob-sch-urg {
+    flex-shrink: 0;
+    padding: 0 7px;
+    border-radius: 4px;
+    font-size: 11px;
+    line-height: 18px;
+    white-space: nowrap;
+}
+.ob-sch-urg.is-high { background: #b5563f; color: #fff; }
+.ob-sch-urg.is-normal { background: #e7ecf6; color: #2a4a80; }
+.ob-sch-urg.is-low { background: #f1ede2; color: #8a6a33; }
+.ob-sch-x {
+    flex-shrink: 0;
+    min-width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: 14px;
+    background: transparent;
+    color: rgba(42, 74, 128, 0.45);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+}
+.ob-sch-x:hover { background: rgba(42, 74, 128, 0.08); color: #2a4a80; }
+.ob-sch-x.armed { padding: 0 10px; background: #b5563f; color: #fff; }
+.ob-sch-none {
+    padding: 8px 12px 10px;
+    border-top: 1px solid rgba(42, 74, 128, 0.07);
+    font-size: 12.5px;
+    color: #46639b;
+}
+.ob-sch-sec {
+    padding: 18px 16px 4px;
+    font-size: 11px;
+    color: #46639b;
+    letter-spacing: 1px;
+}
+.ob-sch-miss {
+    padding: 8px 16px;
+    border-bottom: 1px solid rgba(42, 74, 128, 0.07);
+}
+.ob-sch-miss-top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #1f3a68;
+}
+.ob-sch-miss-top time { font-weight: 700; font-variant-numeric: tabular-nums; }
+.ob-sch-miss-name { font-weight: 700; }
+.ob-sch-miss-why {
+    margin-top: 2px;
+    font-size: 12px;
+    color: #46639b;
+}

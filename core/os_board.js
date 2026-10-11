@@ -264,9 +264,9 @@
         const A0 = win.AUI || window.AUI;
         if (!A0 || !A0.helpBtn) return '';
         if (A0.registerHelp) A0.registerHelp({ board_wakes: { title: '會自己醒來的',
-            body: '這裡的大家會照自己的節奏醒來（有的幾個小時一次、有的一天一次），醒來會翻翻自己的東西、看看板子、想說話就發動態。\n'
-                + '大頭貼底下寫的是上次醒來是多久以前；滑過去看得到現在的狀況：安靜期、隨時會醒、該醒了卻沒動靜、好久沒醒了。\n'
-                + '「好久沒醒了」通常是電腦睡著或關機：住在電腦裡的他們那段時間醒不了，電腦醒來幾分鐘內會補叫一次，不是壞掉。\n'
+            body: '這裡的大家會自己醒來，醒來會翻翻自己的東西、看看板子、想說話就發動態。每次醒來他會自己排下一次幾點醒，排了什麼在「日程表」；沒排的照原本的節奏偶爾醒。\n'
+                + '大頭貼底下寫的是上次醒來是多久以前；滑過去看得到下一次排在幾點，沒排的看得到現在的狀況：安靜期、隨時會醒、該醒了卻沒動靜、好久沒醒了。\n'
+                + '「好久沒醒了」通常是電腦睡著或關機：住在電腦裡的他們那段時間醒不了，不是壞掉。電腦醒來之後，沒排的幾分鐘內會補叫一次；排了的照日程表的規則，急的補、其他的看情況。\n'
                 + '點大頭貼看他的醒來紀錄。' } });
         return A0.helpBtn('board_wakes');
     }
@@ -536,12 +536,17 @@
         }
         // 記憶（09-30）：大家各自的記憶，只能看；放在醒來紀錄旁邊
         const mem = '<button type="button" class="ob-mem-open">記憶<i class="fa-solid fa-chevron-right"></i></button>';
+        // 日程表（10-11）：他們自己排的下一次醒來、錯過的、她定的每天上限
+        const sch = '<button type="button" class="ob-sch-open">日程表<i class="fa-solid fa-chevron-right"></i></button>';
         const help = _wakesHelpBtn();
-        return '<section class="ob-wakes"><div class="ob-wakes-head"><span class="ob-wakes-cap">會自己醒來的</span>' + help + mem + open + '</div>'
+        return '<section class="ob-wakes"><div class="ob-wakes-head"><span class="ob-wakes-cap">會自己醒來的</span>' + help + sch + mem + open + '</div>'
             + (list.length ? '<div class="ob-wakes-row">'
             + list.map(c => {
                 const h = (c.hours_since == null) ? null : Number(c.hours_since);
-                const look = h == null ? { tone: 'quiet', text: '剛打開，第一次要等滿一輪' } : _wakeOutlook(h, c.pace_hours);
+                // 他有排下一次：照排的醒，抽籤那套（快醒了、該醒了卻沒動靜）不適用 → 改講下一次是幾點
+                const nx = Array.isArray(c.plan) && c.plan.length ? c.plan.slice().sort((a, b) => a.at - b.at)[0] : null;
+                const look = nx ? { tone: 'plan', text: '下一次 ' + _schWhen(nx.at) + (nx.what ? '「' + nx.what + '」' : '') + '（' + (SCH_URG[nx.urgency] || '普通') + '）' }
+                    : h == null ? { tone: 'quiet', text: '剛打開，第一次要等滿一輪' } : _wakeOutlook(h, c.pace_hours);
                 const when = h == null ? '還沒醒過' : (look.tone === 'stopped' ? '好久沒醒了' : _ago(h));
                 return '<div class="ob-wake ob-wake-' + look.tone + (items ? ' is-link' : '') + '" data-rid="' + _esc(c.rid) + '" title="' + _esc(c.name + '：' + look.text) + '">'
                     + _avatarHtml(c.name)
@@ -926,7 +931,7 @@
         const pane = root && root.querySelector('.ob-wl');
         if (!st || !pane) return;
         const m = st.mem = { people: null, peopleError: '', rid: '', book: '', items: null, error: '', q: '' };
-        st.wl = null;   // 醒來紀錄那頁等到一半的，回來別蓋掉這頁
+        st.wl = null; st.sch = null;   // 醒來紀錄、日程表那頁等到一半的，回來別蓋掉這頁
         root.querySelector('.ob-wl-page').hidden = true;
         pane.hidden = false;
         pane.innerHTML = _memListHtml(m);
@@ -987,12 +992,179 @@
         page.innerHTML = _memDetailHtml(d, m);
     }
 
+    // ---- 日程表（10-11，橋 /v1/schedule）：他們自己排的下一次醒來、最近錯過的、她定的每天上限 ----
+    // 每人一張卡、最快要醒的排最上面（第一張就是下一個醒的）；沒排的接在後面，沒開自己醒來的灰在最後。
+    // 跟醒來紀錄、記憶共用同一個蓋頁（.ob-wl），返回鈕也是同一顆。
+    const SCH_URG = { high: '急', normal: '普通', low: '隨意' };
+    function _schWhen(sec) {
+        const d = new Date(Number(sec) * 1000), now = new Date();
+        const day0 = t => new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime();
+        const diff = Math.round((day0(d) - day0(now)) / 86400000);
+        const hm = _wlClock(sec);
+        if (diff === 0) return hm;
+        if (diff === 1) return '明天 ' + hm;
+        if (diff === -1) return '昨天 ' + hm;
+        return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + hm;
+    }
+    function _schPace(h) {
+        const n = Number(h) > 0 ? Number(h) : 24;
+        if (n === 24) return '大約一天醒一次';
+        if (n > 24 && n % 24 === 0) return '大約 ' + (n / 24) + ' 天醒一次';
+        return '大約 ' + (Math.round(n * 10) / 10) + ' 小時醒一次';
+    }
+    function _schQuiet(q) {
+        const p = x => String(x).padStart(2, '0') + ':00';
+        return (Array.isArray(q) && q.length === 2 && q[0] !== q[1]) ? p(q[0]) + ' 到 ' + p(q[1]) : '';
+    }
+    function _schHelpBtn(quiet) {
+        const A0 = win.AUI || window.AUI;
+        if (!A0 || !A0.helpBtn) return '';
+        if (A0.registerHelp) A0.registerHelp({ board_schedule: { title: '日程表',
+            body: '他們每次醒來，會自己排下一次幾點醒、醒來想做什麼、急不急。\n'
+                + '到了那時妳電腦沒開' + (quiet ? '、或剛好在 ' + quiet + ' 不叫人的時段' : '') + '，就算錯過：急的，一能叫就補；普通的，隔三小時再試一次，那次也錯過就算了；隨意的，錯過就算了。最下面記著最近錯過了哪些。\n'
+                + '名字右邊的加減是每天最多醒幾次，妳定。沒排的人照原本的節奏偶爾醒。\n'
+                + '不想要他排的哪一筆，按那一筆右邊的叉叉，再按一次就取消。' } });
+        return A0.helpBtn('board_schedule');
+    }
+    function _schInQuiet(sec, q) {
+        if (!Array.isArray(q) || q.length !== 2 || q[0] === q[1]) return false;
+        const h = new Date(Number(sec) * 1000).getHours();
+        return q[0] < q[1] ? (h >= q[0] && h < q[1]) : (h >= q[0] || h < q[1]);
+    }
+    function _schCardHtml(r, quietHours) {
+        const plan = (r.plan || []).slice().sort((a, b) => a.at - b.at);
+        const cap = Number(r.max_per_day) || 4, today = Number(r.today) || 0;
+        let status = '';
+        if (!r.enabled) status = '沒開自己醒來' + (plan.length ? '，排的先不會叫' : '');
+        else if (r.parked) status = r.parked;   // 「額度到上限（19:00 前先不叫）」
+        else if (today >= cap) status = '今天醒滿了，明天才會再叫';
+        const rows = plan.length ? plan.map(i => '<div class="ob-sch-item">'
+                + '<time class="ob-sch-time">' + _esc(_schWhen(i.at)) + '</time>'
+                + '<span class="ob-sch-what">' + _esc(i.what || '沒寫要做什麼')
+                + (i.retry ? '<span class="ob-sch-retry">錯過一次了，這是再試的那次</span>' : '')
+                + (_schInQuiet(i.at, quietHours) ? '<span class="ob-sch-retry">這個時間不叫人，到時會照錯過處理</span>' : '') + '</span>'
+                + '<span class="ob-sch-urg is-' + _esc(SCH_URG[i.urgency] ? i.urgency : 'normal') + '">' + _esc(SCH_URG[i.urgency] || '普通') + '</span>'
+                + '<button type="button" class="ob-sch-x" data-rid="' + _esc(r.rid) + '" data-id="' + _esc(i.id) + '" title="取消這一筆"><i class="fa-solid fa-xmark"></i></button>'
+                + '</div>').join('')
+            : '<div class="ob-sch-none">沒排：照原本的節奏，' + _esc(_schPace(r.pace_hours)) + '</div>';
+        return '<div class="ob-sch-card' + (r.enabled ? '' : ' is-off') + '">'
+            + '<div class="ob-sch-top">' + _avatarHtml(r.name)
+            + '<span class="ob-sch-who"><span class="ob-sch-name">' + _esc(r.name || r.rid) + '</span>'
+            + '<span class="ob-sch-today">今天醒了 ' + today + ' 次</span></span>'
+            + '<span class="ob-sch-cap">'
+            + '<button type="button" class="ob-sch-step" data-rid="' + _esc(r.rid) + '" data-d="-1"' + (cap <= 1 ? ' disabled' : '') + ' title="每天少醒一次"><i class="fa-solid fa-minus"></i></button>'
+            + '<span class="ob-sch-cap-txt">每天最多 ' + cap + ' 次</span>'
+            + '<button type="button" class="ob-sch-step" data-rid="' + _esc(r.rid) + '" data-d="1"' + (cap >= 24 ? ' disabled' : '') + ' title="每天多醒一次"><i class="fa-solid fa-plus"></i></button>'
+            + '</span></div>'
+            + (status ? '<div class="ob-sch-status"><i class="fa-solid fa-circle-pause"></i><span>' + _esc(status) + '</span></div>' : '')
+            + rows + '</div>';
+    }
+    function _schHtml(s) {
+        const quiet = s.data ? _schQuiet(s.data.quiet_hours) : '';
+        const head = '<div class="ob-wl-head"><button type="button" class="ob-wl-back" data-to="board" title="回留言板"><i class="fa-solid fa-chevron-left"></i></button>'
+            + '<div class="ob-wl-title">日程表</div><span class="ob-wl-headpad ob-sch-helpslot">' + _schHelpBtn(quiet) + '</span></div>';
+        let body;
+        if (s.error) {
+            body = '<div class="ob-wl-empty"><i class="fa-solid fa-plug-circle-xmark"></i><div>' + _esc(s.error) + '</div></div>';
+        } else if (!s.data) {
+            body = '<div class="ob-wl-empty">正在拿日程表…</div>';
+        } else {
+            const R = s.data.residents || {};
+            const list = Object.keys(R).map(k => Object.assign({ rid: k }, R[k])).filter(r => r.enabled || (r.plan && r.plan.length));
+            const first = r => (r.plan && r.plan.length) ? Math.min.apply(null, r.plan.map(i => Number(i.at) || Infinity)) : Infinity;
+            list.sort((a, b) => (b.enabled ? 1 : 0) - (a.enabled ? 1 : 0) || first(a) - first(b));
+            const missed = (s.data.missed || []).slice(-10).reverse();
+            body = (quiet ? '<div class="ob-sch-quiet"><i class="fa-regular fa-moon"></i>' + _esc(quiet) + ' 不叫人</div>' : '')
+                + (list.length ? list.map(r => _schCardHtml(r, s.data.quiet_hours)).join('')
+                    : '<div class="ob-wl-empty"><i class="fa-regular fa-calendar"></i><div>還沒有人開著自己醒來。</div>'
+                    + '<div class="ob-wl-note">在宿舍按住戶門上那顆心跳，他就會開始自己醒來、自己排時間。</div></div>')
+                + (missed.length ? '<div class="ob-sch-sec">最近錯過的</div>' + missed.map(m => '<div class="ob-sch-miss">'
+                    + '<div class="ob-sch-miss-top"><time>' + _esc(_schWhen(m.at)) + '</time><span class="ob-sch-miss-name">' + _esc(m.name || m.rid) + '</span>'
+                    + (m.what ? '<span>「' + _esc(m.what) + '」</span>' : '') + '<span class="ob-sch-urg is-' + _esc(SCH_URG[m.urgency] ? m.urgency : 'normal') + '">' + _esc(SCH_URG[m.urgency] || '普通') + '</span></div>'
+                    + '<div class="ob-sch-miss-why">' + _esc([m.why, m.outcome].filter(Boolean).join('，')) + '</div></div>').join('') : '');
+        }
+        return head + '<div class="ob-wl-scroll">' + body + '</div>';
+    }
+    function _schPaint(container) {
+        const st = _state.get(container);
+        const pane = container.querySelector('.ob-wl');
+        if (!st || !st.sch || !pane || pane.hidden) return;
+        const sc = pane.querySelector('.ob-wl-scroll');
+        const top = sc ? sc.scrollTop : 0;
+        pane.innerHTML = _schHtml(st.sch);
+        const s2 = pane.querySelector('.ob-wl-scroll');
+        if (s2) s2.scrollTop = top;   // 加減、取消之後別跳回最上面
+    }
+    function _schSay(msg) {
+        const A0 = win.AUI || window.AUI;
+        if (A0 && A0.toast) A0.toast(msg);
+    }
+    async function _schOpen(container) {
+        const st = _state.get(container);
+        const root = container.querySelector('.ob-container');
+        const pane = root && root.querySelector('.ob-wl');
+        if (!st || !pane) return;
+        st.wl = null; st.mem = null;   // 另外兩頁等到一半的，回來別蓋掉這頁
+        const s = st.sch = { data: null, error: '' };
+        root.querySelector('.ob-wl-page').hidden = true;
+        pane.hidden = false;
+        pane.innerHTML = _schHtml(s);
+        try { s.data = await _api('/v1/schedule'); }
+        catch (e) { s.error = /HTTP 404/.test(String(e && e.message)) ? '要重開橋才看得到日程表（新的那一版才有）。' : _wlErr(e); }
+        if (st.sch === s) _schPaint(container);
+    }
+    async function _schStep(container, btn) {
+        const st = _state.get(container);
+        const r = st && st.sch && st.sch.data && (st.sch.data.residents || {})[btn.dataset.rid];
+        if (!r || btn.dataset.busy) return;
+        const prev = Number(r.max_per_day) || 4;
+        const next = Math.max(1, Math.min(24, prev + Number(btn.dataset.d)));
+        if (next === prev) return;
+        r.max_per_day = next;   // 先改畫面，失敗再改回來
+        _schPaint(container);
+        try { await _api('/v1/heartbeat', { resident_id: btn.dataset.rid, max_per_day: next }); }
+        catch (e) {
+            r.max_per_day = prev;
+            _schPaint(container);
+            _schSay('沒改成：' + (_plainReason(e && e.message) || '連不上橋'));
+        }
+    }
+    function _schDisarm(root, except) {
+        root.querySelectorAll('.ob-sch-x.armed').forEach(b => {
+            if (b === except) return;
+            b.classList.remove('armed');
+            b.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+        });
+    }
+    async function _schCancel(container, btn) {
+        const root = container.querySelector('.ob-container');
+        if (!btn.classList.contains('armed')) {   // 按一次只是變紅，再按一次才取消（同刪除動態）
+            _schDisarm(root, btn);
+            btn.classList.add('armed');
+            btn.textContent = '取消？';
+            return;
+        }
+        if (btn.dataset.busy) return;
+        btn.dataset.busy = '1';
+        const st = _state.get(container);
+        try {
+            await _api('/v1/schedule/cancel', { resident_id: btn.dataset.rid, id: btn.dataset.id });
+            const r = st && st.sch && st.sch.data && (st.sch.data.residents || {})[btn.dataset.rid];
+            if (r) r.plan = (r.plan || []).filter(i => i.id !== btn.dataset.id);
+            _schPaint(container);
+        } catch (e) {
+            delete btn.dataset.busy;
+            _schSay('沒取消成：' + (_plainReason(e && e.message) || '連不上橋'));
+        }
+    }
+
     // ---- 醒來紀錄的兩頁 ----
     async function _wlOpen(container, rid) {
         const st = _state.get(container);
         const root = container.querySelector('.ob-container');
         const pane = root && root.querySelector('.ob-wl');
         if (!st || !pane) return;
+        st.sch = null;   // 日程表那頁等到一半的，回來別蓋掉這頁
         const my = st.wl = { rid: rid || '', items: null, more: false, loading: false, error: '' };
         pane.hidden = false;
         pane.innerHTML = _wlListHtml(my, st.hb);
@@ -1183,6 +1355,7 @@
             const t = ev.target;
             if (!t.closest('.ob-act-wrap')) closePops();
             if (!t.closest('.ob-del') && !t.closest('.ob-cmt-mine')) disarm();
+            if (!t.closest('.ob-sch-x')) _schDisarm(root);
 
             // 分頁
             const tabBtn = t.closest('.ob-tab');
@@ -1202,6 +1375,13 @@
             if (mitem) { _memDetail(container, mitem.dataset.id); return; }
             const mlink = t.closest('.ob-mem-link');
             if (mlink) { _memDetail(container, mlink.dataset.mem); return; }
+
+            // 日程表：入口、每天上限加減、取消一筆（要排在醒來紀錄那個「紀錄頁裡其他地方不往下走」前面）
+            if (t.closest('.ob-sch-open')) { _schOpen(container); return; }
+            const schStep = t.closest('.ob-sch-step');
+            if (schStep) { _schStep(container, schStep); return; }
+            const schX = t.closest('.ob-sch-x');
+            if (schX) { _schCancel(container, schX); return; }
 
             // 醒來紀錄：入口、點頭像、兩頁裡的返回／篩選／更早的／點一次
             if (t.closest('.ob-wl-open')) { _wlOpen(container, ''); return; }
