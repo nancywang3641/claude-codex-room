@@ -937,7 +937,7 @@
         const r = /（refusal(?:：([\w-]+))?）/.exec(s);
         if (r) {
             const why = REFUSE_WHY[r[1]];
-            return '這幾句被官方的自動檢查擋下來了' + (why ? '（' + why + '）' : '') + '，他根本沒收到。點放著那幾句旁邊的「收回」，或換個說法再叫他。'
+            return '這幾句被官方的自動檢查擋下來了' + (why ? '（' + why + '）' : '') + '，他根本沒收到。長按放著的那幾句、選「收回」，或換個說法再叫他。'
                 + (r[1] === 'reasoning_extraction' ? '想看他在想什麼，看他回話上面的「思考」就好。' : '');
         }
         const m = /^(REFUSED|MODEL_ERROR):(.*)$/.exec(s);
@@ -1716,7 +1716,6 @@
             wrap.appendChild(footer);
         }
 
-        if (isUser && opts.msg && opts.msg.held) wrap.appendChild(_heldUndoBtn(opts.msg, wrap));   // 還放著沒送：可以收回
         if (!isUser && opts.msg && opts.msg.wake) {   // 🌙 他醒來時自己傳給她的（橋補進來的那則）
             const note = document.createElement('div');
             note.className = 'claude-wake-note';
@@ -1821,6 +1820,7 @@
     /** 觸發隱藏的 file input（或 Ctrl+V 貼上）、上傳到 cc-bridge、push 進 _pendingClaudeAttachments */
     async function _handleClaudeFilePick(fileList) {
         if (!fileList || !fileList.length) return;
+        if (_provider() === 'xiaoji') return _pickForXiaoji(Array.from(fileList));
         if (!window.ClaudeTerminal || typeof window.ClaudeTerminal.uploadFiles !== 'function') {
             _renderClaudeBubble('assistant', '⚠️ ClaudeTerminal 未載入，無法上傳。');
             return;
@@ -1858,6 +1858,24 @@
             const raw = (e && e.message) || '未知錯誤';
             _renderClaudeBubble('assistant', '⚠️ 上傳失敗：' + raw);
         }
+        _renderClaudeAttachChips();
+    }
+
+    // 🖼 小機的房間傳圖（10-13 她：「哪裡放圖片阿 迴紋針按鈕不見了」）：小機不經橋，圖不上傳，
+    //   在這台縮到長邊 1024 的 JPEG（同一張當泡泡裡的小照片，也是送給模型看的那張）。只收圖片：檔案它讀不到。
+    const XJ_IMG_EDGE = 1024, XJ_IMG_MAX = 4;
+    async function _pickForXiaoji(files) {
+        const imgs = files.filter(_isImg);
+        if (imgs.length < files.length) _renderClaudeNotice('小機只看得到圖片，其他檔案還不能傳。');
+        const room = XJ_IMG_MAX - _pendingClaudeAttachments.length;
+        if (imgs.length > room) _renderClaudeNotice('一次最多 ' + XJ_IMG_MAX + ' 張。');
+        const take = imgs.slice(0, Math.max(0, room));
+        if (!take.length) return;
+        const thumbs = await Promise.all(take.map(f => _makeThumb(f, XJ_IMG_EDGE)));
+        thumbs.forEach((t, i) => {
+            if (!t) { _renderClaudeNotice('「' + (take[i].name || '這張') + '」讀不出來，換一張試試。'); return; }
+            _pendingClaudeAttachments.push({ local: true, thumb: t, filename: take[i].name || '圖片', mime: 'image/jpeg', size: Math.round(t.length * 0.75) });
+        });
         _renderClaudeAttachChips();
     }
 
@@ -1904,32 +1922,22 @@
     } catch (_) {}
 
     // ↩ 收回放著的那一則（10-08 她：送不出去的那幾句卡在那，每按一次魔杖就整批再送一次、再被擋一次）。
-    //   只收還放著的；他正在回的時候不收（那幾句正在路上，收了會跟送出去的對不上）
-    function _heldUndoBtn(msg, wrap) {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'claude-held-undo';
-        b.innerHTML = '<i class="fa-solid fa-rotate-left"></i> 收回';
-        b._ccrMsg = msg;
-        b.addEventListener('click', (ev) => {
-            ev.stopPropagation();
-            const CT = window.ClaudeTerminal;
-            const rid = (CT && typeof CT.getActiveResidentId === 'function') ? CT.getActiveResidentId() : '';
-            if (rid && _inflight[rid]) { _renderClaudeNotice('他正在回，等他回完再收回。'); return; }
-            const h = _activeHistory() || [];
-            const i = h.indexOf(msg);
-            if (i < 0 || !msg.held) { b.remove(); return; }
-            h.splice(i, 1);
-            if (wrap && wrap.parentNode) wrap.parentNode.removeChild(wrap);
-            _scheduleSave();
-            _paintHeld();
-        });
-        return b;
+    //   10-13 起收在長按小窗裡（notebook.js 的「收回」）：以前每一則放著的底下都掛一顆收回鈕，她：「每個泡泡都出現回收按鈕，超醜得欸」。
+    //   只收還放著的；他正在回的時候不收（那幾句正在路上，收了會跟送出去的對不上）。回 true＝收掉了
+    function _recallHeld(msg, wrap) {
+        const CT = window.ClaudeTerminal;
+        const rid = (CT && typeof CT.getActiveResidentId === 'function') ? CT.getActiveResidentId() : '';
+        if (rid && _inflight[rid]) { _renderClaudeNotice('他正在回，等他回完再收回。'); return false; }
+        const h = _activeHistory() || [];
+        const i = h.indexOf(msg);
+        if (i < 0 || !msg.held) return false;
+        h.splice(i, 1);
+        if (wrap && wrap.parentNode) wrap.parentNode.removeChild(wrap);
+        _scheduleSave();
+        _paintHeld();
+        return true;
     }
     function _paintHeld() {
-        // 送出去了的那幾則（held 拿掉了）：收回鈕跟著拿掉
-        const st = _el('claude-chat-stream');
-        if (st) st.querySelectorAll('.claude-held-undo').forEach(b => { if (!b._ccrMsg || !b._ccrMsg.held) b.remove(); });
         const n = _heldTail().length;
         const btn = _el('cw-reply-btn');
         if (btn) btn.classList.toggle('has-held', n > 0);
@@ -1939,8 +1947,8 @@
     /** 放一條上去（不叫他回）。extra 可帶 voiceAudio／voiceSec（她按住說話的那條） */
     function _holdMessage(text, extra) {
         const attachmentsSnapshot = _pendingClaudeAttachments
-            .filter(a => a && a.path)
-            .map(a => Object.assign({ path: a.path, filename: a.filename, mime: a.mime, size: a.size }, a.thumb ? { thumb: a.thumb } : {}));
+            .filter(a => a && (a.path || (a.local && a.thumb)))
+            .map(a => Object.assign({ path: a.path, filename: a.filename, mime: a.mime, size: a.size }, a.thumb ? { thumb: a.thumb } : {}, a.local ? { local: true } : {}));
         _pendingClaudeAttachments = [];
         _renderClaudeAttachChips();
         const msg = Object.assign({
@@ -2105,7 +2113,7 @@
         _paintSendBtn();
         const text = held.map(m => m.content).join('\n');
         const attachmentsSnapshot = [].concat(...held.map(m => m.attachments || []))
-            .map(a => ({ path: a.path, filename: a.filename, mime: a.mime, size: a.size }));
+            .map(a => Object.assign({ path: a.path, filename: a.filename, mime: a.mime, size: a.size }, a.local ? { local: true, thumb: a.thumb } : {}));
         // 放著的那幾條要先落到記錄裡，送的那支才認得出哪幾條是這輪的
         if (_saveTimer) { clearTimeout(_saveTimer); _saveTimer = null; }
         await window.ClaudeTerminal.saveHistory(hist, ctx);
@@ -2368,6 +2376,7 @@
     VoidClaudeRoom.renderReply       = _renderClaudeReply;
     VoidClaudeRoom.hydrateStream     = _hydrateClaudeStream;
     VoidClaudeRoom.handleFilePick    = _handleClaudeFilePick;
+    VoidClaudeRoom.recallHeld        = _recallHeld;   // 長按小窗的「收回」（notebook.js）
     VoidClaudeRoom.sendMessage       = _sendClaudeMessage;
     VoidClaudeRoom.holdMessage       = _holdMessage;       // 🤚 只放上去、不叫他回
     VoidClaudeRoom.replyNow          = _replyNow;          // 🤚 魔杖：把放著的一起送

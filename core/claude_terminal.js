@@ -1508,7 +1508,7 @@ ${withOthers}
         } catch (_) { return []; }
     };
 
-    async function _sendXiaoji(userText, onProgress, sendOpts, ctx) {
+    async function _sendXiaoji(userText, onProgress, sendOpts, ctx, attachments) {
         const X = window.OS_XIAOJI || (window.parent && window.parent.OS_XIAOJI);
         if (!X || typeof X.turn !== 'function') throw new Error('XIAOJI:小機要在酒館或手機的奧瑞亞裡才動得了');
         const me = ClaudeTerminal.getResident(ctx.rid);
@@ -1558,6 +1558,8 @@ ${withOthers}
             const t = await X.turn({
                 // conv：這一串的編號，奧瑞亞用它存這一串舊聊天的摘要（一串一份，10-05）
                 rid: me.id, conv: ctx.convId, userTs: userTs, history, userText, signal: sendOpts && sendOpts.signal, extraNote: [roomNote, wearNote, bubbleNote, _turnNotes(me.id)].filter(Boolean).join('\n\n'),
+                // 🖼 她這輪傳的圖（房間在這台縮好的 JPEG，不經橋）：奧瑞亞接在她那句後面交給模型看
+                images: (attachments || []).filter(a => a && a.local && a.thumb && /^image\//.test(a.mime || '')).map(a => a.thumb),
                 onProgress: ev => {
                     if (typeof onProgress !== 'function' || !ev) return;
                     try {
@@ -1612,7 +1614,7 @@ ${withOthers}
             if (!xj || xj.provider !== 'xiaoji') throw new Error('XIAOJI:這裡還沒有小機，先到宿舍開箱');
         }
         const ctx = (sendOpts && sendOpts.ctx) || ClaudeTerminal.captureCtx();
-        if (ctx.provider === 'xiaoji') return _sendXiaoji(userText, onProgress, sendOpts, ctx);   // 不經橋、不看橋的設定
+        if (ctx.provider === 'xiaoji') return _sendXiaoji(userText, onProgress, sendOpts, ctx, attachments);   // 不經橋、不看橋的設定
         const cfg = _inCtx(ctx, () => ClaudeTerminal.getConfig());
         if (!cfg) throw new Error('SETTINGS_MISSING:OS_SETTINGS 未載入');
         if (!cfg.url || !cfg.key) throw new Error('NOT_CONFIGURED:還沒填 URL 跟 密鑰，去設定 → 🦀 Claude 的房間');

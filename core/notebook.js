@@ -855,7 +855,7 @@
     }
 
     // =====================================================================
-    // 長按對話裡的一則 → 收進記事本｜複製
+    // 長按對話裡的一則 → 收進記事本｜複製｜收回（還放著沒送的那則才有，10-13 從泡泡底下搬進來）
     // =====================================================================
     const LP_MS = 480;
     let _lp = null;          // { t, x, y, wrap }
@@ -916,12 +916,15 @@
         // ⭐ 按在他的語音上：收藏語音（存下聲音，之後重播不用再合成）；收過的變成取消收藏
         const RC = window.RoomCollection;
         const fav = (voice && RC && typeof RC.voiceState === 'function') ? RC.voiceState(voice) : null;   // null＝這顆不能收
+        const R = window.VoidClaudeRoom;
+        const canRecall = !!(msg.held && R && typeof R.recallHeld === 'function');   // 她放著、還沒叫他回的那則
         const m = document.createElement('div');
         m.className = 'nb-menu';
         m.innerHTML = (fav ? '<button type="button" data-act="fav"><i class="fa-' + (fav === 'kept' ? 'solid' : 'regular') + ' fa-star"></i><span>'
                 + (fav === 'kept' ? '取消收藏' : '收藏語音') + '</span></button>' : '')
             + '<button type="button" data-act="keep"><i class="fa-regular fa-bookmark"></i><span>收進記事本</span></button>'
-            + (text ? '<button type="button" data-act="copy"><i class="fa-regular fa-copy"></i><span>複製</span></button>' : '');
+            + (text ? '<button type="button" data-act="copy"><i class="fa-regular fa-copy"></i><span>複製</span></button>' : '')
+            + (canRecall ? '<button type="button" data-act="recall"><i class="fa-solid fa-rotate-left"></i><span>收回</span></button>' : '');
         win.appendChild(m);
         const wr = win.getBoundingClientRect();
         const bubble = voice || wrap.querySelector('.claude-bubble, .cg-bubble') || wrap;
@@ -941,6 +944,7 @@
             _closeMenu();
             wrap.classList.remove('nb-picked');
             if (b.dataset.act === 'copy') _copy(text);
+            else if (b.dataset.act === 'recall') R.recallHeld(msg, wrap);
             else if (b.dataset.act === 'fav') _toast(await RC.voiceToggle(voice));
             else await _keep(msg);
         });
