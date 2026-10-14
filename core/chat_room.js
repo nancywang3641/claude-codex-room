@@ -2542,6 +2542,7 @@
     VoidClaudeRoom.renderUserSticker  = _renderUserSticker;   // 群聊她送的表情包也畫成圖
     VoidClaudeRoom.toolDoingLabel     = _toolDoingLabel;
     VoidClaudeRoom.buildPlanCard      = _buildPlanCard;    // 📋 跑完那張進度卡（msg.plan）
+    VoidClaudeRoom.paintPlanCard      = _paintPlanCard;    // 📋 還在跑那張（群聊串流中也用這支畫）
 
     console.log('✅ VoidClaudeRoom（Claude 房間 UI）模組就緒');
 })(window.VoidClaudeRoom = window.VoidClaudeRoom || {});

@@ -462,6 +462,11 @@
         // 附件：圖片 → 內嵌縮圖（點放大）；非圖 → 📎 chip。掛在最後一顆
         const attBox = _buildAttachmentsBox(attachments);
         if (attBox) lastB.appendChild(attBox);
+        // 📋 他這一輪列的清單：停在做完那一刻的樣子（跟私聊同一支），排在工具摺疊塊上面——跟串流當下長的順序一樣
+        if (speaker !== 'rae' && msg && msg.plan && window.VoidClaudeRoom && typeof window.VoidClaudeRoom.buildPlanCard === 'function') {
+            const pc = window.VoidClaudeRoom.buildPlanCard(msg.plan);
+            if (pc) wrap.appendChild(pc);
+        }
         _attachTools(lastB, toolsUsed);
 
         _streamEl.appendChild(wrap);
@@ -516,7 +521,9 @@
                 _scrollBottom();
             }
             const m = Math.floor(sec / 60), s = sec % 60;
-            row.querySelector('.cg-wait-text').textContent = _labelOf(rid) + state() + '（' + (m ? m + ' 分 ' : '') + s + ' 秒）';
+            // 📋 他列了清單的話，進度卡最下面那行已經寫了在做什麼、跑了多久：這裡只留「跳過他」
+            row.querySelector('.cg-wait-text').textContent = typingWrap.querySelector('.claude-plan-card')
+                ? '' : _labelOf(rid) + state() + '（' + (m ? m + ' 分 ' : '') + s + ' 秒）';
         };
         const timer = setInterval(paint, 1000);
         return { stop: function () { clearInterval(timer); if (row && row.parentNode) row.parentNode.removeChild(row); } };
@@ -975,8 +982,42 @@
             return revealer;
         }
 
+        // 📋 進度卡（同私聊那張）：他這輪列的清單（橋送來的最新一張）、這輪從什麼時候開始、每秒換秒數的那支。
+        //    卡掛在點點泡泡下面、「跳過他」那行上面；列了清單就不再把點點換成「正在動手…」，卡片最下面那行就是在做什麼
+        let plan = null, planEl = null, planTick = null, planWriting = false;
+        const planT0 = Date.now();
+        function _planPaint() {
+            if (!plan || !typingWrap || !_room || typeof _room.paintPlanCard !== 'function') return;
+            if (!planEl) {
+                planEl = document.createElement('div');
+                planEl.className = 'claude-plan-card';
+                typingWrap.insertBefore(planEl, typingWrap.querySelector('.cg-wait'));
+                planTick = setInterval(_planPaint, 1000);
+            }
+            const rows = planEl.querySelectorAll('.claude-plan-step').length;
+            _room.paintPlanCard(planEl, plan, { live: true, t0: planT0, writing: planWriting });
+            if (planEl.querySelectorAll('.claude-plan-step').length !== rows) _scrollBottom();
+        }
+        function _planSaved() {
+            return (plan && Array.isArray(plan.items) && plan.items.length)
+                ? { items: plan.items.map(function (x) { return { text: String((x && x.text) || ''), status: String((x && x.status) || 'pending') }; }),
+                    secs: Math.round((Date.now() - planT0) / 1000) }
+                : null;
+        }
+        /** 這一輪收了（回完、失敗、跳過）：卡停在這一刻的樣子，不轉了。回傳要存的那份 */
+        function _planFreeze() {
+            if (planTick) { clearInterval(planTick); planTick = null; }
+            const saved = _planSaved();
+            if (planEl && saved) _room.paintPlanCard(planEl, saved, { live: false, secs: saved.secs });
+            return saved;
+        }
+
         function _send(sid) {
             acc = '';
+            // 換一條 session 重送：上一次那張卡不算
+            if (planTick) { clearInterval(planTick); planTick = null; }
+            if (planEl && planEl.parentNode) planEl.parentNode.removeChild(planEl);
+            plan = null; planEl = null; planWriting = false;
             return window.ClaudeTerminal.sendGroup({
                 residentId: rid,
                 selfName:   _labelOf(rid),
@@ -1008,7 +1049,21 @@
                                 ? window.VoidClaudeRoom.hideMdImages(shown) : shown;
                             _scrollBottom();
                         }
+                        planWriting = true;   // 進度卡最下面那行寫「在寫回覆」
+                        if (plan) _planPaint();
+                    } else if (ev && ev.type === 'plan' && ev.plan) {
+                        // 卡換了＝他在動清單或換了工具，都是在動手。點點泡泡剛才寫成「正在動手…」的話換回點點，在做什麼看卡
+                        planWriting = false;
+                        plan = ev.plan;
+                        if (bubbleEl && bubbleEl.classList.contains('cg-doing') && _room && _room.DOTS_HTML) {
+                            bubbleEl.classList.remove('cg-doing');
+                            bubbleEl.classList.add('claude-bubble-dots');
+                            bubbleEl.innerHTML = _room.DOTS_HTML;
+                        }
+                        _planPaint();
                     } else if (ev && ev.type === 'tool_use') {
+                        planWriting = false;
+                        if (plan) { _planPaint(); return; }   // 📋 列了清單：在做什麼寫在卡上
                         // 他在動手（跑命令、生圖）。生圖那種要等三十秒以上，畫面上卻只有
                         // 「正在輸入…」—— 看起來像卡住。這裡把他正在做什麼寫在氣泡上，
                         // 等真的有文字回來再換掉。只在還沒有任何文字時顯示：他一開口就換成內容，
@@ -1027,11 +1082,12 @@
 
         function _fail(err) {
             wait.stop();
+            _planFreeze();   // 📋 列過清單：卡停在這一刻（按跳過的話看得到做到哪；這則不存，同私聊按停）
             // 她按了跳過：拿掉點點（他已經講出來的那幾顆留著），寫一行說跳過了；沒送到的這段下一輪補給他
             if (skipped) {
                 if (revealer) revealer.stop();
                 const said = revealer && revealer.count > 0;
-                if (said) { if (bubbleEl && bubbleEl.parentNode) bubbleEl.parentNode.removeChild(bubbleEl); }
+                if (said || planEl) { if (bubbleEl && bubbleEl.parentNode) bubbleEl.parentNode.removeChild(bubbleEl); }
                 else if (typingWrap && typingWrap.parentNode) typingWrap.parentNode.removeChild(typingWrap);
                 _renderSystemLine('跳過了' + _labelOf(rid) + '，換下一位（這段他下次輪到時會補看到）');
                 return { spoke: false, failed: true, skipped: true, markers: {} };
@@ -1080,6 +1136,7 @@
             }
         }
         wait.stop();
+        const planSaved = _planFreeze();   // 📋 他做完那一刻清單的樣子＋花了多久（跟著這則存）
         if (result.sessionId) _lsSet(_sidKey(rid), result.sessionId);
 
         const reply = (result.reply || '').trim();
@@ -1175,6 +1232,7 @@
         if (result.thinking) turnEntry.thinking = result.thinking;
         // 存起來，不然重新進群聊就只剩文字、看不出他做過什麼
         if (Array.isArray(result.toolsUsed) && result.toolsUsed.length) turnEntry.toolsUsed = result.toolsUsed;
+        if (planSaved) turnEntry.plan = planSaved;
         _transcript.push(turnEntry);
         if (typingWrap) typingWrap._ccrMsg = turnEntry;
         // 同一份話也留一份給他自己的房間：群聊跟私聊各自 resume，不回流的話同一位住戶
