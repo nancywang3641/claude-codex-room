@@ -1944,6 +1944,9 @@ ${withOthers}
                                     try { onProgress({ type: 'tool_use', tool: chunk.tool_use }); } catch (_) {}
                                 }
                             }
+                            if (chunk.plan && typeof chunk.plan === 'object' && typeof onProgress === 'function') {
+                                try { onProgress({ type: 'plan', plan: chunk.plan }); } catch (_) {}
+                            }
                             if (chunk.session_id !== undefined) newSid = chunk.session_id;
                             if (chunk.usage_meta) usageMeta = chunk.usage_meta;
                             if (typeof chunk.thinking === 'string' && chunk.thinking.trim()) thinking = chunk.thinking;
@@ -2055,6 +2058,7 @@ ${withOthers}
         let since = 0, tsince = 0, acc = '';
         let newSid = null, usageMeta = null, imagesAcc = null, fails = 0;
         let thinking = ''; const toolsUsed = [];
+        let planRev = null;   // 進度卡：橋每次給整張，rev 變了才往上送
         while (true) {
             if (signal && signal.aborted) {
                 _turnFetch(base + '/v1/turn/cancel', 'POST', cfg.key, { id: turnId }).catch(function () {});
@@ -2094,6 +2098,13 @@ ${withOthers}
                         try { onProgress({ type: 'tool_use', tool: t }); } catch (_) {}
                     }
                 });
+            }
+            // 他列的清單＋這一刻在做什麼（橋的 plan_track.py）：房間畫成訊息底下那張進度卡
+            if (st.plan && typeof st.plan === 'object' && st.plan.rev !== planRev) {
+                planRev = st.plan.rev;
+                if (typeof onProgress === 'function') {
+                    try { onProgress({ type: 'plan', plan: st.plan }); } catch (_) {}
+                }
             }
             if (st.sessionId !== undefined && st.sessionId !== null) newSid = st.sessionId;
             if (st.usage) usageMeta = st.usage;
@@ -2192,6 +2203,9 @@ ${withOthers}
                             if (typeof onProgress === 'function') {
                                 try { onProgress({ type: 'tool_use', tool: chunk.tool_use }); } catch (_) {}
                             }
+                        }
+                        if (chunk.plan && typeof chunk.plan === 'object' && typeof onProgress === 'function') {
+                            try { onProgress({ type: 'plan', plan: chunk.plan }); } catch (_) {}
                         }
                         if (chunk.session_id !== undefined) newSid = chunk.session_id;
                         if (chunk.usage_meta) usageMeta = chunk.usage_meta;

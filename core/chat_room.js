@@ -543,6 +543,98 @@
         return ts;
     }
 
+    // 📋 他列的清單（橋的 plan_track.py 送來，Claude 的待辦、Codex 的計畫都是這一份）：
+    //    一條一行，做完打勾、正在做的在轉、還沒輪到的是虛線圈；最下面一行寫他這一刻在做什麼、跑了多久。
+    //    plan：{items:[{text,status,active}], now:{label,detail}}。
+    //    還在跑（live）：轉圈、秒數在走，由送出那支每秒換秒數；跑完：停在最後的樣子，帶 secs 跟著訊息存（msg.plan）。
+    function _planSecsText(secs) {
+        const s = Math.max(0, Math.round(secs || 0));
+        if (s < 60) return s + ' 秒';
+        if (s < 3600) return Math.floor(s / 60) + ' 分 ' + (s % 60) + ' 秒';
+        return Math.floor(s / 3600) + ' 小時 ' + Math.floor((s % 3600) / 60) + ' 分';
+    }
+
+    /** opts：{ live, t0（這輪開始的毫秒）, writing（最近一個動作是在寫字）, secs（跑完的那張：花了幾秒） }
+     *  同一張卡重畫時只換有變的那幾格，正在轉的那顆不重建（重建會從頭轉、一頓一頓） */
+    function _paintPlanCard(card, plan, opts) {
+        opts = opts || {};
+        const items = (plan && Array.isArray(plan.items)) ? plan.items.filter(x => x && String(x.text || '').trim()) : [];
+        card.classList.toggle('is-live', !!opts.live);
+        let list = card.querySelector('.claude-plan-steps');
+        if (!list) {
+            list = document.createElement('div');
+            list.className = 'claude-plan-steps';
+            card.appendChild(list);
+        }
+        while (list.children.length > items.length) list.removeChild(list.lastChild);
+        items.forEach((it, i) => {
+            let row = list.children[i];
+            if (!row) {
+                row = document.createElement('div');
+                const ic = document.createElement('span');
+                ic.className = 'claude-plan-icon';
+                const tx = document.createElement('span');
+                tx.className = 'claude-plan-text';
+                row.appendChild(ic);
+                row.appendChild(tx);
+                list.appendChild(row);
+            }
+            const st = it.status === 'completed' ? 'is-done' : (it.status === 'in_progress' ? 'is-now' : 'is-todo');
+            const cls = 'claude-plan-step ' + st;
+            if (row.className !== cls) {
+                row.className = cls;
+                row.firstChild.innerHTML = st === 'is-done' ? '<i class="fa-solid fa-check"></i>' : '';
+            }
+            if (row.lastChild.textContent !== String(it.text)) row.lastChild.textContent = String(it.text);
+        });
+
+        let foot = card.querySelector('.claude-plan-foot');
+        if (!foot) {
+            foot = document.createElement('div');
+            foot.className = 'claude-plan-foot';
+            foot.innerHTML = '<span class="claude-plan-foot-icon"></span><span class="claude-plan-foot-text"><b></b><span></span></span><span class="claude-plan-time"></span>';
+            card.appendChild(foot);
+        }
+        const fIcon = foot.querySelector('.claude-plan-foot-icon');
+        const fLabel = foot.querySelector('.claude-plan-foot-text b');
+        const fDetail = foot.querySelector('.claude-plan-foot-text span');
+        const fTime = foot.querySelector('.claude-plan-time');
+        let label, detail, iconHtml, iconCls;
+        if (opts.live) {
+            // 這一刻：他剛開始寫字就是在寫回覆；不然是最近一個工具；還沒動手就看正在做的那條，再沒有就是在想
+            const now = plan && plan.now;
+            const doing = items.find(x => x.status === 'in_progress');
+            if (opts.writing)              { label = '在寫回覆'; detail = ''; }
+            else if (now && now.label)     { label = String(now.label); detail = String(now.detail || ''); }
+            else if (doing && doing.active) { label = String(doing.active); detail = ''; }
+            else                            { label = '在想'; detail = ''; }
+            iconCls = 'claude-plan-foot-icon is-spin';
+            iconHtml = '';
+            fTime.textContent = _planSecsText((Date.now() - (opts.t0 || Date.now())) / 1000);
+        } else {
+            const done = items.filter(x => x.status === 'completed').length;
+            const all = done === items.length;
+            label = all ? '全部做完' : ('做了 ' + done + '／' + items.length + ' 條');
+            detail = '';
+            iconCls = 'claude-plan-foot-icon' + (all ? ' is-done' : '');
+            iconHtml = all ? '<i class="fa-solid fa-check"></i>' : '<i class="fa-regular fa-clock"></i>';
+            fTime.textContent = Number.isFinite(opts.secs) ? '花了 ' + _planSecsText(opts.secs) : '';
+        }
+        // 比「哪一種圖示」，不比 class：沒做完那種的 class 跟剛建好的空殼一樣，比 class 會漏放時鐘
+        if (fIcon.dataset.k !== iconCls + iconHtml) { fIcon.dataset.k = iconCls + iconHtml; fIcon.className = iconCls; fIcon.innerHTML = iconHtml; }
+        if (fLabel.textContent !== label) fLabel.textContent = label;
+        if (fDetail.textContent !== detail) fDetail.textContent = detail;
+        return card;
+    }
+
+    /** 跑完那則訊息底下的卡（沒清單回 null）。saved：{items, secs}（msg.plan） */
+    function _buildPlanCard(saved) {
+        if (!saved || !Array.isArray(saved.items) || !saved.items.some(x => x && String(x.text || '').trim())) return null;
+        const card = document.createElement('div');
+        card.className = 'claude-plan-card';
+        return _paintPlanCard(card, saved, { live: false, secs: saved.secs });
+    }
+
     /** 串流當下要顯示的那句人話。「使用工具中...(3)」是機器在講話，
      *  而她要的是知道「他現在在幹嘛」。先看工具名，Bash 有中文說明就照念，
      *  沒有才往指令內容猜。 */
@@ -1686,6 +1778,12 @@
             wrap.appendChild(_buildClaudeAskUI(ask));
         });
 
+        // 📋 他這一輪列的清單：停在做完那一刻的樣子，留在這則底下
+        if (!isUser) {
+            const pc = _buildPlanCard(opts.plan);
+            if (pc) wrap.appendChild(pc);
+        }
+
         // 📝 他這一輪提的單子（改世界書、改預設）：一張一張掛在回覆底下，點了開單子
         if (!isUser && Array.isArray(opts.props) && opts.props.length) wrap.appendChild(_buildPropCards(opts.props));
         // 🔧 他這一句記進待修的：一條一張卡，點了看待修清單
@@ -1743,6 +1841,7 @@
                     toolsUsed: (Array.isArray(m.tools_used) && m.tools_used.length) ? m.tools_used : null,
                     voice: m.voiceAudio ? { audioId: m.voiceAudio, sec: m.voiceSec } : null,
                     props: (Array.isArray(m.props) && m.props.length) ? m.props : null,
+                    plan: m.plan || null,
                     calls: m.calls || 0,
                     stopped: !!m.stopped,
                     noScroll: true,
@@ -2128,12 +2227,20 @@
         let streamWrap = null;
         let _rerenderTimer = null;
         let _revealer = null;   // 🫧 一顆一顆放泡泡的那支（_createBubbleRevealer）
+        // 📋 進度卡：他這輪列的清單（橋送來的最新一張）、這輪從什麼時候開始、每秒換秒數的那支
+        let _plan = null;
+        const _planT0 = Date.now();
+        let _planTick = null;
+        const _planSaved = () => (_plan && Array.isArray(_plan.items) && _plan.items.length)
+            ? { items: _plan.items.map(x => ({ text: String((x && x.text) || ''), status: String((x && x.status) || 'pending') })),
+                secs: Math.round((Date.now() - _planT0) / 1000) }
+            : null;
 
         try {
             // streaming 漸進式 render：stream 期間每收到 text/tool 事件就 destroy 舊 wrapper
             // 重 render 一個（用 suppressMarkdown 跳過 markdown，避免每 chunk 重 render markdown 閃爍）
             // stream 結束後最終 render 才開 markdown
-            const acc = { text: '', tools: [] };
+            const acc = { text: '', tools: [], writing: false };   // writing：最近一個動作是在寫字（進度卡最下面那行寫「在寫回覆」）
             let _typingSwitched = false;
             const stream = _el('claude-chat-stream');
 
@@ -2147,6 +2254,7 @@
             //   stream 結束 → finally 移除 streamWrap,再走 _renderClaudeBubble final(帶 markdown)
             let _streamDotsEl = null;
             let _streamToolEl = null;
+            let _streamPlanEl = null;   // 📋 列了清單就用這張卡，取代「🔧 正在…」那行
             const _ensureStreamShell = () => {
                 if (streamWrap) return;
                 streamWrap = document.createElement('div');
@@ -2176,12 +2284,29 @@
                 _rerenderTimer = null;
                 if (!here()) return;   // 她切到別間了：不畫進別人的房間
                 // 切走又切回來：房間重畫過、原本那個殼不在畫面上了，重新起一個（已經寫完的段落從頭放）
-                if (streamWrap && !streamWrap.isConnected) { streamWrap = null; _streamToolEl = null; }
+                if (streamWrap && !streamWrap.isConnected) { streamWrap = null; _streamToolEl = null; _streamPlanEl = null; }
                 _ensureStreamShell();
                 // 最後一段可能還在寫，只放前面寫完的
                 const segs = _replySegments(acc.text, true);
                 if (segs.length - 1 > _revealer.count) _revealer.push(segs.slice(_revealer.count, segs.length - 1));
-                if (acc.tools.length) {
+                const hasPlan = !!(_plan && Array.isArray(_plan.items) && _plan.items.length);
+                if (hasPlan) {
+                    // 📋 列了清單：卡片最下面那行就是「他現在在做什麼」，原本那行收掉
+                    if (_streamToolEl && _streamToolEl.parentNode) _streamToolEl.parentNode.removeChild(_streamToolEl);
+                    _streamToolEl = null;
+                    if (!_streamPlanEl) {
+                        _streamPlanEl = document.createElement('div');
+                        _streamPlanEl.className = 'claude-plan-card';
+                        streamWrap.appendChild(_streamPlanEl);   // 跟那行一樣掛在泡泡下面（她的視線在最新一行）
+                    }
+                    _paintPlanCard(_streamPlanEl, _plan, { live: true, t0: _planT0, writing: acc.writing });
+                    if (!_planTick) {
+                        _planTick = setInterval(() => {
+                            const t = _streamPlanEl && _streamPlanEl.querySelector('.claude-plan-time');
+                            if (t) t.textContent = _planSecsText((Date.now() - _planT0) / 1000);
+                        }, 1000);
+                    }
+                } else if (acc.tools.length) {
                     if (!_streamToolEl) {
                         _streamToolEl = document.createElement('div');
                         _streamToolEl.className = 'claude-stream-doing';
@@ -2212,9 +2337,16 @@
                         _setClaudePortraitState('typing');
                     }
                     acc.text = ev.accumulated || (acc.text + (ev.delta || ''));
+                    acc.writing = true;
                     rerenderStreaming();
                 } else if (ev.type === 'tool_use' && ev.tool) {
                     acc.tools.push(ev.tool);
+                    acc.writing = false;
+                    rerenderStreaming();
+                } else if (ev.type === 'plan' && ev.plan) {
+                    // 卡換了＝他在動清單或換了工具，都是在動手（Codex 的指令一開始跑就送卡，工具那則要跑完才來）
+                    acc.writing = false;
+                    _plan = ev.plan;
                     rerenderStreaming();
                 } else if (ev.type === 'xj_call') {
                     acc.callN = ev.n;
@@ -2239,6 +2371,8 @@
             const toolsUsed = (Array.isArray(result.toolsUsed) && result.toolsUsed.length) ? result.toolsUsed : null;
             const images = (Array.isArray(result.images) && result.images.length) ? result.images : null;
             const xj = result.xiaoji || null;   // API 小機：單子整張回來了，不去橋上拿
+            const plan = _planSaved();          // 📋 他做完那一刻清單的樣子＋花了多久（跟著這則存）
+            if (_planTick) { clearInterval(_planTick); _planTick = null; }
             const props = xj ? await _xjProps(xj.props) : await _turnProps(_turnRid, _turnAt, toolsUsed);
 
             // 累計到額度面板（💰 app）：記是誰、哪一種住戶，面板才分得了頁
@@ -2255,9 +2389,11 @@
             // 🫧 還沒冒出來的段落照同一個節奏放完（整則一次到的也是在這裡一顆一顆放），
             //    放完才換成完整那份：思考、工具、附件、用量掛上去，泡泡不再播一次動畫
             if (here() && String(reply || '').trim()) {
-                if (streamWrap && !streamWrap.isConnected) { streamWrap = null; _streamToolEl = null; }
+                if (streamWrap && !streamWrap.isConnected) { streamWrap = null; _streamToolEl = null; _streamPlanEl = null; }
                 _ensureStreamShell();
                 if (_streamToolEl && _streamToolEl.parentNode) _streamToolEl.parentNode.removeChild(_streamToolEl);
+                // 📋 卡先停在做完的樣子（不轉了），泡泡在上面放完
+                if (_streamPlanEl && plan) _paintPlanCard(_streamPlanEl, plan, { live: false, secs: plan.secs });
                 _revealer.push(_replySegments(reply, false).slice(_revealer.count));
                 await _revealer.drain();
             }
@@ -2275,6 +2411,7 @@
             if (toolsUsed) assistantRecord.tools_used = toolsUsed;
             if (images) assistantRecord.attachments = images;
             if (props) assistantRecord.props = props;
+            if (plan) assistantRecord.plan = plan;
             if (xj) {
                 assistantRecord.calls = xj.calls;
                 if (xj.stopped) assistantRecord.stopped = true;   // 「（中途停下）」重開也還在（以前只存幾通，重畫就不見了）
@@ -2294,12 +2431,12 @@
                     '⚠️ 之前的 session 失效了（cc-bridge 重啟過 / log 被清 / 太久沒聊）。\n\n' +
                     '我從零開始記新對話了。如果想讓我知道之前聊過什麼，把重點再講一次給我聽吧。\n\n' +
                     '---\n\n' + reply,
-                    { thinking, usage, toolsUsed, attachments: images, props, still: true, msg: assistantRecord }
+                    { thinking, usage, toolsUsed, attachments: images, props, plan, still: true, msg: assistantRecord }
                 );
                 _setClaudePortraitState('happy');
                 setTimeout(() => _setClaudePortraitState('living'), 600);
             } else {
-                _renderClaudeBubble('assistant', reply, { thinking, usage, toolsUsed, attachments: images, props, still: true, calls: xj ? xj.calls : 0, stopped: !!(xj && xj.stopped), msg: assistantRecord });
+                _renderClaudeBubble('assistant', reply, { thinking, usage, toolsUsed, attachments: images, props, plan, still: true, calls: xj ? xj.calls : 0, stopped: !!(xj && xj.stopped), msg: assistantRecord });
                 _setClaudePortraitState('happy');
                 setTimeout(() => _setClaudePortraitState('living'), 600);
             }
@@ -2316,9 +2453,9 @@
             _paintHeld();
 
             if (isAbort) {
-                // 主動停止：靜默顯示已停止氣泡，不噴錯誤
+                // 主動停止：靜默顯示已停止氣泡，不噴錯誤；列過清單的話卡停在按停那一刻，看得到做到哪
                 _setClaudePortraitState('living');
-                _renderClaudeBubble('assistant', '⏹ 已停止');
+                _renderClaudeBubble('assistant', '⏹ 已停止', { plan: _planSaved() });
             } else if (_modelErrorText(e)) {
                 // 模型那邊擋下或出錯：一行系統提示，不畫成他的泡泡
                 _setClaudePortraitState('living');
@@ -2351,6 +2488,7 @@
                 _rerenderTimer = null;
             }
             if (_revealer) _revealer.stop();
+            if (_planTick) { clearInterval(_planTick); _planTick = null; }
             if (streamWrap && streamWrap.parentNode) {
                 streamWrap.parentNode.removeChild(streamWrap);
                 streamWrap = null;
@@ -2403,6 +2541,7 @@
     VoidClaudeRoom.DOTS_HTML          = DOTS_HTML;
     VoidClaudeRoom.renderUserSticker  = _renderUserSticker;   // 群聊她送的表情包也畫成圖
     VoidClaudeRoom.toolDoingLabel     = _toolDoingLabel;
+    VoidClaudeRoom.buildPlanCard      = _buildPlanCard;    // 📋 跑完那張進度卡（msg.plan）
 
     console.log('✅ VoidClaudeRoom（Claude 房間 UI）模組就緒');
 })(window.VoidClaudeRoom = window.VoidClaudeRoom || {});
