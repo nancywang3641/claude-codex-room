@@ -253,3 +253,112 @@ button.grm-card { font: inherit; color: inherit; text-align: left; cursor: point
 .grm-empty h3 { margin: 4px 0 0; font-size: 16px; }
 .grm-empty p { margin: 0; font-size: 13px; color: #4b5d76; line-height: 1.6; }
 .grm-empty-icon { font-size: 30px; color: #8a97aa; }
+
+/* ── 猜猜我是誰（kind=whoami）：沒有棋盤，主角是每個人頭上那張便利貼 ── */
+.grm-thumb.grm-thumb-who { display: flex; align-items: center; justify-content: center; background: var(--cl-cream, #f4f6fb); }
+.grm-note-big {
+    width: 62px;
+    height: 62px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #fff1a8;
+    border: 1px solid #e6cf6b;
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(120, 95, 20, 0.18);
+    transform: rotate(-4deg);
+    font-size: 34px;
+    font-weight: 800;
+    color: #8a6d1c;
+}
+.grm-note {
+    display: inline-block;
+    max-width: 9em;
+    padding: 1px 7px;
+    background: #fff1a8;
+    border: 1px solid #e6cf6b;
+    border-radius: 3px;
+    box-shadow: 0 1px 2px rgba(120, 95, 20, 0.15);
+    color: #5c4813;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.5;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transform: rotate(-2deg);
+}
+.grm-note.is-empty { min-width: 34px; min-height: 18px; background: transparent; border-style: dashed; box-shadow: none; color: #a0aaba; font-weight: 400; }
+
+/* 首頁那張卡：一人一行 */
+.grm-who-rows { display: flex; flex-direction: column; gap: 4px; }
+.grm-who-row { display: flex; align-items: center; gap: 6px; font-size: 13px; min-width: 0; }
+.grm-who-name { font-weight: 700; flex-shrink: 0; }
+.grm-who-row.is-turn .grm-who-name { color: #d97757; }
+.grm-who-st { margin-left: auto; flex-shrink: 0; font-size: 11px; color: #8a97aa; }
+.grm-who-st i { margin-right: 3px; }
+.grm-who-st.is-solved { color: var(--cl-ok, #3d8048); font-weight: 700; }
+.grm-who-st.is-gone { color: #a0aaba; }
+.grm-who-last { display: flex; align-items: center; gap: 6px; }
+.grm-who-q { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 回答：是／不是／說不準／猜中／沒中／還在等 */
+.grm-ans { flex-shrink: 0; display: inline-flex; align-items: center; gap: 3px; padding: 0 8px; border-radius: 10px; font-size: 11px; font-weight: 700; line-height: 1.7; }
+.grm-ans.is-yes { background: rgba(61, 128, 72, 0.12); color: #2f6b3a; }
+.grm-ans.is-no { background: rgba(192, 57, 43, 0.1); color: #a33a2c; }
+.grm-ans.is-unsure { background: rgba(75, 93, 118, 0.1); color: #4b5d76; }
+.grm-ans.is-right { background: var(--cl-ok, #3d8048); color: #fff; }
+.grm-ans.is-wrong { background: #c0392b; color: #fff; }
+.grm-ans.is-wait { border: 1px dashed rgba(75, 93, 118, 0.4); color: #8a97aa; font-weight: 400; }
+
+/* 點進那盤：上面一排人，便利貼貼在頭上 */
+.grm-heads { display: grid; gap: 6px; padding: 12px 8px 10px; }
+.grm-heads.is-n2 { grid-template-columns: repeat(2, 1fr); }
+.grm-heads.is-n3 { grid-template-columns: repeat(3, 1fr); }
+.grm-heads.is-n4 { grid-template-columns: repeat(4, 1fr); }
+.grm-head { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 0; padding: 6px 2px 8px; border-radius: 10px; border: 1px solid transparent; text-align: center; }
+.grm-head.is-turn { background: rgba(217, 119, 87, 0.07); border-color: rgba(217, 119, 87, 0.35); }
+.grm-head.is-win { background: rgba(61, 128, 72, 0.07); border-color: rgba(61, 128, 72, 0.3); }
+.grm-note.grm-note-head { position: relative; z-index: 1; margin-bottom: -6px; max-width: 100%; font-size: 13px; padding: 2px 8px; }
+.grm-head .grm-face { position: relative; }
+.grm-head b { font-size: 13px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grm-head.is-turn b { color: #d97757; }
+.grm-head b i { margin-left: 4px; color: #c9961a; }
+.grm-head small { font-size: 11px; }
+.grm-head .grm-who-st { margin-left: 0; }
+.grm-head-by { color: #a0aaba; font-size: 10px; }
+
+.grm-who-end { flex-wrap: wrap; line-height: 1.5; }
+.grm-who-end .grm-res i { margin-right: 4px; }
+.grm-res i { margin-right: 4px; }
+
+/* 一題一題 */
+.grm-log-icon { flex-shrink: 0; width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; color: #c9a227; font-size: 15px; }
+.grm-who-word .grm-log-top { gap: 4px; }
+.grm-log-say.is-guess { background: #fff6c4; border: 1px dashed #e6cf6b; }
+.grm-who-reply { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 4px; font-size: 12px; }
+.grm-who-reply em { font-style: normal; color: #8a97aa; }
+.grm-who-note { color: #4b5d76; }
+
+/* 叫他們來一盤：頭上貼什麼 */
+.grm-words { display: flex; flex-direction: column; gap: 6px; }
+.grm-word-row { display: flex; align-items: center; gap: 8px; }
+.grm-word-name { width: 3.5em; flex-shrink: 0; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grm-word-in {
+    flex: 1;
+    min-width: 0;
+    height: 34px;
+    box-sizing: border-box;
+    padding: 0 10px;
+    border: 1px solid #e6cf6b;
+    border-radius: 6px;
+    background: #fffbe0;
+    color: var(--cl-text-deep, #13283f);
+    font: inherit;
+    font-size: 14px;
+}
+.grm-word-in::placeholder { color: #b3a978; }
+.grm-word-in:focus { outline: 2px solid rgba(217, 119, 87, 0.45); outline-offset: 0; }
+/* 等 GM：那句話一整行，按鈕排到下一行靠右 */
+.grm-status.grm-status-gm { flex-wrap: wrap; justify-content: flex-end; }
+.grm-status.grm-status-gm .grm-turn { flex-basis: 100%; }
