@@ -508,6 +508,8 @@
         h += '<div class="dorm-hall">'
             + '<button type="button" class="dorm-hall-btn" data-panel="board"><i class="fa-solid fa-note-sticky"></i><span>留言板</span></button>'
             + '<button type="button" class="dorm-hall-btn" data-panel="spend"><i class="fa-solid fa-coins"></i><span>額度</span></button>'
+            // 遊戲室：住戶醒來自己約棋、輪到誰走一步（GameRoom，橋 /v1/games）
+            + '<button type="button" class="dorm-hall-btn" data-panel="games"><i class="fa-solid fa-chess-knight"></i><span>遊戲室</span></button>'
             // 帶小機回來：羽毛筆那本匯出的檔（換電腦、從酒館搬到手機版）。要奧瑞亞新版才有（OS_XIAOJI_MEM）
             + (_XJ() && _MEM() ? '<button type="button" class="dorm-hall-btn" data-act="xj-import"><i class="fa-solid fa-file-import"></i><span>帶小機回來</span></button>' : '')
             + '</div>';

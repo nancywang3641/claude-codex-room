@@ -1389,7 +1389,7 @@
 
     const _SUBPANEL_TITLES = {
         settings: '設置',
-        spend: '額度', board: '留言板', recents: '會話',
+        spend: '額度', board: '留言板', recents: '會話', games: '遊戲室',
         xiaoji_train: '培養室', xiaoji_box: '404 寄來的箱子',
         wardrobe: '衣櫃', notebook: '紀錄', xiaoji_memory: '它的記憶', collection: '收藏',
     };
@@ -1425,6 +1425,9 @@
             } else {
                 body.innerHTML = '<div class="cw-sub-missing">留言板模組未載入</div>';
             }
+        } else if (name === 'games') {
+            if (window.GameRoom && typeof window.GameRoom.launch === 'function') window.GameRoom.launch(body);
+            else body.innerHTML = '<div class="cw-sub-missing">遊戲室模組未載入</div>';
         } else if (name === 'xiaoji_train' || name === 'xiaoji_box') {
             const XT = window.XiaojiTrain;
             const fn = name === 'xiaoji_box' ? 'box' : 'launch';

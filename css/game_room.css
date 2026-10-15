@@ -1,0 +1,255 @@
+/* ============================================================
+ * css/game_room.css — 宿舍遊戲室（core/game_room.js）
+ * 開在主窗的子面板裡；樣子照小樣（奧瑞亞 tmp/game_room_mockup.html）：宿舍的淺色紙面＋白卡片。
+ * class 一律 grm- 開頭（菜市場名會被酒館的全域樣式蓋掉）。
+ * ============================================================ */
+.grm-root {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    background: var(--cl-cream, #f4f6fb);
+    color: var(--cl-text-deep, #13283f);
+}
+.grm-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.grm-sec {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 6px 2px 0;
+    font-size: 13px;
+    font-weight: 700;
+    color: #4b5d76;
+}
+.grm-count { font-weight: 400; color: #8a97aa; }
+.grm-sec-help { margin-left: auto; }
+.grm-none { font-size: 13px; color: #8a97aa; padding: 4px 4px 8px; }
+
+.grm-card {
+    background: #fdfdfc;
+    border: 1px solid rgba(42, 74, 128, 0.22);
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(31, 58, 104, 0.08);
+}
+button.grm-card { font: inherit; color: inherit; text-align: left; cursor: pointer; width: 100%; }
+
+/* ── 正在下 ── */
+.grm-match { display: flex; gap: 10px; padding: 10px; }
+.grm-match:hover { border-color: var(--cl-grenadine, #2f6fc4); }
+.grm-thumb { flex-shrink: 0; width: 92px; height: 92px; border-radius: 8px; overflow: hidden; }
+.grm-thumb svg { width: 100%; height: 100%; display: block; }
+.grm-match-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.grm-tag {
+    align-self: flex-start;
+    font-size: 11px;
+    padding: 1px 7px;
+    border-radius: 10px;
+    background: rgba(47, 111, 196, 0.1);
+    color: var(--cl-grenadine, #2f6fc4);
+    font-weight: 600;
+}
+.grm-vs { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 700; flex-wrap: wrap; }
+.grm-vs-x { font-size: 11px; color: #8a97aa; font-weight: 400; }
+.grm-turn { font-size: 12px; line-height: 1.45; color: #4b5d76; }
+.grm-turn i { margin-right: 4px; color: #d97757; }
+.grm-turn b { color: #d97757; }
+.grm-turn.is-waiting i, .grm-turn.is-waiting b { color: #8a97aa; }
+.grm-stale { margin-left: 6px; padding: 0 6px; border-radius: 8px; background: rgba(217, 119, 87, 0.12); color: #b45b3b; font-size: 11px; }
+.grm-quote {
+    font-size: 12px;
+    background: var(--cl-cream, #f4f6fb);
+    border-radius: 8px;
+    padding: 5px 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.grm-quote em { font-style: normal; color: #8a97aa; margin-right: 4px; }
+
+/* 頭像：裝的是門卡那顆（.dorm-face），撐滿這一格 */
+.grm-face { flex-shrink: 0; display: inline-flex; width: 26px; height: 26px; }
+.grm-face.grm-face-lg { width: 40px; height: 40px; }
+.grm-face .dorm-face { width: 100%; height: 100%; }
+.grm-face .dorm-badge { display: none; }
+
+/* ── 等人接 ── */
+.grm-call { display: flex; align-items: center; gap: 10px; padding: 10px 12px; }
+.grm-call-main { flex: 1; min-width: 0; }
+.grm-call-main b { font-size: 13px; }
+.grm-call-main p { margin: 3px 0 0; font-size: 12px; color: #4b5d76; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.grm-call-state { flex-shrink: 0; font-size: 11px; color: #8a97aa; text-align: right; line-height: 1.4; }
+
+/* ── 下完的、戰績 ── */
+.grm-list { overflow: hidden; }
+.grm-done {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    font: inherit;
+    font-size: 13px;
+    color: inherit;
+    text-align: left;
+    background: none;
+    border: 0;
+    border-top: 1px solid rgba(42, 74, 128, 0.15);
+    cursor: pointer;
+}
+.grm-done:first-child { border-top: 0; }
+.grm-done:hover { background: rgba(42, 74, 128, 0.05); }
+.grm-done-who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grm-res { flex-shrink: 0; font-weight: 700; color: #4b5d76; }
+.grm-res.is-win { color: var(--cl-ok, #3d8048); }
+.grm-res.is-stop { color: #8a97aa; }
+.grm-when { margin-left: auto; flex-shrink: 0; font-size: 11px; color: #8a97aa; }
+.grm-done .fa-rotate-left { color: #8a97aa; font-size: 12px; }
+.grm-rank { display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-top: 1px solid rgba(42, 74, 128, 0.15); font-size: 13px; }
+.grm-rank:first-child { border-top: 0; }
+.grm-rank-no { width: 16px; text-align: center; color: #8a97aa; font-weight: 700; }
+.grm-rank-name { flex: 1; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grm-rank-wl { color: #4b5d76; font-variant-numeric: tabular-nums; }
+.grm-rank-wl b { color: #3d8048; }
+.grm-streak { font-size: 11px; color: #d97757; }
+
+.grm-cta {
+    flex-shrink: 0;
+    margin: 0 12px 12px;
+    height: 44px;
+    border: 0;
+    border-radius: 12px;
+    background: var(--cl-grenadine, #2a4a80);
+    color: #fff;
+    font: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    cursor: pointer;
+}
+.grm-cta:disabled { opacity: 0.45; cursor: default; }
+
+/* ── 點進一盤 ── */
+.grm-players { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; }
+.grm-player { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.grm-player.is-right { flex-direction: row-reverse; text-align: right; }
+.grm-player b { display: block; font-size: 14px; }
+.grm-player small { font-size: 11px; color: #8a97aa; display: flex; align-items: center; gap: 4px; }
+.grm-player.is-right small { justify-content: flex-end; }
+.grm-player.is-turn b { color: #d97757; }
+.grm-stone { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+.grm-stone.is-black { background: #222; }
+.grm-stone.is-white { background: #fff; border: 1px solid #999; }
+.grm-move-no { font-size: 12px; color: #8a97aa; text-align: center; flex-shrink: 0; }
+.grm-move-no b { display: block; font-size: 18px; color: var(--cl-text-deep, #13283f); }
+.grm-board { padding: 8px; }
+.grm-board svg { width: 100%; height: auto; display: block; }
+
+.grm-replay { display: flex; align-items: center; gap: 4px; padding: 6px 8px; }
+.grm-slider { flex: 1; min-width: 0; accent-color: var(--cl-grenadine, #2a4a80); }
+.grm-replay-no { width: 48px; text-align: center; font-size: 12px; color: #4b5d76; font-variant-numeric: tabular-nums; }
+.grm-icon {
+    width: 32px;
+    height: 32px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--cl-grenadine, #2a4a80);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 14px;
+}
+.grm-icon:hover { background: rgba(42, 74, 128, 0.08); }
+
+.grm-status { display: flex; align-items: center; gap: 8px; padding: 9px 12px; font-size: 13px; }
+.grm-status .grm-turn { flex: 1; }
+.grm-status-end span:last-child { color: #4b5d76; }
+.grm-stop {
+    flex-shrink: 0;
+    border: 1px solid rgba(42, 74, 128, 0.25);
+    background: #fff;
+    color: #4b5d76;
+    border-radius: 8px;
+    padding: 5px 10px;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+.grm-stop.is-armed { border-color: #c0392b; color: #c0392b; background: rgba(192, 57, 43, 0.06); }
+
+.grm-log { list-style: none; margin: 0; padding: 4px 0; }
+.grm-log li { display: flex; gap: 8px; padding: 7px 12px; align-items: flex-start; }
+.grm-log li[data-n] { cursor: pointer; }
+.grm-log li[data-n]:hover { background: rgba(42, 74, 128, 0.05); }
+.grm-log li.is-now { background: rgba(217, 119, 87, 0.09); }
+.grm-log li.grm-log-empty { color: #8a97aa; font-size: 13px; }
+.grm-log-main { flex: 1; min-width: 0; }
+.grm-log-top { font-size: 12px; color: #8a97aa; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.grm-log-top b { color: var(--cl-text-deep, #13283f); }
+.grm-log-say { margin-top: 3px; font-size: 13px; background: var(--cl-cream, #f4f6fb); border-radius: 10px; padding: 5px 9px; display: inline-block; }
+
+/* ── 叫他們來一盤 ── */
+.grm-dim { position: absolute; inset: 0; z-index: 5; background: rgba(15, 25, 45, 0.45); display: flex; align-items: flex-end; }
+.grm-sheet { width: 100%; max-height: 92%; overflow-y: auto; background: #fdfdfc; border-radius: 18px 18px 0 0; padding: 14px 14px 16px; display: flex; flex-direction: column; gap: 12px; box-sizing: border-box; }
+.grm-sheet-head { display: flex; align-items: center; gap: 6px; }
+.grm-sheet-head h3 { margin: 0; font-size: 16px; flex: 1; }
+.grm-label { font-size: 12px; color: #4b5d76; font-weight: 700; margin-bottom: 6px; }
+.grm-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.grm-chip {
+    height: 34px;
+    padding: 0 14px;
+    border-radius: 17px;
+    border: 1px solid rgba(42, 74, 128, 0.22);
+    background: #fff;
+    color: inherit;
+    font: inherit;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+}
+.grm-chip.is-on { background: var(--cl-grenadine, #2a4a80); border-color: var(--cl-grenadine, #2a4a80); color: #fff; }
+.grm-pick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.grm-pick-cell {
+    position: relative;
+    border: 1px solid rgba(42, 74, 128, 0.22);
+    border-radius: 12px;
+    background: #fff;
+    padding: 8px 4px 6px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    font: inherit;
+    font-size: 12px;
+    color: inherit;
+    cursor: pointer;
+}
+.grm-pick-cell small { color: #8a97aa; font-size: 10px; }
+.grm-pick-cell.is-on { border-color: #d97757; background: rgba(217, 119, 87, 0.08); }
+.grm-pick-cell.is-off { opacity: 0.5; cursor: default; }
+.grm-first { position: absolute; top: 4px; left: 6px; font-size: 10px; font-weight: 700; color: #fff; background: #d97757; border-radius: 6px; padding: 0 5px; }
+.grm-cta.grm-cta-in { margin: 2px 0 0; }
+
+/* ── 空的時候、連不上的時候 ── */
+.grm-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; text-align: center; }
+.grm-empty-board { width: 150px; opacity: 0.55; }
+.grm-empty-board svg { width: 100%; height: auto; display: block; }
+.grm-empty h3 { margin: 4px 0 0; font-size: 16px; }
+.grm-empty p { margin: 0; font-size: 13px; color: #4b5d76; line-height: 1.6; }
+.grm-empty-icon { font-size: 30px; color: #8a97aa; }

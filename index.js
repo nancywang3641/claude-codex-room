@@ -226,7 +226,7 @@
     // 手機瀏覽器把這批靜態檔快取得很兇,沒版本參數的話核心檔更新永遠到不了手機
     // (症狀:桌機是新版、手機停在幾個月前,甚至 chat_window 跟 chat_room 各停在不同版本)。
     // 檔案有改就把 VER +1,跟奧瑞亞 sw.js 的 CACHE_VERSION 同一套習慣。
-    const VER = 155;
+    const VER = 156;
 
     function loadCSS(href) {
         if (document.querySelector('link[data-ccr="' + href + '"]')) return;
@@ -256,6 +256,7 @@
     loadCSS(HERE + 'css/void_claude_ask.css');      // AI 互動選項按鈕(ASK markers)
     loadCSS(HERE + 'css/os_spend.css');             // 💰 額度
     loadCSS(HERE + 'css/os_board.css');             // 📝 留言板
+    loadCSS(HERE + 'css/game_room.css');            // ♟ 遊戲室
     loadCSS(HERE + 'css/dorm.css');
     loadCSS(HERE + 'css/xiaoji.css');           // 🧩 API 小機                 // 🏠 宿舍面板
     loadCSS(HERE + 'css/wardrobe.css');         // 👕 衣櫃
@@ -280,6 +281,7 @@
         'core/chat_group.js',      // window.ChatGroup
         'core/os_spend_panel.js',  // 💰 額度（OS_SPEND_PANEL，房間送訊息時 record 花費）
         'core/os_board.js',        // 📝 留言板（OS_BOARD，讀 cc-bridge /v1/board）
+        'core/game_room.js',       // ♟ 遊戲室（GameRoom：住戶自己約棋、橋判規則，讀 cc-bridge /v1/games）
         'core/dorm.js',         // 🏠 宿舍面板（DormPanel，💬 點開的門卡）
         'core/xiaoji_train.js', // 🧩 API 小機的開箱與培養室（XiaojiTrain，引擎在奧瑞亞 OS_XIAOJI）
         'core/aurelia_link.js', // 🧰 住戶用奧瑞亞的工具：這頁代跑（AureliaLink，橋 /v1/aurelia/*）
