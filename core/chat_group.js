@@ -225,14 +225,106 @@
     // 二來——真正的重點——其他人會透過傳話增量知道桌上多了誰、誰改了名。
     // note = 只講給 AI 聽的後果（例如「他不會再回話」）。她看畫面不需要那句廢話，
     // 但他們需要——不然照樣 @ 一個已經不在的人、照樣等他回。
-    async function _announce(text, note) {
+    // ai = 給 AI 看的整句，有給就取代「text —— note」（名冊那種：她看短的，他們看寫全的，不必兩份都念）
+    async function _announce(text, note, ai) {
         if (!text) return;
         if (!_loaded) await ChatGroup.load();   // 沒 load 過就 push 會把 OS_DB 那份蓋成空的
+        _pushSys(text, note, ai);
+    }
+    /** 已經 load 過才能直接叫 */
+    function _pushSys(text, note, ai) {
         const entry = { speaker: 'sys', content: text, ts: Date.now() };
         if (note) entry.note = note;
+        if (ai) entry.ai = ai;
         _transcript.push(entry);
         _save();
         if (_streamEl) _renderSystemLine(text);
+    }
+
+    // ── 名冊：桌上誰用什麼模型（10-15 她：住戶彼此不知道對方是什麼模型，會把阿洛當成 Claude）──
+    // 講者前綴照舊只寫名字（每句都帶模型太吃字數，前綴又是拿來認人的），模型只在名冊講：
+    // 開場那份在 GROUP_SYSTEM_PROMPT，但會話是出生定死的、那段只送第一輪 —— 這版之前就開著的會話、
+    // 中途有人換了模型，都只能靠聊天室通知補。上次講到哪記在 ROSTER_KEY，跟現在不一樣才發。
+    const ROSTER_KEY = 'group_roster_told';   // { 住戶id: 給 AI 看的模型那段 }；沒有＝還沒講過完整名冊
+
+    function _modelForAI(rid) {
+        const CT = _CT();
+        return (CT && typeof CT.residentModelForAI === 'function') ? (CT.residentModelForAI(rid) || '') : '';
+    }
+    /** 給她看的模型名：Claude 跟表頭同一個（她取過暱稱就是暱稱），其他家寫廠牌，指定了模型再帶上 */
+    function _modelForRae(rid) {
+        const CT = _CT();
+        const p = _provOf(rid);
+        if (p === 'claude') return (CT && typeof CT.residentModelLabel === 'function') ? CT.residentModelLabel(rid) : '';
+        const id = (CT && typeof CT.residentModelId === 'function') ? CT.residentModelId(rid) : '';
+        if (p === 'codex') return id ? 'Codex ' + id : 'Codex';
+        if (p === 'deepseek') return id || 'DeepSeek';
+        return id;
+    }
+    /** 丹（Anthropic 的 Claude，claude-opus-5-5）、阿洛（OpenAI 的 Codex，…） */
+    function _rosterForAI() {
+        return _seats().map(function (s) {
+            const m = _modelForAI(s.id);
+            return s.name + (m ? '（' + m + '）' : '');
+        }).join('、');
+    }
+    function _rosterForRae() {
+        return _seats().map(function (s) {
+            const m = _modelForRae(s.id);
+            return s.name + (m ? ' · ' + m : '');
+        }).join('、');
+    }
+    function _loadRosterTold() {
+        try {
+            const o = JSON.parse(_lsGet(ROSTER_KEY) || 'null');
+            return (o && typeof o === 'object' && !Array.isArray(o)) ? o : null;
+        } catch (_) { return null; }
+    }
+    function _saveRosterTold(o) { _lsSet(ROSTER_KEY, JSON.stringify(o)); }
+    /** 上下桌的告示自己帶了名冊：只記那一位。別人換了模型還沒講的照樣留給下一輪比對 */
+    function _rosterToldSet(rid, seated) {
+        const told = _loadRosterTold();
+        if (!told) return;   // 還沒講過完整名冊：下一輪那則一次講
+        if (seated) told[rid] = _modelForAI(rid); else delete told[rid];
+        _saveRosterTold(told);
+    }
+
+    /**
+     * 桌上誰用什麼模型，跟上次講的不一樣就發一則通知（進逐字稿，大家下一次都看得到，換模型的那位自己也看得到）。
+     * 桌上沒人有舊會話就不必講 —— 大家都從頭開，開場那份就是新的。已經 load 過才能叫。
+     * 🚨 要排在她那幾句前面：放她的話後面的話，他們會對著這則通知回話，不回她（最後一段決定焦點）。
+     *    所以她放話上桌時就先比一次（holdMessage），輪到誰講話前再比一次只是保險。
+     */
+    function _syncRosterNow() {
+        const seats = _seats();
+        if (!seats.length) return;
+        const now = {};
+        seats.forEach(function (s) { now[s.id] = _modelForAI(s.id); });
+        const told = _loadRosterTold();
+        let text = '', ai = '';
+        if (!told) {
+            text = '現在桌上：' + _rosterForRae();
+            ai = '現在桌上的人跟各自用的模型：' + _rosterForAI() + '。名字是人、括號裡是他用的模型；同一家的模型可以有好幾位，各是各的人。';
+        } else {
+            const changed = seats.filter(function (s) { return told[s.id] != null && told[s.id] !== now[s.id]; });
+            const joined  = seats.filter(function (s) { return told[s.id] == null; });
+            if (changed.length) {
+                text = changed.map(function (s) { return s.name + ' 換成 ' + (_modelForRae(s.id) || '別的模型') + ' 了'; }).join('；');
+                ai = changed.map(function (s) {
+                    return s.name + ' 換了模型，現在用 ' + (now[s.id] || '別的模型') + (told[s.id] ? '（之前是 ' + told[s.id] + '）' : '');
+                }).join('；') + '。現在桌上是：' + _rosterForAI() + '。';
+            } else if (joined.length) {
+                text = '現在桌上：' + _rosterForRae();
+                ai = '現在桌上的人跟各自用的模型：' + _rosterForAI() + '。';
+            }
+        }
+        _saveRosterTold(now);
+        const hasOld = seats.some(function (s) { return !!_lsGet(_sidKey(s.id)); });
+        if (text && hasOld) _pushSys(text, '', ai);
+    }
+    async function _syncRoster() {
+        if (!_loaded) await ChatGroup.load();
+        _syncRosterNow();
     }
 
     /** 誰上桌 / 下桌。dorm 面板點椅子時呼叫（fire-and-forget）。 */
@@ -241,12 +333,13 @@
         // 主詞一定要是 Rae。「阿洛 離席了」是主動語態，他們會讀成他自己決定走的，
         // 然後開始猜他是不是不高興 —— 實際上是她按了那顆椅子。用詞跟門卡上那顆鈕一致。
         const text = 'Rae 把 ' + who + (seated ? ' 請上桌了' : ' 請下桌了');
-        // 順便報一次現在桌上有誰：他們 session 開頭那份同桌名單是當時寫死的，
+        // 順便報一次現在桌上有誰、各用什麼模型：他們 session 開頭那份同桌名單是當時寫死的，
         // 之後不會變 —— 不講的話他們會一直以為已經走掉的人還坐在那，只是沒說話。
-        const roster = _seats().map(function (x) { return x.name; }).join('、');
+        const roster = _rosterForAI();
         const note = (seated ? '' : '他已經不在這張桌上，不會再回話。')
                    + (roster ? '現在桌上是：' + roster + '。' : '現在桌上沒有人了。');
         return _announce(text, note).then(function () {
+            _rosterToldSet(rid, seated);
             if (seated) {
                 // 回來的人從現在開始聽，不倒帶：進度推到「入席告示的前一則」，
                 // 所以他看得到自己被請回來，但拿不到離席期間的逐字稿。
@@ -278,10 +371,11 @@
         // 那不是理由，是模板漏字 —— 印出來看起來像沒寫完。
         const said = String(reason == null ? '' : reason).trim();
         const text = who + ' 自己下桌了' + (said && !_isPlaceholderArg(said) ? '（' + said + '）' : '');
-        const roster = _seats().map(function (x) { return x.name; }).join('、');
+        const roster = _rosterForAI();
         await _announce(text,
             '他已經不在這張桌上，不會再回話；要他回來得由 Rae 請他上桌。'
             + (roster ? '現在桌上是：' + roster + '。' : '現在桌上沒有人了。'));
+        _rosterToldSet(rid, false);
         _leftAt[rid] = _transcript.length - 1;
         _markSeen(rid, _transcript.length - 1);
     }
@@ -295,6 +389,7 @@
         if (!rid) return Promise.resolve();
         _clearSid(rid);
         if (!wasSeated) return Promise.resolve();   // 本來就不在桌上，沒什麼好報的
+        _rosterToldSet(rid, false);
         return _announce('Rae 把 ' + (name || rid) + ' 請走了', '他之後不會再出現').catch(function (e) {
             console.warn('[ChatGroup] 搬走告示失敗：', e);
         });
@@ -833,7 +928,7 @@
             // 一位沒見過的參與者在講話，或當雜訊跳過（實測就是這樣，沒人反應）。
             // 寫成一句自我說明的通知，不必靠 system prompt 解釋，改完當場生效。
             lines.push(m.speaker === 'sys'
-                ? '（聊天室通知）' + m.content + (m.note ? ' —— ' + m.note : '')
+                ? '（聊天室通知）' + (m.ai || (m.content + (m.note ? ' —— ' + m.note : '')))
                 : '[' + _labelOf(m.speaker) + ']: ' + m.content);
             if (m.ts) prevTs = m.ts;
         }
@@ -923,6 +1018,7 @@
     // 回傳 { spoke:bool, failed:bool, markers:{game,move,gameover} }
     async function _runTurn(rid, opts) {
         opts = opts || {};
+        await _syncRoster();   // 有人換了模型（或還沒講過完整名冊）→ 先發通知，這一輪的增量就帶到
         const brief = await _makeBrief(rid);
         let delta = _buildDelta(rid);
         if (brief && delta) delta = '（你不在的這段時間，桌上發生的事：' + brief + '）\n\n' + delta;
@@ -1666,6 +1762,7 @@
         if (!text.trim() && !atts.length) return null;
         _pendingAttachments = [];
         _renderPendingAttachments();
+        if (_loaded) _syncRosterNow();   // 有人換了模型的話，通知排在她這句前面
         const entry = { speaker: 'rae', content: text, ts: Date.now() };
         if (atts.length) entry.attachments = atts;
         if (!_game) entry.held = true;   // 對局中她的話由對局迴圈下一手帶到，不用等魔杖

@@ -122,12 +122,21 @@
 
     // 群聊區系統提示：你、Rae、其他 AI 多方同一聊天室
     // otherNames: string[](['Codex'] 或 ['Codex','蘇景明'] 之類)
-    function GROUP_SYSTEM_PROMPT(selfName, otherNames) {
+    // modelOf: { 名字: 'Anthropic 的 Claude，claude-opus-5-5' }（席位版才有；舊版 LP.chat 那些不帶，照舊只列名字）
+    //   名字後面寫他用的模型（10-15 她：住戶會把阿洛當成 Claude，他其實是 Codex）。講者前綴照舊只寫名字 ——
+    //   每句都帶模型太吃字數，前綴又是用來認人的。這段只在會話第一輪送，之後換人換模型靠聊天室通知補。
+    function GROUP_SYSTEM_PROMPT(selfName, otherNames, modelOf) {
         const others = (Array.isArray(otherNames) ? otherNames : [otherNames]).filter(Boolean);
         const solo = others.length === 0;   // 只有一位入席：別叫他去接不存在的人的話
         const othersJoined = others.join('、');
         const othersExample = (solo ? ['某某'] : others).map(n => `[${n}]: ...`).join(' / ');
-        const roster = solo ? '這桌目前只有你跟 Rae。' : `同桌的還有：${othersJoined}。`;
+        const m = modelOf || {};
+        const roster = m[selfName]
+            ? '\n\n桌上的人（名字後面是他用的模型；同一家的模型可以有好幾位，各是各的人）：\n'
+              + [selfName].concat(others).map(n => `- ${n}${n === selfName ? '（你）' : ''}：${m[n] || '模型不明'}`).join('\n')
+              + (solo ? '\n這桌目前只有你跟 Rae。' : '')
+              + '\n之後誰上下桌、誰換了模型，聊天室會再發通知。'
+            : (solo ? '這桌目前只有你跟 Rae。' : `同桌的還有：${othersJoined}。`);
         const withOthers = solo
             ? '- 你可以正常回應 Rae。'
             : `- 你可以正常回應 Rae，也可以接其他人（${othersJoined}）的話、附和或吐槽，像在群組裡聊天。`;
@@ -135,7 +144,7 @@
         return `你正在「奧瑞亞 Aurelia」擴展的「群聊區」裡，跟使用者 Rae 多方聊天。${roster}
 
 - 其他人的發言會標上講者前綴，例如 [Rae]: ... 或 ${othersExample}。你自己的回覆不需要加前綴。
-- 以「（聊天室通知）」開頭的那幾行是這個聊天室自己發的狀態通知（誰上桌、誰離席、誰改了名），不是任何人在講話。看到就當它已經發生了。
+- 以「（聊天室通知）」開頭的那幾行是這個聊天室自己發的狀態通知（誰上桌、誰離席、誰改了名、誰換了模型），不是任何人在講話。看到就當它已經發生了。
 ${withOthers}
 - 你每一輪都會被問到。如果這一輪的話明顯是在問別人、不是問你，或你沒什麼好補充 —— 就「只輸出」 [PASS] 這四個字、不要加任何其他內容，代表這次略過不講。被直接點名或問到你時就正常回。
 - 想指定某個人接話（追問、點名、要他表態），在回覆裡 @ 他的名字，他會被叫進來回你，不必等 Rae 再開口。沒有特別要找誰就不要 @ —— 每個人本來每輪都會被問到。
@@ -511,6 +520,24 @@ ${withOthers}
         const r = ClaudeTerminal.getResident(rid);
         if (!r || r.provider === 'group' || r.provider === 'xiaoji') return '';
         return r.modelId || _residentPicked(r) || _modelFor(_cfgRead() || {}, r.provider);
+    };
+
+    /**
+     * 講給 AI 聽的「這位是哪家的什麼模型」，群聊名冊用（10-15 她：住戶彼此不知道對方是什麼模型，
+     * 會把阿洛當成 Claude）。不用她取的暱稱、也不用選單上的字（「(舊)」那種）—— 給模型看的
+     * 寫廠牌加 model id 最不會認錯。裡面不放括號：名冊會寫成「丹（這一段）」。
+     */
+    const VENDOR_FOR_AI = {
+        claude:   ['Anthropic 的 Claude', ''],
+        codex:    ['OpenAI 的 Codex',     '用 Codex 自己的預設模型'],
+        deepseek: ['DeepSeek',            '用 CodeWhale 的預設模型'],
+    };
+    ClaudeTerminal.residentModelForAI = function(rid) {
+        const r = ClaudeTerminal.getResident(rid);
+        const v = r && VENDOR_FOR_AI[r.provider];
+        if (!v) return '';
+        const id = ClaudeTerminal.residentModelId(rid);
+        return v[0] + ((id || v[1]) ? '，' + (id || v[1]) : '');
     };
 
     /**
@@ -2262,10 +2289,17 @@ ${withOthers}
         const otherNames = Array.isArray(opts.otherNames)
             ? opts.otherNames.filter(Boolean).map(String)
             : ['claude', 'codex', 'deepseek'].filter(p => p !== provider).map(p => _nameOf[p]);
+        // 席位版：開場名冊附上每個人用的模型（舊版沒有住戶可查，照舊只有名字）
+        let modelOf = null;
+        if (seat && !sid) {
+            modelOf = {};
+            ClaudeTerminal.listGroupSeats().forEach(s => { modelOf[s.name] = ClaudeTerminal.residentModelForAI(s.id); });
+            modelOf[selfName] = ClaudeTerminal.residentModelForAI(seat.id);
+        }
         const apiMessages = sid
             ? [{ role: 'user', content: opts.userText }]
             : [
-                { role: 'system', content: GROUP_SYSTEM_PROMPT(selfName, otherNames) },
+                { role: 'system', content: GROUP_SYSTEM_PROMPT(selfName, otherNames, modelOf) },
                 { role: 'user', content: opts.userText },
               ];
 
