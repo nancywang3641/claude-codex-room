@@ -8,9 +8,12 @@
  * 存在 rec.room。小機沒有醒來，只有聊天時動手。
  * 🚨 改規則要兩邊一起改（橋 room_decor.py ↔ 這支）；畫法在 clawd_portrait.js（倉鼠／小貓／企鵝的身體框）。
  *
- * 一套打扮 rec.wear＝{ body, items: [{ id, name, svg, ratio, x, y, w, face }], look, nextId }；
- * 衣櫃 rec.closet＝{ outfits: [{ id, name, data: {body, items, look}, sig, created_at, worn_at }], changedAt, byRae, nextId }。
- * 房間 rec.room＝{ wall, floor, items: [{ id, name, svg, ratio, x, y, w }], nextId }（wall、floor 沒刷過是 null）。
+ * 一套打扮 rec.wear＝{ body, items: [{ id, name, svg, ratio, x, y, w, face, at, via, outfit }], look, nextId, bodySrc, lookSrc }；
+ * 衣櫃 rec.closet＝{ outfits: [{ id, name, data: {body, items, look}, sig, created_at, worn_at, via }], changedAt, changeVia, changeOutfit, byRae, nextId }。
+ * 房間 rec.room＝{ wall, floor, items: [{ id, name, svg, ratio, x, y, w, at, via }], nextId, paint }（wall、floor 沒刷過是 null）。
+ * at／via／outfit：什麼時候（毫秒）、哪一路（dm＝房間聊天時、rae＝使用者從衣櫃換的）、整套換上的是哪一套（同橋的 via／outfit 欄，
+ * 宿舍待修 #378）；bodySrc、lookSrc、paint 是身體顏色、形象、牆的那一份 { at, via, outfit }。這些不算進一套的樣子（_now 不帶）。
+ * 舊存檔沒有這幾欄：念的時候寫「更早之前」，不猜。
  * 用法：claude_terminal 送話前 briefRoom()、brief() 接進小機的說明，回完 apply() 照它寫的標籤動手；衣櫃面板 wardrobe()／act()；
  * 房間畫面 room() 交給 RoomScene。布置與打扮都是天生就會的（不用上課）；一次回覆房間最多動 CHAT_ROOM_MAX 件，打扮、形象各只做第一個做得成的。
  * ------------------------------------------------------------------
@@ -173,13 +176,22 @@
     // ---------- 資料 ----------
     function _wear(rec) {
         const w = rec.wear && typeof rec.wear === 'object' ? rec.wear : {};
-        rec.wear = { body: w.body || null, items: Array.isArray(w.items) ? w.items : [], look: w.look || null, nextId: w.nextId || 1 };
+        rec.wear = { body: w.body || null, items: Array.isArray(w.items) ? w.items : [], look: w.look || null, nextId: w.nextId || 1,
+                     bodySrc: w.bodySrc || null, lookSrc: w.lookSrc || null };
         return rec.wear;
     }
     function _closet(rec) {
-        const c = rec.closet && typeof rec.closet === 'object' ? rec.closet : {};
-        rec.closet = { outfits: Array.isArray(c.outfits) ? c.outfits : [], changedAt: c.changedAt || null, byRae: c.byRae || null, nextId: c.nextId || 1 };
-        return rec.closet;
+        // 就地補齊、不換新物件：同一趟裡先拿到的 c，之後 _keep／_touch 再拿一次還是同一個，寫上去的換裝時間、byRae 才不會掉
+        if (!rec.closet || typeof rec.closet !== 'object') rec.closet = {};
+        const c = rec.closet;
+        if (!Array.isArray(c.outfits)) c.outfits = [];
+        ['changedAt', 'changeVia', 'changeOutfit', 'byRae'].forEach(k => { if (!c[k]) c[k] = null; });
+        if (!c.nextId) c.nextId = 1;
+        return c;
+    }
+    function _touch(rec, via, outfit) {      // 記這次換裝：什麼時候、哪一路、整套換上的是哪一套（同橋 _touch）
+        const c = _closet(rec);
+        c.changedAt = Date.now(); c.changeVia = via || null; c.changeOutfit = outfit || null;
     }
     /** 身上這套（跟衣櫃裡存的同一個形狀；不帶件號） */
     function _now(rec) {
@@ -189,13 +201,13 @@
     }
     const _plain = o => !o.body && !(o.items && o.items.length) && !o.look;
 
-    function _keep(rec, o, name) {
+    function _keep(rec, o, name, via) {
         if (_plain(o)) return null;
         const c = _closet(rec), sig = _sig(o);
         const hit = c.outfits.find(x => x.sig === sig);
         if (hit) { if (name) hit.name = name; return hit.id; }
         const id = c.nextId++;
-        c.outfits.push({ id, name: name || '', data: JSON.parse(JSON.stringify(o)), sig, created_at: Date.now(), worn_at: null });
+        c.outfits.push({ id, name: name || '', data: JSON.parse(JSON.stringify(o)), sig, created_at: Date.now(), worn_at: null, via: via || null });
         // 滿了：先丟最久沒穿、沒取名的；全都取了名才丟最久沒穿的
         while (c.outfits.length > OUTFIT_MAX) {
             const rest = c.outfits.filter(x => x.id !== id);
@@ -205,19 +217,21 @@
         }
         return id;
     }
-    function _putOn(rec, o) {
-        const w = _wear(rec);
+    function _putOn(rec, o, via, label) {
+        const w = _wear(rec), at = Date.now(), src = { at, via: via || null, outfit: label || null };
         w.body = o.body || null;
         w.items = (o.items || []).slice(0, MAX_WEAR).map(it => ({ id: w.nextId++, name: it.name || '沒取名的東西', svg: it.svg,
-            ratio: it.ratio || 1, x: it.x, y: it.y, w: it.w, face: it.face || 0 }));
+            ratio: it.ratio || 1, x: it.x, y: it.y, w: it.w, face: it.face || 0, at, via: src.via, outfit: src.outfit }));
         w.look = o.look ? JSON.parse(JSON.stringify(o.look)) : null;
+        w.bodySrc = w.body ? Object.assign({}, src) : null;
+        w.lookSrc = w.look ? Object.assign({}, src) : null;
     }
     function _label(x) {
         if (x.name) return x.name;
         const d = new Date(x.created_at), p = n => String(n).padStart(2, '0');
         return p(d.getMonth() + 1) + '/' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
     }
-    function _wearOutfit(rec, id, preset, byRae) {
+    function _wearOutfit(rec, id, preset, byRae, via) {
         let o, label;
         if (preset) { if (preset !== 'default') return null; o = { body: null, items: [], look: null }; label = '原本的樣子'; }
         else {
@@ -227,23 +241,24 @@
         }
         const cur = _now(rec);
         if (_sig(cur) === _sig(o)) return null;
-        _keep(rec, cur);
-        _putOn(rec, o);
+        const src = byRae ? 'rae' : (via || null);
+        _keep(rec, cur, '', src);
+        _putOn(rec, o, src, label);
         const c = _closet(rec);
         if (!preset) { const x = c.outfits.find(z => z.id === id); if (x) x.worn_at = Date.now(); }
-        c.changedAt = Date.now();
+        _touch(rec, src, label);
         c.byRae = byRae ? label : null;
         return '換上衣櫃裡的「' + label + '」';
     }
     function _doOne(rec, a) {
-        const w = _wear(rec), v = a.verb;
-        if (v === 'look_set') { w.look = { svg: a.svg, ratio: svgRatio(a.svg), w: a.w, eyes: a.eyes, eye: a.eye || null }; return '換了自己畫的形象（寬 ' + _fmt(a.w) + '、眼睛 ' + a.eyes.length + ' 隻）'; }
-        if (v === 'look_reset') { if (!w.look) return null; w.look = null; return '換回原本的樣子'; }
-        if (v === 'wear_color') { w.body = a.body; return '身體換成 ' + a.body; }
+        const w = _wear(rec), v = a.verb, src = { at: Date.now(), via: a.via || null, outfit: null };
+        if (v === 'look_set') { w.look = { svg: a.svg, ratio: svgRatio(a.svg), w: a.w, eyes: a.eyes, eye: a.eye || null }; w.lookSrc = src; return '換了自己畫的形象（寬 ' + _fmt(a.w) + '、眼睛 ' + a.eyes.length + ' 隻）'; }
+        if (v === 'look_reset') { if (!w.look) return null; w.look = null; w.lookSrc = null; return '換回原本的樣子'; }
+        if (v === 'wear_color') { w.body = a.body; w.bodySrc = src; return '身體換成 ' + a.body; }
         if (v === 'wear_put') {
             if (w.items.length >= MAX_WEAR) return null;
             const id = w.nextId++;
-            w.items.push({ id, name: a.name, svg: a.svg, ratio: svgRatio(a.svg), x: a.x, y: a.y, w: a.w, face: a.face });
+            w.items.push({ id, name: a.name, svg: a.svg, ratio: svgRatio(a.svg), x: a.x, y: a.y, w: a.w, face: a.face, at: src.at, via: src.via });
             return '戴上 #' + id + ' ' + a.name;
         }
         const it = w.items.find(x => x.id === a.id);
@@ -256,14 +271,14 @@
     }
     /** 做一件（換裝成功時，舊的那套穿超過 OUTFIT_GAP 就先收進衣櫃）。回一句人話或 null */
     function _do(rec, a) {
-        if (a.verb === 'wear_keep') { const id = _keep(rec, _now(rec), a.name); return id ? '把現在這套收進衣櫃「' + a.name + '」' : null; }
-        if (a.verb === 'wear_outfit') return _wearOutfit(rec, a.id, a.preset, false);
+        if (a.verb === 'wear_keep') { const id = _keep(rec, _now(rec), a.name, a.via); return id ? '把現在這套收進衣櫃「' + a.name + '」' : null; }
+        if (a.verb === 'wear_outfit') return _wearOutfit(rec, a.id, a.preset, false, a.via);
         const before = _now(rec);
         const done = _doOne(rec, a);
         if (done) {
             const c = _closet(rec);
-            if (!c.changedAt || Date.now() - c.changedAt >= OUTFIT_GAP) _keep(rec, before);
-            c.changedAt = Date.now();
+            if (!c.changedAt || Date.now() - c.changedAt >= OUTFIT_GAP) _keep(rec, before, '', a.via);
+            _touch(rec, a.via, null);
             c.byRae = null;
         }
         return done;
@@ -272,20 +287,21 @@
     // ---------- 房間（同橋 _do_one 的 room 那幾條；不碰衣櫃）----------
     function _room(rec) {
         const r = rec.room && typeof rec.room === 'object' ? rec.room : {};
-        rec.room = { wall: r.wall || null, floor: r.floor || null, items: Array.isArray(r.items) ? r.items : [], nextId: r.nextId || 1 };
+        rec.room = { wall: r.wall || null, floor: r.floor || null, items: Array.isArray(r.items) ? r.items : [], nextId: r.nextId || 1, paint: r.paint || null };
         return rec.room;
     }
     function _doRoom(rec, a) {
-        const r = _room(rec), v = a.verb;
+        const r = _room(rec), v = a.verb, at = Date.now(), via = a.via || null;
         if (v === 'room_paint') {
             r.wall = a.wall || r.wall || WALL_DEFAULT;
             r.floor = a.floor || r.floor || FLOOR_DEFAULT;
+            r.paint = { at, via };
             return '刷了牆 ' + r.wall + '、地板 ' + r.floor;
         }
         if (v === 'room_place') {
             if (r.items.length >= MAX_ITEMS) return null;
             const id = r.nextId++;
-            r.items.push({ id, name: a.name, svg: a.svg, ratio: svgRatio(a.svg), x: a.x, y: a.y, w: a.w });
+            r.items.push({ id, name: a.name, svg: a.svg, ratio: svgRatio(a.svg), x: a.x, y: a.y, w: a.w, at, via });
             return '放了 #' + id + ' ' + a.name;
         }
         const it = r.items.find(x => x.id === a.id);
@@ -304,11 +320,12 @@
     };
 
     /** 回覆裡的標籤照先後做：房間最多 CHAT_ROOM_MAX 件，打扮、形象各一件；做不成的跳過不算。rec 就地改。
+     *  via：記在弄上去的東西上（小機沒有醒來、不進群聊，只在自己房間聊天時動手，預設 dm）
      *  回 { changed, room, done: [人話…] }（room＝房間動了） */
-    RoomWear.apply = function (rec, text) {
+    RoomWear.apply = function (rec, text, via) {
         const out = { changed: false, room: false, done: [] };
         if (!rec || !text || !/room_|wear_|look_/i.test(text)) return out;
-        const acts = parseTags(text);
+        const acts = parseTags(text).map(a => Object.assign(a, { via: via || 'dm' }));
         ['room', 'wear', 'look'].forEach(kind => {
             const cap = kind === 'room' ? CHAT_ROOM_MAX : 1;
             let n = 0;
@@ -338,10 +355,13 @@
         const cur = _now(rec), sig = _sig(cur);
         const list = _closet(rec).outfits.slice().sort((a, b) =>
             ((b.worn_at || b.created_at) - (a.worn_at || a.created_at)) || ((b.worn_at ? 1 : 0) - (a.worn_at ? 1 : 0)) || (b.id - a.id));
-        const dflt = { body: null, items: [], look: null };
+        const dflt = { body: null, items: [], look: null }, c = _closet(rec);
         return {
-            current: { wear: client(cur), plain: _plain(cur) },
-            outfits: list.map(x => ({ id: x.id, name: x.name, label: _label(x), created_at: x.created_at, worn_at: x.worn_at, wear: client(x.data), now: x.sig === sig })),
+            // changed：上次換裝什麼時候、哪一路、整套換上的是哪一套（同橋；衣櫃面板「現在穿的」底下那行）
+            current: { wear: client(cur), plain: _plain(cur),
+                       changed: c.changedAt ? { at: c.changedAt, via: c.changeVia || null, outfit: c.changeOutfit || null } : null },
+            outfits: list.map(x => ({ id: x.id, name: x.name, label: _label(x), created_at: x.created_at, worn_at: x.worn_at, via: x.via || null,
+                                      wear: client(x.data), now: x.sig === sig })),
             presets: [{ key: 'default', name: '原本的' + (BASE_NAME[base] || '樣子'), wear: client(dflt), now: _plain(cur) }],
         };
     };
@@ -351,7 +371,7 @@
         if (act === 'wear') { const d = _wearOutfit(rec, id, preset === 'default' ? 'default' : null, true); return d ? [true, d] : [false, '已經穿著這套了，或衣櫃裡沒有這套']; }
         if (act === 'rename') {
             if (!name) return [false, '名字要給'];
-            if (id == null) return _keep(rec, _now(rec), name) ? [true, '現在這套收進衣櫃「' + name + '」'] : [false, '原本的樣子不用收'];
+            if (id == null) return _keep(rec, _now(rec), name, 'rae') ? [true, '現在這套收進衣櫃「' + name + '」'] : [false, '原本的樣子不用收'];
             const x = _closet(rec).outfits.find(z => z.id === id);
             if (!x) return [false, '衣櫃裡沒有這套'];
             x.name = name;
@@ -368,6 +388,28 @@
     /** 她剛從衣櫃幫它換的那套（說明裡講完一次就清）：拿的時候順便清，呼叫端記得存檔 */
     RoomWear.popByRae = function (rec) { const c = _closet(rec), b = c.byRae; c.byRae = null; return b; };
 
+    // ---------- 什麼時候、哪一路（同橋 _src／_paren／_outfit_src 的說法）----------
+    const VIA_SAY = { wake: '醒來時', dm: '在房間聊天時', group: '在群聊時', chat: '聊天時', self: '' };
+    function _when(at) {       // 毫秒 → 這台電腦的「月-日 時:分」
+        if (!at || !isFinite(+at)) return '';
+        const d = new Date(+at), p = n => String(n).padStart(2, '0');
+        return p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+    }
+    /** 「你 10-06 17:00 在房間聊天時放的」「使用者 10-12 14:00 從衣櫃幫你換上「上班服」那套」；舊存檔沒記的寫「更早之前」 */
+    function _src(at, via, verb, who, outfit, user) {
+        const when = _when(at);
+        let tail;
+        if (via === 'rae') { who = user || '對方'; tail = outfit ? '從衣櫃幫你換上「' + outfit + '」那套' : '幫你' + verb; }
+        else {
+            if (via in VIA_SAY) who = who || '你';
+            const how = VIA_SAY[via] || '';
+            tail = outfit ? how + '換上衣櫃裡「' + outfit + '」那套' : how + verb;
+        }
+        if (!when) return who && via ? who + tail : (who || '') + '更早之前' + tail;
+        return [who, when, tail].filter(Boolean).join(' ');
+    }
+    const _paren = (s, verb, who, user) => s ? '（' + _src(s.at, s.via, verb, who, s.outfit, user) + '）' : '';
+
     function _outfitDesc(o, base) {
         const parts = [o.look ? '自己畫的形象' : (BASE_NAME[base] || '原本的樣子')];
         if (o.body) parts.push('身體 ' + o.body);
@@ -382,13 +424,17 @@
         const w = _wear(rec), out = ['', '【你的樣子】', sh[0].replace('{user}', user) + '要不要打扮、要不要換成自己畫的形象，你自己決定，不動也可以。'];
         if (w.look) {
             const L = w.look, eyes = (L.eyes || []).map(e => '(' + _fmt(e[0]) + ',' + _fmt(e[1]) + ')').join('、') || '沒交給程式畫';
-            out.push('形象：你自己畫的那張，寬 ' + _fmt(L.w) + '、高約 ' + _fmt(Math.round(L.w * (L.ratio || 1) * 10) / 10) + '，眼睛 ' + eyes + '。');
+            out.push('形象：你自己畫的那張，寬 ' + _fmt(L.w) + '、高約 ' + _fmt(Math.round(L.w * (L.ratio || 1) * 10) / 10) + '，眼睛 ' + eyes
+                + _paren(w.lookSrc, '換的', null, user) + '。');
         } else out.push('形象：原本的' + bn + '。');
-        out.push('身體顏色 ' + (w.body || '沒換過（原本的顏色）') + (w.look ? '（只有' + bn + '用得到）。' : '。'));
+        const bodyNotes = (w.body && w.bodySrc ? [_paren(w.bodySrc, '換的', null, user).slice(1, -1)] : []).concat(w.look ? ['只有' + bn + '用得到'] : []);
+        out.push('身體顏色 ' + (w.body || '沒換過（原本的顏色）') + (bodyNotes.length ? '（' + bodyNotes.join('；') + '）' : '') + '。');
         if (w.items.length) {
             out.push('身上有 ' + w.items.length + ' 件（最多 ' + MAX_WEAR + ' 件）：');
             w.items.forEach(it => out.push('#' + it.id + ' ' + it.name + '｜x ' + _fmt(it.x) + '、y ' + _fmt(it.y) + '、寬 ' + _fmt(it.w)
-                + (it.face === 2 ? '｜跟著眼睛、只在睜眼時看得到' : it.face ? '｜跟著眼睛' : '')));
+                + (it.face === 2 ? '｜跟著眼睛、只在睜眼時看得到' : it.face ? '｜跟著眼睛' : '')
+                + '｜' + _src(it.at, it.via, '戴上的', null, it.outfit, user)));
+            out.push('每件最後那段是程式自動記的：什麼時候、哪一路戴上的，' + user + '從衣櫃幫你換的會寫' + user + '。');
         } else out.push('身上什麼都沒戴。');
         if (byRae) out.push(user + '剛從衣櫃幫你換上了「' + byRae + '」。');
         out.push('',
@@ -416,7 +462,9 @@
             out.push('裡面有 ' + list.length + ' 套' + (list.length > 8 ? '，列最近的 8 套' : '') + '：');
             list.slice(0, 8).forEach(o => {
                 const raw = c.outfits.find(x => x.id === o.id);
-                out.push('#' + o.id + '「' + o.label + '」' + (o.now ? '（現在穿的）' : '') + '：' + _outfitDesc(raw ? raw.data : {}, base));
+                // 怎麼收進來的；舊的（沒記哪一路）又沒取名的不寫：名字本來就是收進來的時間
+                const from = (o.via || o.name) ? '｜' + _src(o.created_at, o.via, '收進來的', null, null, user) : '';
+                out.push('#' + o.id + '「' + o.label + '」' + (o.now ? '（現在穿的）' : '') + '：' + _outfitDesc(raw ? raw.data : {}, base) + from);
             });
         } else out.push('裡面還沒有收過衣服。');
         out.push('想換回衣櫃裡的一套、換回原本的' + bn + '，或替現在這套取名收好，寫下面其中一個（也算這次打扮的那一個；換一套是身體顏色、身上的東西、形象整個換）：',
@@ -427,14 +475,17 @@
     /** 接在小機說明最後的「你的房間」一段（同橋 brief，寫給陌生模型看；不給範例） */
     RoomWear.briefRoom = function (rec, user) {
         user = user || '對方';
-        const st = RoomWear.room(rec);
+        const st = RoomWear.room(rec), r = _room(Object.assign({}, rec || {}));
         const out = ['', '【你的房間】', '這間房間是你一個人的。' + user + '打開跟你的私聊時，上半部那塊畫面就是它。布置成什麼樣子你自己決定，不動也可以。'];
         if (!st.own) out.push('你還沒布置過：現在那塊顯示的是原本的一張圖。刷過牆或放了第一件東西，就換成你自己的房間。');
         else {
-            out.push('現在：牆 ' + st.wall + '、地板 ' + st.floor + '。');
+            // 房間只有它自己動得了：誰刷的、誰放的一定是它（同橋 _now_lines）
+            out.push('現在：牆 ' + st.wall + '、地板 ' + st.floor + ((r.wall || r.floor) ? _paren(r.paint || {}, '刷的', '你', user) : '') + '。');
             if (st.items.length) {
                 out.push('房裡有 ' + st.items.length + ' 件（最多 ' + MAX_ITEMS + ' 件）：');
-                st.items.forEach(it => out.push('#' + it.id + ' ' + it.name + '｜x ' + _fmt(it.x) + '、y ' + _fmt(it.y) + '、寬 ' + _fmt(it.w)));
+                r.items.forEach(it => out.push('#' + it.id + ' ' + it.name + '｜x ' + _fmt(it.x) + '、y ' + _fmt(it.y) + '、寬 ' + _fmt(it.w)
+                    + '｜' + _src(it.at, it.via, '放的', '你', null, user)));
+                out.push('每件最後那段是誰、什麼時候放的，程式自動記下的，不靠你的記性。這間房間只有你會動；看到沒印象的東西，先看這裡。');
             } else out.push('房裡還是空的。');
         }
         out.push('',

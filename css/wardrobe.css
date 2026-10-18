@@ -61,6 +61,24 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+/* 上次什麼時候、怎麼換的；每套怎麼收進來的（宿舍待修 #378） */
+#aurelia-chat-window .wd-now-src {
+    margin-top: 3px;
+    font-size: 11.5px;
+    color: var(--cl-cafe-latte, #46639b);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+#aurelia-chat-window .wd-src {
+    max-width: 100%;
+    margin-top: -4px;
+    font-size: 10.5px;
+    color: var(--cl-cafe-latte, #46639b);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 #aurelia-chat-window .wd-keep {
     margin-top: 8px;
     display: inline-flex;

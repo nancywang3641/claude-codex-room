@@ -20,6 +20,7 @@
             + '點一套就能幫他換上，他下一次跟你說話時會知道是你換的。他自己也能從衣櫃換回去、幫一套取名。\n'
             + '一套是整個樣子：身體顏色、身上戴的東西、自己畫的形象一起換。\n'
             + '衣櫃最多放 30 套，滿了先丟最久沒穿、沒取名的那套。\n'
+            + '每套名字底下那行是它怎麼收進來的：他醒來時、私聊時、群聊時換下來的，或你收的；「現在穿的」底下寫他上次什麼時候、怎麼換的。\n'
             + '最底下的聊天泡泡：從聊天 app 的泡泡庫挑一套，換的是你們私聊這一間兩邊的泡泡（群聊不換）。學過泡泡課的小機也會自己換。' } });
 
     // 小機（不經橋）：衣櫃在它自己的存檔裡，規則交給 RoomWear（wear_local.js），引擎要有奧瑞亞的 OS_XIAOJI
@@ -31,6 +32,25 @@
 
     function _esc(s) {
         return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // 什麼時候、哪一路（橋 room_decor 記的 via；小機是 wear_local 那份）：每套底下、現在穿的底下那行（宿舍待修 #378）
+    const VIA_CARD = { wake: '他醒來時收', dm: '他私聊時收', group: '他群聊時收', chat: '他聊天時收', rae: '你收的', self: '他收的' };
+    const VIA_NOW = { wake: '他醒來時', dm: '他在私聊時', group: '他在群聊時', chat: '他聊天時', self: '他' };
+    const _ms = t => { t = +t; return t && isFinite(t) ? (t < 1e12 ? t * 1000 : t) : 0; };     // 橋給秒、小機存毫秒
+    function _md(t, withTime) {
+        const d = new Date(_ms(t)), p = n => String(n).padStart(2, '0');
+        return p(d.getMonth() + 1) + '/' + p(d.getDate()) + (withTime ? ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) : '');
+    }
+    function _cardSrc(o) {      // 沒取名的，名字本來就是收進來的時間，只寫哪一路；舊的沒記哪一路就只剩日期或不寫
+        const how = VIA_CARD[o.via] || '';
+        return o.name ? [_ms(o.created_at) ? _md(o.created_at) : '', how].filter(Boolean).join(' ') : how;
+    }
+    function _nowSrc(ch) {      // 上次換裝：什麼時候、誰、哪一路；整套換上的寫「換上這套」
+        if (!ch || !_ms(ch.at)) return '';
+        const t = _md(ch.at, true);
+        if (ch.via === 'rae') return t + ' 你幫他換' + (ch.outfit ? '上這套' : '的');
+        return t + ' ' + (VIA_NOW[ch.via] || '') + (ch.outfit ? '換上這套' : '換的');
     }
     function _bridge() {
         const OS = window.OS_SETTINGS;
@@ -128,9 +148,11 @@
         const k = kind === 'outfit' ? 'o:' + x.id : 'p:' + x.key;
         const on = _sel && ((kind === 'outfit' && _sel.kind === 'outfit' && _sel.id === x.id)
             || (kind === 'preset' && _sel.kind === 'preset' && _sel.key === x.key));
+        const src = kind === 'outfit' ? _cardSrc(x) : '';
         return '<button type="button" class="wd-card' + (on ? ' is-sel' : '') + (x.now ? ' is-now' : '') + '" data-k="' + k + '">'
             + '<span class="wd-pic"><img alt=""></span>'
             + '<span class="wd-name">' + _esc(label) + '</span>'
+            + (src ? '<span class="wd-src">' + _esc(src) + '</span>' : '')
             + (x.now ? '<span class="wd-badge">穿著</span>' : '')
             + '</button>';
     }
@@ -143,11 +165,13 @@
         const nowName = _nowName();
         const help = (A0 && A0.helpBtn) ? A0.helpBtn('room_wardrobe') : '';
         const canKeepNow = !_data.current.plain && !_data.outfits.some(o => o.now);
+        const nowSrc = _nowSrc(_data.current.changed);
         let h = '<div class="wd-wrap"><div class="wd-scroll">';
         h += '<div class="wd-now">'
             + '<span class="wd-now-pic"><img alt=""></span>'
             + '<div class="wd-now-info"><div class="wd-now-lab">現在穿的</div>'
             + '<div class="wd-now-name">' + _esc(nowName || '還沒收進衣櫃') + '</div>'
+            + (nowSrc ? '<div class="wd-now-src">' + _esc(nowSrc) + '</div>' : '')
             + (canKeepNow ? '<button type="button" class="wd-keep" data-act="keep"><i class="fa-solid fa-tag"></i>取名收好</button>' : '')
             + '</div><span class="wd-help">' + help + '</span></div>';
         h += '<div class="wd-h">收著的<span class="wd-n">' + (_data.outfits.length ? _data.outfits.length + ' 套' : '') + '</span></div>';

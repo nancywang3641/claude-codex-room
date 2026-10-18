@@ -2343,8 +2343,8 @@ ${withOthers}
         body.keep_system = true;
         // 留言板：同一對一那條。舊版呼叫（LP.chat 那些）沒有席位，不帶。
         if (seat && seat.name) { body.cc_board = true; body.cc_board_name = String(seat.name); }
-        // 房間：同一對一那條，在群聊裡也動得了自己的房間
-        if (opts.residentId) body.cc_room_id = String(opts.residentId);
+        // 房間：同一對一那條，在群聊裡也動得了自己的房間。cc_where：橋記「群聊時放的」（每件東西後面念給他聽，宿舍待修 #378）
+        if (opts.residentId) { body.cc_room_id = String(opts.residentId); body.cc_where = 'group'; }
         if (opts.residentId && (provider === 'claude' || provider === 'codex')) body.cc_wear = true;
         if (sid) body.session_id = sid;
         if (Array.isArray(opts.attachments) && opts.attachments.length) body.attachments = opts.attachments;
