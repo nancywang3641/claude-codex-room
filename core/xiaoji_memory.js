@@ -482,6 +482,8 @@
                 S.busy = false; _render(); return;
             }
             _resetUi();
+            // 退回整理：整理之後妳（或它）又改過的那幾條不動（奧瑞亞 10-19 起回 skipped），說一聲
+            if (act === 'tidy-revert' && r && r.skipped) S.msg = '退回了；有 ' + r.skipped + ' 條在那次整理之後又改過，照現在的留著';
         } catch (err) {
             S.msg = '沒存成：' + ((err && err.message) || err);
         }

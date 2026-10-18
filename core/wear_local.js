@@ -321,9 +321,9 @@
 
     /** 回覆裡的標籤照先後做：房間最多 CHAT_ROOM_MAX 件，打扮、形象各一件；做不成的跳過不算。rec 就地改。
      *  via：記在弄上去的東西上（小機沒有醒來、不進群聊，只在自己房間聊天時動手，預設 dm）
-     *  回 { changed, room, done: [人話…] }（room＝房間動了） */
+     *  回 { changed, room, done: [人話…], parts: [{ kind: room|wear|look, text }] }（room＝房間動了；parts 讓記經歷時分得出布置房間和換打扮） */
     RoomWear.apply = function (rec, text, via) {
-        const out = { changed: false, room: false, done: [] };
+        const out = { changed: false, room: false, done: [], parts: [] };
         if (!rec || !text || !/room_|wear_|look_/i.test(text)) return out;
         const acts = parseTags(text).map(a => Object.assign(a, { via: via || 'dm' }));
         ['room', 'wear', 'look'].forEach(kind => {
@@ -333,7 +333,7 @@
                 if (a.verb.indexOf(kind + '_') !== 0) continue;
                 const d = kind === 'room' ? _doRoom(rec, a) : _do(rec, a);
                 if (!d) continue;
-                out.done.push(d); out.changed = true;
+                out.done.push(d); out.parts.push({ kind, text: d }); out.changed = true;
                 if (kind === 'room') out.room = true;
                 if (++n >= cap) break;
             }

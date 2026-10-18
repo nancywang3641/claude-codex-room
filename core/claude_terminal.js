@@ -1501,8 +1501,14 @@ ${withOthers}
         if (!o || !o.resident || !o.resident.id) return false;
         const rid = o.resident.id;
         const list = ClaudeTerminal.listResidents();
-        if (!list.some(r => r.id === rid)) {
-            list.push(_normResident(Object.assign({}, o.resident, { provider: 'xiaoji' })));
+        const at = list.findIndex(r => r.id === rid);
+        const fromFile = _normResident(Object.assign({}, o.resident, { provider: 'xiaoji' }));
+        if (at === -1) {
+            list.push(fromFile);
+            if (!_cfgWriteResidents(list)) return false;
+        } else if (o.replace && fromFile) {
+            // 整隻蓋掉：名冊那一筆也照檔案（名字、模型）——10-19 以前只換了記憶和對話，名冊還是原本那隻的
+            list[at] = fromFile;
             if (!_cfgWriteResidents(list)) return false;
         }
         let all = _allConvs('xiaoji');
@@ -1615,7 +1621,12 @@ ${withOthers}
                     }
                     if (res.changed) {
                         dressed = true;
-                        _memLog({ kind: 'wear', text: res.done.join('；') });
+                        // 布置房間記成「房間」、換打扮／形象記成「打扮」（10-19 以前全記成打扮）
+                        const parts = Array.isArray(res.parts) ? res.parts : [];
+                        const roomDone = parts.filter(p => p.kind === 'room').map(p => p.text);
+                        const wearDone = parts.filter(p => p.kind !== 'room').map(p => p.text);
+                        if (roomDone.length) _memLog({ kind: 'room', text: roomDone.join('；') });
+                        if (wearDone.length) _memLog({ kind: 'wear', text: wearDone.join('；') });
                         console.log('[ClaudeTerminal] 小機房間／打扮：' + res.done.join('；'));
                         if (window.ChatWindow && typeof window.ChatWindow.refreshDecor === 'function') window.ChatWindow.refreshDecor();
                     }

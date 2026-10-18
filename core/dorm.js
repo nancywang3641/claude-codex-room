@@ -548,7 +548,9 @@
                         if (!asNew) return;
                     }
                 }
-                const r = await M.importOne(data, { asNew });
+                // 整隻蓋掉：原本那隻的會話編號一起給，那幾串的舊聊天摘要奧瑞亞那邊會清（10-19 以前留孤兒）
+                const oldConvs = exists && !asNew && CT.xiaojiConvList ? CT.xiaojiConvList(data.resident.id).map(c => c.id) : [];
+                const r = await M.importOne(data, { asNew, oldConvs });
                 if (!CT.restoreXiaoji(Object.assign({}, r, { replace: exists && !asNew }))) throw new Error('名冊寫不進去');
                 say('「' + name + '」回來了', 'success');
                 _render();
