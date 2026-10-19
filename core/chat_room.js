@@ -20,6 +20,12 @@
         return body ? body.querySelector('#' + id) : document.getElementById(id);
     }
 
+    /** 名字、模型名這種純文字放進 HTML 前轉一次（匯入的小機檔、她取的名字都可能帶 < " 這些字） */
+    function _esc(s) {
+        return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     // 當前浮窗對話歷史。ChatWindow.open 時由 setHistory() 灌入，送訊息時 push。
     let _roomHistory = [];
     function _activeHistory() { return _roomHistory; }
@@ -284,9 +290,9 @@
         const sectionHtml = (title, list, curId, dataKey) => `
             <div class="claude-picker-section-title">${title}</div>
             ${list.map(it => `
-                <div class="claude-picker-item${curId === it.id ? ' active' : ''}" data-${dataKey}="${it.id}">
+                <div class="claude-picker-item${curId === it.id ? ' active' : ''}" data-${dataKey}="${_esc(it.id)}">
                     <span class="claude-picker-check">${curId === it.id ? '✓' : ''}</span>
-                    <span>${it.label}</span>
+                    <span>${_esc(it.label)}</span>
                 </div>
             `).join('')}
         `;
@@ -304,7 +310,7 @@
         const locked = _lockedModel();
         const modelBlock = locked
             ? `<div class="claude-picker-section-title">${modelSectionTitle}</div>
-               <div class="claude-picker-fixed">${_modelLabel(locked, prov)}
+               <div class="claude-picker-fixed">${_esc(_modelLabel(locked, prov))}
                    <span class="claude-picker-fixed-note">這位住戶固定用這顆</span></div>`
             : sectionHtml(modelSectionTitle, models, curModel, 'model');
         // 🌐 這位住戶講什麼語言（一位一個；中文＝照常）。每一輪送話時附一句，見 claude_terminal.js _langNote

@@ -70,7 +70,7 @@
         el.innerHTML = `
             <div class="cw-titlebar" id="cw-titlebar">
                 <button class="cw-back" id="cw-back" type="button" title="回宿舍"><i class="fa-solid fa-chevron-left"></i></button>
-                <span class="cw-identity" id="cw-identity">${_identityText('claude')}</span>
+                <span class="cw-identity" id="cw-identity">${_esc(_identityText('claude'))}</span>
                 <div class="cw-toolbar">
                     <button class="cw-tool-btn" data-panel="settings"  type="button" title="設置"><i class="fa-solid fa-gear"></i></button>
                     <button class="cw-tool-btn" data-panel="spend"     type="button" title="額度"><i class="fa-solid fa-coins"></i></button>

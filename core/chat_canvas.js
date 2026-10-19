@@ -11,6 +11,11 @@
     let _tabEl = null;      // 收合後的細 tab
     let _onMoveCb = null;   // panel 透過 LP.onMove 註冊的落子顯示回調
 
+    function _esc(s) {
+        return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     // ── host 接口 LP（訂閱版）──
     function _makeChatPanelAPI() {
         return {
@@ -137,7 +142,7 @@
             try {
                 new Function('container', 'LP', panelData.js)(content, LP);
             } catch (e) {
-                content.innerHTML += '<div class="cw-canvas-err">⚠️ 畫布 JS 錯誤：' + ((e && e.message) || e) + '</div>';
+                content.innerHTML += '<div class="cw-canvas-err">⚠️ 畫布 JS 錯誤：' + _esc((e && e.message) || e) + '</div>';
             }
         }
         // 重綁 onclick（共用 VoidCanvas 的 rewire，讓 onclick 在有 LP 的作用域跑）

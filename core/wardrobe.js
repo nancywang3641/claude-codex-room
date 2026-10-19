@@ -149,7 +149,7 @@
         const on = _sel && ((kind === 'outfit' && _sel.kind === 'outfit' && _sel.id === x.id)
             || (kind === 'preset' && _sel.kind === 'preset' && _sel.key === x.key));
         const src = kind === 'outfit' ? _cardSrc(x) : '';
-        return '<button type="button" class="wd-card' + (on ? ' is-sel' : '') + (x.now ? ' is-now' : '') + '" data-k="' + k + '">'
+        return '<button type="button" class="wd-card' + (on ? ' is-sel' : '') + (x.now ? ' is-now' : '') + '" data-k="' + _esc(k) + '">'
             + '<span class="wd-pic"><img alt=""></span>'
             + '<span class="wd-name">' + _esc(label) + '</span>'
             + (src ? '<span class="wd-src">' + _esc(src) + '</span>' : '')

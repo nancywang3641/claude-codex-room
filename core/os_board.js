@@ -123,7 +123,11 @@
                 tables: true,
             });
             const html = conv.makeHtml(_shortUrls(text || ''));
-            return _urlChips(DOMPurify ? DOMPurify.sanitize(html) : html);
+            // showdown 會把原文裡的 HTML 原樣放過去：沒有 DOMPurify 就交給奧瑞亞的 AUI.safeHtml，兩個都沒有就退回上面那支（先整段跳脫）
+            if (DOMPurify) return _urlChips(DOMPurify.sanitize(html));
+            const A = win.AUI || window.AUI;
+            if (A && typeof A.safeHtml === 'function') return _urlChips(A.safeHtml(html));
+            return _miniMd(text);
         } catch (_) {
             return _esc(text);
         }

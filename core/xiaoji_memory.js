@@ -129,7 +129,7 @@
             const u = t.usage ? ((t.usage.input || 0) + (t.usage.output || 0)) : 0;
             h += '<div class="xjm-st-line"><i class="fa-solid fa-broom"></i><span class="xjm-st-txt">上次整理 ' + esc(_date(t.at)) + '：'
                 + (ch.length ? '記了 ' + add + ' 條、改了 ' + fix + ' 條、樣子 ' + tr + ' 條' : '沒有要改的')
-                + (u ? '（約 ' + u.toLocaleString() + ' 字）' : '') + (t.reverted ? '・你退回了' : '') + '</span>';
+                + (u ? '（約 ' + esc(u.toLocaleString()) + ' 字）' : '') + (t.reverted ? '・你退回了' : '') + '</span>';
             if (ch.length) h += '<button type="button" class="xjm-st-btn" data-act="tidy-show">' + (S.ui.showTidy ? '收起' : '看是哪些') + '</button>';
             if (ch.length && !t.reverted) {
                 const armed = S.ui.armed === 'tidy';
@@ -362,7 +362,7 @@
         else h += S.nodes.map(n => {
             const armed = S.ui.armed === 's' + n.id;
             return '<div class="xjm-node"><div class="xjm-node-txt">' + esc(n.text) + '</div>'
-                + '<div class="xjm-node-foot"><span>' + esc(_date(n.at)) + (n.combined ? '・併了 ' + n.combined + ' 節' : '') + '</span>'
+                + '<div class="xjm-node-foot"><span>' + esc(_date(n.at)) + (n.combined ? '・併了 ' + esc(n.combined) + ' 節' : '') + '</span>'
                 + '<button type="button" class="xjm-ic' + (armed ? ' is-armed' : '') + '" data-act="sdel" data-id="' + esc(n.id) + '" title="' + (armed ? '再按一次刪掉' : '刪掉這一節') + '">'
                 + (armed ? '<span>刪掉？</span>' : '<i class="fa-solid fa-trash-can"></i>') + '</button></div></div>';
         }).join('');
