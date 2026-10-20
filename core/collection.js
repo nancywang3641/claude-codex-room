@@ -48,22 +48,28 @@
     const VAPP = 'room_fav_voice';
     const _vload = new Map();   // 住戶 id → 讀清單的那一趟（Promise）
     const _vnow = new Map();    // 住戶 id → 讀好的清單（長按小窗要同步判斷）
+    // 讀不到（資料庫剛開還沒好之類）就丟出去、不留：以前把 [] 當成這位的清單一直留著，
+    //   下一次收藏就拿「只有新那一句」的清單整份寫回去，以前收的全從清單上不見（聲音檔還留在圖庫沒人用）
     function _list(rid) {
-        if (!_vload.has(rid)) _vload.set(rid, (async () => {
-            const D = _DB();
-            let l = null;
-            try { l = (D && D.getAppData) ? await D.getAppData(VAPP, rid) : null; } catch (e) { console.warn('[RoomCollection] 讀不到收藏的語音', e); }
-            l = Array.isArray(l) ? l : [];
-            _vnow.set(rid, l);
-            return l;
-        })());
+        if (!_vload.has(rid)) {
+            const p = (async () => {
+                const D = _DB();
+                let l = (D && D.getAppData) ? await D.getAppData(VAPP, rid) : null;
+                l = Array.isArray(l) ? l : [];
+                _vnow.set(rid, l);
+                return l;
+            })();
+            _vload.set(rid, p);
+            p.catch(e => { console.warn('[RoomCollection] 讀不到收藏的語音', e); if (_vload.get(rid) === p) _vload.delete(rid); });
+        }
         return _vload.get(rid);
     }
+    // 寫進去了才算：以前先改記憶體再寫，寫不進去（空間滿）時這次開著顯示收好了、重開就不見
     async function _put(rid, list) {
-        _vnow.set(rid, list);
-        _vload.set(rid, Promise.resolve(list));
         const D = _DB();
         if (D && D.saveAppData) await D.saveAppData(VAPP, rid, list);
+        _vnow.set(rid, list);
+        _vload.set(rid, Promise.resolve(list));
     }
     function _secOf(text) { return Math.max(1, Math.round(String(text || '').replace(/\[[^\]\n]{1,40}\]/g, '').replace(/\s/g, '').length / 4.5)); }
     /** 這顆語音能不能收：他的話（不是她的錄音）、知道是哪位住戶、有字 */
@@ -94,6 +100,7 @@
         if (!d) return;
         _list(d.v.rid).then(l => { if (l.some(x => x.text === d.text)) _paintStar(box, true); }).catch(() => {});
     };
+    const LIST_FAIL = '讀不到收藏的清單，這段先不動（等一下再試一次）';
     /** 長按小窗用：'kept' 收過、'none' 沒收過、null 這顆不能收 */
     RoomCollection.voiceState = function (box) {
         const d = _voiceOf(box);
@@ -106,11 +113,12 @@
         const d = _voiceOf(box), D = _DB();
         if (!d || !D) return '這段收不了';
         const rid = d.v.rid;
-        const list = (await _list(rid)).slice();
+        let list;
+        try { list = (await _list(rid)).slice(); } catch (e) { return LIST_FAIL; }
         const at = list.findIndex(x => x.text === d.text);
         if (at >= 0) {
             const gone = list.splice(at, 1)[0];
-            await _put(rid, list);
+            try { await _put(rid, list); } catch (e) { return '這台裝置存不進去，沒取消成'; }
             if (gone.audio && D.deleteCharImage) { try { await D.deleteCharImage(gone.audio); } catch (_) {} }
             _paintAll(rid, d.text, false);
             return '取消收藏了';
@@ -126,17 +134,22 @@
         const id = 'aud_fav_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
         try { await D.saveImage(id, got.blob); }
         catch (e) { return '這台裝置存不下了，這段沒收藏'; }
-        const fresh = (await _list(rid)).slice();   // 合成的時候可能別的地方也收了
-        if (fresh.some(x => x.text === d.text)) { try { await D.deleteCharImage(id); } catch (_) {} _paintAll(rid, d.text, true); return '收藏好了'; }
+        const drop = async () => { try { await D.deleteCharImage(id); } catch (_) {} };   // 剛存的聲音檔沒人用了
+        let fresh;
+        try { fresh = (await _list(rid)).slice(); }   // 合成的時候可能別的地方也收了
+        catch (e) { await drop(); return LIST_FAIL; }
+        if (fresh.some(x => x.text === d.text)) { await drop(); _paintAll(rid, d.text, true); return '收藏好了'; }
         fresh.unshift({ id: id, text: d.text, who: d.v.who || '', at: Date.now(), audio: id, src: got.src || '', sec: _secOf(d.text) });
-        await _put(rid, fresh);
+        try { await _put(rid, fresh); }
+        catch (e) { await drop(); return '這台裝置存不下了，這段沒收藏'; }
         _paintAll(rid, d.text, true);
         return '收藏好了，之後重聽不會再花錢';
     };
     /** 聊天裡按播放：收藏過的回存下來那份的網址（用完由呼叫的人收），沒有回 null */
     RoomCollection.voiceUrl = async function (rid, text) {
         if (!rid) return null;
-        const it = (await _list(rid)).find(x => x.text === text);
+        let it = null;
+        try { it = (await _list(rid)).find(x => x.text === text); } catch (_) { return null; }   // 讀不到就照舊合成
         const D = _DB();
         if (!it || !D || !D.getImage) return null;
         try { return await D.getImage(it.audio); } catch (_) { return null; }
@@ -179,7 +192,8 @@
             tix.sort((a, b) => (b.t.at || 0) - (a.t.at || 0));
             th = { tix, unseenN: (rec && rec.theater) ? unseen.length : 0 };   // 門卡關了小劇場：沒看過的也看不了，不叫她去
         }
-        const voices = await _list(r.id);
+        let voices = null;
+        try { voices = await _list(r.id); } catch (_) {}
         if (!body.isConnected) return;
         _render(body, r, th, voices);
     };
@@ -213,7 +227,12 @@
 
     function _voiceHtml(r, voices, help) {
         let inner;
-        if (!voices.length) {
+        if (!voices) {   // 讀不到清單：別寫成「還沒有收藏」，她會以為收過的不見了
+            inner = '<div class="rcol-empty rcol-empty-sm"><i class="fa-solid fa-microphone-lines"></i>'
+                + '<div class="rcol-empty-ttl">收藏的語音現在讀不到</div>'
+                + '<div class="rcol-soft">關掉再打開一次試試。</div></div>';
+            voices = [];
+        } else if (!voices.length) {
             inner = '<div class="rcol-empty rcol-empty-sm"><i class="fa-solid fa-microphone-lines"></i>'
                 + '<div class="rcol-empty-ttl">還沒有收藏的語音</div>'
                 + '<div class="rcol-soft">長按' + esc(r.name || '他') + '的語音泡泡，選「收藏語音」。</div></div>';
@@ -297,11 +316,14 @@
                 clearTimeout(armed);
                 armed = null;
                 if (_playing === play) _stopPage();
-                const list = (await _list(r.id)).slice();
+                // 讀不到、寫不進去：這段照舊留著（聲音不刪），說一聲再重畫
+                const say = m => { const A = _g('AUI'); if (A && A.toast) A.toast(m); };
+                let list;
+                try { list = (await _list(r.id)).slice(); } catch (e) { say(LIST_FAIL); RoomCollection.launch(body); return; }
                 const at = list.findIndex(x => x.id === id);
                 if (at >= 0) {
                     const gone = list.splice(at, 1)[0];
-                    await _put(r.id, list);
+                    try { await _put(r.id, list); } catch (e) { say('這台裝置存不進去，沒拿掉'); RoomCollection.launch(body); return; }
                     const D = _DB();
                     if (gone.audio && D && D.deleteCharImage) { try { await D.deleteCharImage(gone.audio); } catch (_) {} }
                     _paintAll(r.id, gone.text, false);

@@ -445,7 +445,12 @@
         if (act === 'tidy-retry') {
             if (!X || !X.tidyNow) { S.msg = '要奧瑞亞更新到新版才能再試'; _render(); return; }
             S.busy = true; _renderStatus();
-            try { const r = await X.tidyNow(S.rid); if (r && r.tidy && !r.tidy.ok) S.msg = '還是沒成功：' + (r.tidy.why || ''); }
+            try {
+                const r = await X.tidyNow(S.rid);
+                if (r && r.tidy && !r.tidy.ok) S.msg = '還是沒成功：' + (r.tidy.why || '');
+                // 根本沒跑（正在整理、別的分頁正在整理、還不用整理）：以前什麼都沒說，按了像沒反應
+                else if (r && r.ran === false) S.msg = '這次沒整理：' + (r.why || '現在不用');
+            }
             catch (err) { S.msg = '還是沒成功：' + ((err && err.message) || err); }
             S.busy = false;
             await _load();
@@ -463,6 +468,9 @@
             else if (act === 'add-save') {
                 const t = text();
                 if (!t) r = { ok: false, why: '要寫內容' };
+                // 記過一樣的先擋下來：記一條要先在經歷簿寫一行當出處，以前擋在後面，經歷簿就多一行「你：幫它記了：…」其實沒記成
+                //   （比法照奧瑞亞 memDo：空白縮成一格、120 字）
+                else if ((S.mems || []).some(m => m && m.state === 'ok' && m.text === t.replace(/\s+/g, ' ').trim().slice(0, 120))) r = { ok: false, why: '已經記過' };
                 else { const ev = await M.log(S.rid, { kind: 'rae', text: '幫它記了：' + t }); r = await M.memDo(S.rid, 'add', { about: S.ui.addAbout, text: t, from: [ev], by: 'rae' }); }
             } else if (act === 'trait-remove') r = await M.traitDo(S.rid, 'remove', { id, by: 'rae' });
             else if (act === 'tidy-revert') r = await M.revertTidy(S.rid, S.status && S.status.lastTidy && S.status.lastTidy.id);

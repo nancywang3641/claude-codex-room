@@ -91,6 +91,8 @@ button.grm-card { font: inherit; color: inherit; text-align: left; cursor: point
 
 /* ── 下完的、戰績 ── */
 .grm-list { overflow: hidden; }
+/* .grm-body 是直排 flex：overflow:hidden 的那幾塊（下完的、戰績）內容一多會被擠成 0 高、整塊不見；每塊照原本高度，整頁捲 */
+.grm-body > * { flex-shrink: 0; }
 .grm-done {
     width: 100%;
     display: flex;

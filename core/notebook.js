@@ -60,6 +60,15 @@
         if (m === 'NO_BRIDGE') return '要先在設置填好橋，才打得開' + what;
         return '連不上橋，' + what + '打不開';
     }
+    /** 動手（存、刪）沒做成：說哪件事沒做成。以前也借上面那支，存不了、刪不掉都寫成「記事本打不開」；
+     *  橋回 400 那種（那則在別處已經刪了）也說成連不上橋 */
+    function _failDo(e, what) {
+        const m = (e && e.message) || '';
+        if (m === 'OLD_BRIDGE') return '橋還是舊的那版，重開一次橋，' + what;
+        if (m === 'NO_BRIDGE') return '要先在設置填好橋，' + what;
+        if (/^HTTP 4\d\d$/.test(m)) return '橋那邊不收，' + what;
+        return '連不上橋，' + what;
+    }
     /** 這個人的「想跟妳說的」看到哪一則。紀錄頁還沒開過他的：搬家前在留言板翻過的就算看過（ccr_board_seen） */
     function _seenOf(seen, name) {
         if (seen && seen[name]) return seen[name];
@@ -479,7 +488,7 @@
             S.items = (S.items || []).filter(x => x.id !== it.id);
             _pageClose();
         } catch (e) {
-            _toast(_failText(e, '記事本'));
+            _toast(_failDo(e, '這則沒刪掉'));
         }
     }
 
@@ -526,9 +535,17 @@
             if (fs.length) { ev.preventDefault(); addFiles(fs); }
         });
         const dirty = () => draft.text !== (it ? it.text : '') || JSON.stringify(draft.photos) !== JSON.stringify(it ? (it.photos || []) : []);
+        // 正在送的那一趟：按了存好還沒送完又按返回，等它就好。以前返回再叫一次 save，
+        //   新寫的那則還沒有編號，橋就存成兩則一模一樣的
+        let saving = null;
         const save = async () => {
+            if (saving) return saving;
             if (!draft.text.trim() && !draft.photos.length) { _pageClose(); return; }
             if (!dirty()) { _pageClose(); return; }
+            saving = _saveNow().finally(() => { saving = null; });
+            return saving;
+        };
+        const _saveNow = async () => {
             const done = pg.querySelector('.nb-done');
             if (done) done.disabled = true;
             try {
@@ -540,7 +557,7 @@
                 _pageClose();
             } catch (e) {
                 if (done) done.disabled = false;
-                _toast(_failText(e, '記事本'));
+                _toast(_failDo(e, '這則沒存成'));
             }
         };
         pg.querySelector('.nb-done').addEventListener('click', save);
@@ -599,13 +616,21 @@
             btn.disabled = true;
             try {
                 await _api('/v1/board/post', { author: ME, content: text, tags: ['reaction', 'reply', 'to:' + p.id] });
+            } catch (e) {
+                btn.disabled = false;
+                _toast(_failText(e, '回覆'));
+                return;
+            }
+            // 回覆送成了：接著重拿失敗只說一聲。以前跟送不出去混在一起（字留著、鈕又能按），她再按一次就多一則一樣的
+            ta.value = '';
+            btn.disabled = false;
+            try {
                 const d = await _api('/v1/notebook?book=' + encodeURIComponent(S.bk.book) + '&names=' + encodeURIComponent(S.bk.names.join(',')));
                 S.props = Array.isArray(d.proposals) ? d.proposals : S.props;
                 const again = S.props.find(x => x.id === p.id);
                 if (again) _openProp(again);
             } catch (e) {
-                btn.disabled = false;
-                _toast(_failText(e, '回覆'));
+                _toast('回好了，但這頁沒重新整理到，等一下再打開看');
             }
         });
     }

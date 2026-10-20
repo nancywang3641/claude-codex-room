@@ -554,7 +554,10 @@
                 if (!CT.restoreXiaoji(Object.assign({}, r, { replace: exists && !asNew }))) throw new Error('名冊寫不進去');
                 say('「' + name + '」回來了', 'success');
                 _render();
-            } catch (e) { say('沒帶回來：' + ((e && e.message) || e), 'error'); }
+            } catch (e) {
+                // 壞掉的檔（不是 JSON）以前把瀏覽器的原文（SyntaxError: Unexpected token…）直接秀出來
+                say('沒帶回來：' + (e && e.name === 'SyntaxError' ? '這個檔讀不出來，不是完整的小機檔' : ((e && e.message) || e)), 'error');
+            }
         });
         f.click();
     }
@@ -652,7 +655,7 @@
                         hint.textContent = res.msg || '沒改成';
                         return;
                     }
-                    hint.textContent = Object.values(perm).some(Boolean) ? '' : '三個都沒勾：他用不到奧瑞亞的工具';
+                    hint.textContent = Object.values(perm).some(Boolean) ? '' : '全都沒勾：他用不到奧瑞亞的工具';
                 });
             });
             nameIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') save.click(); });
@@ -702,7 +705,11 @@
                         // 換了樣子：開著的那間房間跟著換
                         _XJ().save(id, patch).then(_xjLoad).then(_render).then(() => {
                             if (window.ChatWindow && typeof window.ChatWindow.refreshDecor === 'function') window.ChatWindow.refreshDecor();
-                        }).catch(() => {});
+                        }).catch(e => {
+                            // 存不進去（空間滿之類）：以前吞掉、編輯列照樣收起來，看起來像存好了
+                            const A = window.AUI || (window.parent && window.parent.AUI);
+                            if (A && A.toast) A.toast('小機的設定沒存成：' + ((e && e.message) || e), { type: 'error' });
+                        });
                     }
                     _syncOpenRoom(id);
                 }

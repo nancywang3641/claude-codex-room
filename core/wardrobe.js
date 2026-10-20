@@ -97,37 +97,51 @@
     let _mode = '';           // '' | 'rename' | 'discard'
     let _busy = false;
     let _note = '';           // 底下那排剛做完的那句
+    // 每開一次衣櫃記一號。所有子面板共用同一格（#cw-subpanel-body），_host === body 永遠成立：
+    //   以前丹的衣櫃慢回來，會蓋掉她已經換開的阿洛衣櫃（身分卻是阿洛的，按穿上就送 rid=aluo 配丹的編號），
+    //   或蓋掉她改開的留言板。等完一律先看還是不是這一號、那格裡還是不是衣櫃
+    let _seq = 0;
+    function _stale(my, body) { return my !== _seq || !body.querySelector('.wd-wrap'); }
 
     RoomWardrobe.launch = async function (body) {
+        const my = ++_seq;
         _host = body;
-        _who0 = _who();
+        const who = _who0 = _who();
         _sel = null; _mode = ''; _note = ''; _data = null;
         body.innerHTML = '<div class="wd-wrap"><div class="wd-msg">打開衣櫃…</div></div>';
-        if (_who0.provider === 'xiaoji') {
+        if (who.provider === 'xiaoji') {
             const X = _XJ(), RW = window.RoomWear;
             if (!X || !RW) { body.innerHTML = '<div class="wd-wrap"><div class="wd-msg">小機要在奧瑞亞裡才打得開衣櫃</div></div>'; return; }
+            let data;
             try {
-                const rec = await X.get(_who0.rid);
-                _who0.base = X.bodyOf(rec);
-                _who0.local = true;
-                _data = RW.wardrobe(rec, _who0.base);
+                const rec = await X.get(who.rid);
+                if (_stale(my, body)) return;
+                who.base = X.bodyOf(rec);
+                who.local = true;
+                data = RW.wardrobe(rec, who.base);
             } catch (e) {
+                if (_stale(my, body)) return;
                 body.innerHTML = '<div class="wd-wrap"><div class="wd-msg">小機的存檔讀不到，衣櫃打不開</div></div>';
                 return;
             }
-            if (_host === body) _render();
+            _data = data;
+            _render();
             return;
         }
         const b = _bridge();
         if (!b) { body.innerHTML = '<div class="wd-wrap"><div class="wd-msg">要先在設置填好橋，才打得開衣櫃</div></div>'; return; }
+        let data;
         try {
-            _data = await _call(b, _who0);
+            data = await _call(b, who);
         } catch (e) {
+            if (_stale(my, body)) return;
             body.innerHTML = '<div class="wd-wrap"><div class="wd-msg">'
                 + (e && e.message === 'OLD_BRIDGE' ? '橋還是舊的那版，重開一次橋就有衣櫃了' : '連不上橋，衣櫃打不開') + '</div></div>';
             return;
         }
-        if (_host === body) _render();
+        if (_stale(my, body)) return;
+        _data = data;
+        _render();
     };
 
     function _nowName() {
@@ -231,8 +245,11 @@
                 + '<button type="button" class="wd-btn" data-act="cancel">取消</button></div>';
         }
         let h = '<div class="wd-bar">';
+        // 剛才沒做成的原因（橋給的、連不上橋、小機存檔存不進）：選著那套時也要看得到。
+        //   以前只有沒選東西時才畫，失敗時選的那套還選著，按鈕暗一下又回來、什麼都沒說
+        if (_note) h += '<span class="wd-bar-note">' + _esc(_note) + '</span>';
         h += x.now
-            ? '<span class="wd-bar-note">他現在就穿著這套</span>'
+            ? (_note ? '' : '<span class="wd-bar-note">他現在就穿著這套</span>')
             : '<button type="button" class="wd-btn is-main" data-act="wear"><i class="fa-solid fa-shirt"></i>穿上這套</button>';
         if (_sel.kind === 'outfit') {
             h += '<button type="button" class="wd-btn" data-act="rename"><i class="fa-solid fa-pen"></i>改名</button>'
@@ -268,7 +285,7 @@
         }
         if (!req) return;
         _busy = true;
-        const host = _host;
+        const host = _host, my = _seq;
         host.querySelectorAll('.wd-bar button').forEach(x => { x.disabled = true; });
         let res = null;
         if (_who0.local) {
@@ -283,7 +300,7 @@
             try { res = await _call(b, _who0, req); } catch (e) { res = { ok: false, msg: '連不上橋，沒做成' }; }
         }
         _busy = false;
-        if (host !== _host) return;
+        if (host !== _host || _stale(my, host)) return;   // 等的時候她換開了別人的衣櫃或別的面板
         if (res && res.wardrobe) _data = res.wardrobe;
         _mode = '';
         if (res && res.ok) {

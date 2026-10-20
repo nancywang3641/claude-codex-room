@@ -54,13 +54,19 @@
         const CT = window.ClaudeTerminal, r = (CT && CT.getResident) ? CT.getResident(rid) : null;
         return (r && r.name) || '小機';
     }
-    // 小機的臉（領養時挑的那隻）：畫一次記著，名字牌上用
-    const _faceUrls = {};
-    function _xjFaceUrl(rid) {
-        if (!_faceUrls[rid]) _faceUrls[rid] = (async () => {
-            try { const X = _X(), CP = window.ClawdPortrait; return (CP && CP.faceOf) ? (await CP.faceOf(X.bodyOf(await X.get(rid)))) || '' : ''; } catch (_) { return ''; }
-        })();
-        return _faceUrls[rid];
+    // 小機的臉（領養時挑的那隻）：照樣子畫一次記著，名字牌上用。
+    //   以前照住戶記、一直不清：門卡上把小貓換成企鵝，培養室還是小貓；第一次沒畫出來也一直空到整頁重整
+    const _faceUrls = {};   // 樣子 → 那張臉
+    async function _xjFaceUrl(rid) {
+        const X = _X(), CP = window.ClawdPortrait;
+        if (!X || !CP || !CP.faceOf) return '';
+        let body;
+        try { body = X.bodyOf(await X.get(rid)); } catch (_) { return ''; }
+        if (!_faceUrls[body]) {
+            const p = _faceUrls[body] = Promise.resolve().then(() => CP.faceOf(body)).then(u => u || '', () => '');
+            p.then(u => { if (!u && _faceUrls[body] === p) delete _faceUrls[body]; });   // 沒畫出來不記，下次再畫
+        }
+        return _faceUrls[body];
     }
     function _xjFaceHtml(url) {
         return url ? '<img src="' + _esc(url) + '" alt="">' : '<span class="xj-dlg-face"><i class="fa-solid fa-microchip"></i></span>';
@@ -216,8 +222,13 @@
             const S = _g('OS_404_STORE');
             if (adopt && !(S && S.spendShards && S.spendShards(L.ADOPT_PRICE))) { hint.textContent = '碎片不夠（要 ' + L.ADOPT_PRICE + '）'; take.disabled = false; return; }
             const bodyBtn = stage.querySelector('.dorm-xj-body.active');
-            const r = await X.adopt({ name: name, conn: stage.querySelector('.xj-in-conn').value, about: stage.querySelector('.xj-in-about').value, gift: !adopt,
-                body: bodyBtn ? bodyBtn.dataset.body : undefined });
+            // 奧瑞亞那邊存檔寫不進去（空間滿、交易中止）會丟出來：當成沒住進去，碎片照樣退、按鈕放回來
+            //   （以前碎片扣了不退、按鈕一直暗著、什麼都沒說）
+            let r;
+            try {
+                r = await X.adopt({ name: name, conn: stage.querySelector('.xj-in-conn').value, about: stage.querySelector('.xj-in-about').value, gift: !adopt,
+                    body: bodyBtn ? bodyBtn.dataset.body : undefined });
+            } catch (err) { r = { ok: false, why: '沒住進去：' + ((err && err.message) || err) }; }
             if (!r.ok) {
                 if (adopt && S && S.addShards) S.addShards(L.ADOPT_PRICE);   // 沒住進去：碎片退回
                 hint.textContent = r.why || '沒成功'; take.disabled = false; return;
@@ -298,7 +309,9 @@
         const offer = () => sc.choose([
             { label: c.paid ? '開始考試' : '繳學費 ' + c.price + unit + '，開始考試', main: true, on: async b => {
                 b.disabled = true;
-                const p = await _X().pay(rid, sid);
+                // 扣錢或寫存檔失敗會丟出來：照實說、選項放回來（以前按鈕一直暗著、什麼都沒說）
+                let p;
+                try { p = await _X().pay(rid, sid); } catch (err) { p = { ok: false, why: '沒繳成：' + ((err && err.message) || err) }; }
                 if (!p.ok) { sc.say([p.why || '沒繳成'], null); offer(); return; }
                 _exam(sc, body, rid, sid);
             } },
@@ -411,14 +424,17 @@
             thb.disabled = true;
             hint.textContent = '';
             let ok = false;
-            if (saved) ok = await X.replay(rid, sid);
-            else {
-                thb.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 正在演…';
-                // 小劇場帶它跟使用者最近 20 則：照它們平常相處的樣子演，不自己編（10-05 她：小機把她當成跑團的 MC、亂編愛恨情仇）
-                let recent = [];
-                try { if (CT && CT.xiaojiRecent) recent = await CT.xiaojiRecent(rid, 20); } catch (_) {}
-                ok = await X.theater(rid, sid, null, { recent });
-            }
+            // 奧瑞亞那邊丟出來（播放器、存檔出錯）當成沒演成：以前按鈕一直停在「正在演…」
+            try {
+                if (saved) ok = await X.replay(rid, sid);
+                else {
+                    thb.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 正在演…';
+                    // 小劇場帶它跟使用者最近 20 則：照它們平常相處的樣子演，不自己編（10-05 她：小機把她當成跑團的 MC、亂編愛恨情仇）
+                    let recent = [];
+                    try { if (CT && CT.xiaojiRecent) recent = await CT.xiaojiRecent(rid, 20); } catch (_) {}
+                    ok = await X.theater(rid, sid, null, { recent });
+                }
+            } catch (err) { console.warn('[XiaojiTrain] 小劇場沒演成：', err); ok = false; }
             // 小劇場在 VN 播放器播：把窗收起來，不然擋在播放器前面
             if (ok) { if (window.ChatWindow && ChatWindow.close) ChatWindow.close(); return; }
             thb.disabled = false;

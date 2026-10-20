@@ -370,9 +370,20 @@
 
     // ── 點進一盤 ───────────────────────────────────────────
     async function _openGame(gid) {
-        try { _detail = await _api('/v1/games/one?id=' + encodeURIComponent(gid)); }
-        catch (e) { _toast('這盤打不開：' + e.message); return; }
-        _replay = _detail.n;
+        let d;
+        try { d = await _api('/v1/games/one?id=' + encodeURIComponent(gid)); }
+        catch (e) {
+            // 橋的代號換成白話（以前「這盤打不開：not_found」英文直接上畫面）
+            const m = e.message;
+            _toast('這盤打不開：' + (m === 'not_found' ? '橋上已經沒有這盤了' : m === 'NOT_CONFIGURED' ? '還沒設定橋'
+                : m === 'OLD_BRIDGE' ? '橋是舊版，重開一次橋' : /^HTTP |fetch|Load failed/i.test(m) ? '連不上電腦那邊的橋' : m));
+            return;
+        }
+        // 重拉同一盤（每分鐘自動重拉、收掉後重開）：她退回去看某一手的話停在那一手，
+        //   以前一律拉回最新一手；原本就在最新那手的，跟著到新的最新
+        const keep = _view === 'match' && _detail && _detail.id === d.id && _replay < _detail.n;
+        _detail = d;
+        _replay = keep ? Math.min(_replay, d.n) : d.n;
         _stopArmed = '';
         _renderMatch();
     }
@@ -542,12 +553,23 @@
                 if (li) { _replay = Number(li.dataset.n); _paintReplay(); return; }
                 if (t.closest('[data-act="stop"]')) {
                     if (_stopArmed !== _detail.id) { _stopArmed = _detail.id; _renderMatch(); return; }
-                    try { await _api('/v1/games/stop', { id: _detail.id }); _toast('收掉了'); await _load(); _openGame(_detail.id); }
+                    // 橋那邊那盤剛好已經下完（不在下、不在等 GM）會回 200 {ok:false}：照實說沒收成，重開看它現在怎樣
+                    try {
+                        const r = await _api('/v1/games/stop', { id: _detail.id });
+                        _toast(r.ok === false ? '沒收成：這盤已經不在下了' : '收掉了');
+                        await _load();
+                        _openGame(_detail.id);
+                    }
                     catch (er) { _toast('沒收成：' + er.message); }
                     return;
                 }
                 if (t.closest('[data-act="gm"]')) {
-                    try { await _api('/v1/games/gm', { id: _detail.id }); _toast('請 GM 再判一次了，等一下再看'); _openGame(_detail.id); }
+                    // 已經不在等 GM（剛好判完了）也是回 200 {ok:false}
+                    try {
+                        const r = await _api('/v1/games/gm', { id: _detail.id });
+                        _toast(r.ok === false ? '沒請成：這盤已經不在等 GM 了' : '請 GM 再判一次了，等一下再看');
+                        _openGame(_detail.id);
+                    }
                     catch (er) { _toast('沒請成：' + er.message); }
                 }
             }

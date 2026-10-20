@@ -97,13 +97,16 @@
     //   只認前面是開頭、空白或中文標點的 —— [字](網址) 裡那個前面是括號，不會再被包一次；句尾標點不算網址。
     function _hostOf(u) { return (String(u).match(/^https?:\/\/([^\/?#]+)/) || ['', ''])[1].replace(/^www\./, ''); }
     function _shortUrls(text) {
-        // 網址只認英數與網址符號：後面直接接中文（「…/PMC123。後面」）時停在中文前
-        return String(text == null ? '' : text).replace(/(^|[\s：:，,、])(https?:\/\/[A-Za-z0-9\-._~:\/?#@!$&*+,;=%]+)/g, (m, pre, url) => {
-            const tail = (url.match(/[.,;:!?]+$/) || [''])[0];
-            const u = tail ? url.slice(0, -tail.length) : url;
-            const host = _hostOf(u);
-            return host ? pre + '[' + host + '](' + u + ')' + tail : m;
-        });
+        // 程式碼（``` 區塊、`行內`）裡的網址照原樣：以前整段一起改寫，畫面露出「curl [example.com](https://…)」、
+        //   行內的整個變成連結。切開來只改程式碼以外那幾段（奇數段是程式碼）
+        return String(text == null ? '' : text).split(/(```[\s\S]*?(?:```|$)|`[^`\n]+`)/).map((seg, i) => i % 2 ? seg :
+            // 網址只認英數與網址符號：後面直接接中文（「…/PMC123。後面」）時停在中文前
+            seg.replace(/(^|[\s：:，,、])(https?:\/\/[A-Za-z0-9\-._~:\/?#@!$&*+,;=%]+)/g, (m, pre, url) => {
+                const tail = (url.match(/[.,;:!?]+$/) || [''])[0];
+                const u = tail ? url.slice(0, -tail.length) : url;
+                const host = _hostOf(u);
+                return host ? pre + '[' + host + '](' + u + ')' + tail : m;
+            })).join('');
     }
     function _urlChips(html) {
         return String(html).replace(/<a ([^>]*?)href="([^"]+)"([^>]*)>([^<]+)<\/a>/g, (m, a, href, b, txt) =>
@@ -911,11 +914,21 @@
         _hydrateMedia(container);
     }
 
+    // 動手本身已經成功了，接著重拿板子失敗：只說一聲，不能當成沒做成。以前寫「按讚沒成功」「發表沒成功」，
+    //   她再按一次就變按兩個讚、發兩則一模一樣的。回 false＝沒拿到（st.all 照舊）
+    const REFETCH_FAIL = '做好了，但板子沒重新整理到（連不上橋），等一下再打開看';
+    async function _refetch(container, quiet) {
+        const st = _state.get(container);
+        if (!st) return false;
+        try { st.all = await _fetchPosts(); return true; }
+        catch (e) { if (!quiet) _toastOn(container, REFETCH_FAIL); return false; }
+    }
+
     /** 動手之後只換掉那一則，不整板重畫——整板重畫會把她捲到最上面 */
     async function _refreshPost(container, pid) {
         const st = _state.get(container);
         if (!st) return;
-        st.all = await _fetchPosts();
+        if (!(await _refetch(container))) return;
         const root = container.querySelector('.ob-container');
         const el = root && root.querySelector('.ob-post[data-pid="' + String(pid) + '"]');
         const p = st.all.find(x => String(x.id) === String(pid));
@@ -1099,9 +1112,21 @@
         const s2 = pane.querySelector('.ob-wl-scroll');
         if (s2) s2.scrollTop = top;   // 加減、取消之後別跳回最上面
     }
-    function _schSay(msg) {
+    // 酒館、房間裡有奧瑞亞的提示框；手機通知點進來那頁（奧瑞亞的 board.html）只載這支、沒有 AUI：
+    //   以前什麼都沒說（數字默默彈回、停在「取消？」），現在寫在板子自己的提示條上
+    function _say(container, msg) {
         const A0 = win.AUI || window.AUI;
-        if (A0 && A0.toast) A0.toast(msg);
+        if (A0 && A0.toast) { A0.toast(msg); return; }
+        _toastOn(container, msg);
+    }
+    /** 板子自己的提示條（按讚、評論、發表那些一向寫這裡），幾秒後自己收 */
+    function _toastOn(container, msg) {
+        const t = container && container.querySelector('.ob-toast');
+        if (!t) return;
+        t.textContent = msg;
+        t.hidden = false;
+        clearTimeout(t._sayTimer);
+        t._sayTimer = setTimeout(() => { t.hidden = true; }, 3200);
     }
     async function _schOpen(container) {
         const st = _state.get(container);
@@ -1130,7 +1155,7 @@
         catch (e) {
             r.max_per_day = prev;
             _schPaint(container);
-            _schSay('沒改成：' + (_plainReason(e && e.message) || '連不上橋'));
+            _say(container, '沒改成：' + (_plainReason(e && e.message) || '連不上橋'));
         }
     }
     function _schDisarm(root, except) {
@@ -1158,7 +1183,7 @@
             _schPaint(container);
         } catch (e) {
             delete btn.dataset.busy;
-            _schSay('沒取消成：' + (_plainReason(e && e.message) || '連不上橋'));
+            _say(container, '沒取消成：' + (_plainReason(e && e.message) || '連不上橋'));
         }
     }
 
@@ -1168,7 +1193,7 @@
         const root = container.querySelector('.ob-container');
         const pane = root && root.querySelector('.ob-wl');
         if (!st || !pane) return;
-        st.sch = null;   // 日程表那頁等到一半的，回來別蓋掉這頁
+        st.sch = null; st.mem = null;   // 日程表、記憶那頁等到一半的，回來別蓋掉這頁
         const my = st.wl = { rid: rid || '', items: null, more: false, loading: false, error: '' };
         pane.hidden = false;
         pane.innerHTML = _wlListHtml(my, st.hb);
@@ -1210,6 +1235,7 @@
         const page = container.querySelector('.ob-wl-page');
         if (!page) return;
         page.dataset.wid = String(wid);
+        page.dataset.mid = '';   // 記憶那則的全文還在等的話，晚到了別蓋掉這一次的經過（_memDetail 也是兩個一起換）
         page.hidden = false;
         page.innerHTML = '<div class="ob-wl-head"><button type="button" class="ob-wl-back" data-to="list" title="回醒來紀錄"><i class="fa-solid fa-chevron-left"></i></button>'
             + '<div class="ob-wl-title">醒來紀錄</div><span class="ob-wl-headpad"></span></div><div class="ob-wl-scroll"><div class="ob-wl-empty">正在拿這一次的經過…</div></div>';
@@ -1263,16 +1289,9 @@
         const sheetSend = root.querySelector('.ob-sheet-send');
         const sheetFile = root.querySelector('.ob-sheet-file');
         const sheetMedia = root.querySelector('.ob-sheet-media');
-        const toast = root.querySelector('.ob-toast');
-        let toastTimer = null;
         let busy = false;
 
-        const say = msg => {
-            toast.textContent = msg;
-            toast.hidden = false;
-            clearTimeout(toastTimer);
-            toastTimer = setTimeout(() => { toast.hidden = true; }, 3200);
-        };
+        const say = msg => _toastOn(container, msg);
         const failed = (e, what) => {
             const msg = (e && e.message) ? String(e.message) : String(e);
             if (msg === 'NOT_CONFIGURED') { say('還沒填連線。'); return; }
@@ -1427,9 +1446,10 @@
                         content = (text ? text + '\n\n' : '') + up.map(x => '![' + (x.kind === 'video' ? '影片' : '圖片') + '](' + x.path + ')').join('\n');
                     }
                     await _postNote(content, ['rae']);
-                    st.all = await _fetchPosts();
+                    const fresh = await _refetch(container, true);   // 拿不到也照樣重畫：發好了，框要清掉，不然她會再發一次
                     st.tab = 'feed';   // 她剛發的在動態，停在別頁會以為沒發出去
                     _renderBoard(container, st.all, st.hb);
+                    if (!fresh) _toastOn(container, REFETCH_FAIL);   // 整板重畫會換掉提示條，畫完才說
                 }).finally(() => { if (sheetSend.isConnected) sheetSend.disabled = !canPost(); });
                 return;
             }
