@@ -2548,6 +2548,8 @@ ${withOthers}
         // opts.cwd：給需要落檔的那種呼叫用（群聊歸檔員要把摘要 append 進檔案）。
         // 不給就照舊落到橋的預設工作目錄。
         if (opts.cwd) body.cc_cwd = String(opts.cwd);
+        // 背景工作（群聊畫布下棋、群聊歸檔）：橋不推「回好了」的通知，她就在畫面前面
+        body.cc_quiet = true;
         if (Number.isFinite(cfg.temperature)) body.temperature = cfg.temperature;
         if (Number.isFinite(cfg.top_p)) body.top_p = cfg.top_p;
 
@@ -2576,6 +2578,9 @@ ${withOthers}
             stream: true,
             max_tokens: cfg.maxTokens,
             keep_system: true,
+            // 背景工作：橋不推通知。11-02 她截圖一整排「✅ ☕ 奧瑞亞 [01a196ff…]」全是 SN 收尾的世界檔案，
+            //   一份企劃每一步叮一次，住戶真的傳訊息給她那則反而被略過
+            cc_quiet: true,
         };
         if (r.provider === 'codex') body.cc_backend = 'codex';
         const home = _residentHome(rid);
