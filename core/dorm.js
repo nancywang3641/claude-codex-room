@@ -121,6 +121,97 @@
         return { base: base, key: p.key };
     }
 
+    // =====================================================================
+    // 🔴 住戶醒來傳訊息給她（<room_message>，橋的 _deliver_wake_message）：門卡、宿舍入口、房間的「‹」亮紅點，進他房間就熄。
+    //   她：「主要是聊天室沒紅字」「我錯過了手機提醒就沒發覺」→「好，加紅點」。
+    //   橋不用改：醒來紀錄 GET /v1/wakes 每筆的 summary 用「、」切開，有一段正好是「傳訊息給妳」就是傳了
+    //   （「想傳訊息給妳，但你們還沒有聊天室…」那段不算：沒有聊天室可看）。看過哪一筆記在這台裝置（紀錄的 id 只會變大）。
+    //   🚨 summary 最多六段，傳訊息那段排在跑到外面的工具後面：一趟用了六樣以上對外的工具會被擠掉（只會少亮，不會亂亮）。
+    // =====================================================================
+    const WAKE_SEEN_KEY = 'ccr_wake_seen';   // { 住戶 id: 看過的最大醒來紀錄 id }
+    let _wmMemo = { at: 0, p: null };
+
+    /** 每位住戶最新一則「醒來傳給妳的」是哪一筆醒來紀錄：{ rid: id }。拿不到回 null（跟「沒人傳」分開） */
+    function _wakePeek(force) {
+        const b = _bridge();
+        if (!b) return Promise.resolve(null);
+        if (!force && _wmMemo.p && Date.now() - _wmMemo.at < 20000) return _wmMemo.p;   // 宿舍一打開會連畫好幾次
+        const p = fetch(b.base + '/v1/wakes?limit=30', { headers: { 'Authorization': 'Bearer ' + b.key } })
+            .then(r => (r.ok ? r.json() : null))
+            .then(j => {
+                if (!j || !Array.isArray(j.items)) return null;
+                const out = {};
+                j.items.forEach(it => {
+                    if (!it || !it.ok || !it.rid) return;
+                    const bits = String(it.summary || '').replace(/…$/, '').split('、');
+                    if (bits.indexOf('傳訊息給妳') < 0) return;
+                    const id = Number(it.id) || 0;
+                    if (id > (out[it.rid] || 0)) out[it.rid] = id;
+                });
+                return out;
+            })
+            .catch(() => null);
+        _wmMemo = { at: Date.now(), p: p };
+        return p;
+    }
+    function _wakeSeen() {
+        try { const v = JSON.parse(localStorage.getItem(WAKE_SEEN_KEY) || 'null'); return (v && typeof v === 'object') ? v : null; }
+        catch (e) { return null; }
+    }
+    function _saveWakeSeen(seen) {
+        try { localStorage.setItem(WAKE_SEEN_KEY, JSON.stringify(seen)); } catch (e) {}
+    }
+    /** 現在正開著、看著的那間房的住戶（看著就不必亮）；沒開房間回 '' */
+    function _wakeViewing() {
+        const CW = window.ChatWindow, CT = _CT();
+        if (!CW || !CT || typeof CW.isOpen !== 'function' || !CW.isOpen()) return '';
+        if (typeof CW.getView !== 'function' || CW.getView() !== 'room' || typeof CW.getProvider !== 'function') return '';
+        const prov = CW.getProvider();
+        if (!prov || prov === 'group' || typeof CT.getActiveResidentId !== 'function') return '';
+        return CT.getActiveResidentId(prov) || '';
+    }
+    /** 拿到最新的之後：記看過、算誰還沒看、畫三個地方的點。latest 是 null（橋拿不到）就什麼都不動 */
+    function _wakeApply(latest, readRid) {
+        if (!latest) return [];
+        let seen = _wakeSeen();
+        let dirty = false;
+        if (!seen) { seen = Object.assign({}, latest); dirty = true; }   // 第一次：以前傳過的都當看過，只亮之後新傳的
+        [readRid, _wakeViewing()].forEach(rid => {
+            if (rid && latest[rid] && latest[rid] > (Number(seen[rid]) || 0)) { seen[rid] = latest[rid]; dirty = true; }
+        });
+        if (dirty) _saveWakeSeen(seen);
+        const CT = _CT();
+        const live = (CT && typeof CT.listResidents === 'function')
+            ? CT.listResidents().filter(r => r && r.provider !== 'group').map(r => String(r.id)) : Object.keys(latest);
+        const unread = live.filter(rid => latest[rid] && latest[rid] > (Number(seen[rid]) || 0));
+        _paintWakeEntry(unread.length > 0);
+        const viewing = _wakeViewing();
+        const back = document.querySelector('#aurelia-chat-window #cw-back');
+        if (back) back.classList.toggle('cw-back-msg', unread.some(rid => rid !== viewing));
+        if (_el && document.contains(_el)) {
+            _el.querySelectorAll('.dorm-card[data-id]').forEach(card => {
+                card.classList.toggle('wake-msg-new', unread.indexOf(card.dataset.id) >= 0);
+            });
+        }
+        return unread;
+    }
+    /** 宿舍入口那顆：奧瑞亞在場畫在大廳的鈕上（各自標自己的 DOM），沒有宿主就畫在房間的浮球上 */
+    function _paintWakeEntry(on) {
+        if (window.__CCR_NO_LAUNCHER__) {
+            const VT = window.VoidTerminal;
+            try {
+                if (on) { if (VT && typeof VT.markAiNews === 'function') VT.markAiNews('msg'); }
+                else if (VT && typeof VT.clearAiNews === 'function') VT.clearAiNews('msg');
+            } catch (e) {}
+            return;
+        }
+        const btn = document.getElementById('ccr-launcher');
+        if (!btn) return;
+        btn.classList.toggle('ccr-news-msg', !!on);
+        if (on) btn.title = '有住戶傳訊息給妳';
+        else if (btn.title === '有住戶傳訊息給妳') btn.title = '宿舍';
+    }
+
     async function _hbLoad() {
         const b = _bridge();
         if (!b) { _hb = {}; return; }
@@ -517,6 +608,8 @@
         _bind();
         // 誰有沒看過的「想跟妳說的」：門卡上點一顆（在他房間的紀錄裡）
         if (window.RoomNotebook && typeof window.RoomNotebook.markDoors === 'function') window.RoomNotebook.markDoors(_el);
+        // 誰醒來傳了訊息、妳還沒進他房間：頭像旁一顆紅點（20 秒內重畫不重打橋）
+        _wakePeek(false).then(latest => _wakeApply(latest));
     }
 
     function _disarmDelete() {
@@ -871,6 +964,17 @@
 
     /** 小機學了新的課、剛領養：重讀它的存檔再畫 */
     DormPanel.refreshXiaoji = function () { return _xjLoad().then(() => DormPanel.refresh()); };
+
+    /** 🔴 有沒有住戶醒來傳訊息、她還沒看：開頁後、開著時每幾分鐘、回到畫面時叫（index.js）。回還沒看的住戶 id */
+    DormPanel.checkWakeMessages = function (force) {
+        return _wakePeek(!!force).then(latest => _wakeApply(latest));
+    };
+    /** 進他房間就算看過（chat_window 的 _loadRoom，所有進房的路都走那裡）：重問一次橋，免得拿 20 秒前那份記 */
+    DormPanel.markWakeSeen = function (rid) {
+        rid = String(rid || '');
+        if (!rid) return Promise.resolve([]);
+        return _wakePeek(true).then(latest => _wakeApply(latest, rid));
+    };
 
     console.log('[DormPanel] 宿舍面板已載入');
 

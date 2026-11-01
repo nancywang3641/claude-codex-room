@@ -63,7 +63,8 @@
 
 /* 板子動靜:丹留了新東西,入口鈕亮一顆小點。日常紙條琥珀、提案酒紅。 */
 #ccr-launcher.ccr-news::after,
-#ccr-launcher.ccr-news-prop::after {
+#ccr-launcher.ccr-news-prop::after,
+#ccr-launcher.ccr-news-msg::after {
     content: '';
     position: absolute;
     top: 3px;
@@ -79,8 +80,14 @@
     background: #2a4a80;
     box-shadow: 0 0 6px rgba(42, 74, 128, 0.85);
 }
+/* 住戶醒來傳訊息給妳（dorm.js 的 _paintWakeEntry）：紅點，蓋過上面兩種 */
+#ccr-launcher.ccr-news-msg::after {
+    background: #e0453a;
+    box-shadow: 0 0 6px rgba(224, 69, 58, 0.75);
+}
 #ccr-launcher.ccr-inline.ccr-news::after,
-#ccr-launcher.ccr-inline.ccr-news-prop::after {
+#ccr-launcher.ccr-inline.ccr-news-prop::after,
+#ccr-launcher.ccr-inline.ccr-news-msg::after {
     top: -1px;
     right: -1px;
     width: 8px;

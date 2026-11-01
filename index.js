@@ -226,7 +226,7 @@
     // 手機瀏覽器把這批靜態檔快取得很兇,沒版本參數的話核心檔更新永遠到不了手機
     // (症狀:桌機是新版、手機停在幾個月前,甚至 chat_window 跟 chat_room 各停在不同版本)。
     // 檔案有改就把 VER +1,跟奧瑞亞 sw.js 的 CACHE_VERSION 同一套習慣。
-    const VER = 160;
+    const VER = 161;
 
     function loadCSS(href) {
         if (document.querySelector('link[data-ccr="' + href + '"]')) return;
@@ -418,6 +418,20 @@
         } catch (e) { /* 連不上就安靜,這顆點不值得吵人 */ }
     }
     setTimeout(_checkBoardNews, 4000);
+
+    // ====================================================================
+    // 6. 住戶醒來傳訊息給她（<room_message>）—— 宿舍入口、門卡亮紅點，進他房間就熄。
+    //    以前只推一則手機通知，錯過了就只能等她哪天自己打開那間。判斷、看過哪筆、畫哪裡都在 dorm.js；
+    //    這裡只管什麼時候問：開頁後、開著的時候每五分鐘、回到畫面時（20 秒內 dorm.js 不重打橋）。
+    // ====================================================================
+    function _checkWakeNews() {
+        try {
+            if (window.DormPanel && typeof window.DormPanel.checkWakeMessages === 'function') window.DormPanel.checkWakeMessages();
+        } catch (e) { /* 連不上就安靜 */ }
+    }
+    setTimeout(_checkWakeNews, 5000);
+    setInterval(() => { if (document.visibilityState === 'visible') _checkWakeNews(); }, 300000);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') _checkWakeNews(); });
 
     console.log(TAG, '✅ 獨立房間擴展載入完成');
 })();

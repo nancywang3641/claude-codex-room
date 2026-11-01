@@ -80,6 +80,21 @@
     background-color: #dfe9f5;
     image-rendering: pixelated;
 }
+/* 🔴 他醒來傳了訊息給妳、還沒進他房間看：頭像右上角一顆紅點（頭像本身 overflow:hidden 會切掉，所以畫在門上）。
+   門右上角那顆金點是另一件事（紀錄裡「想跟妳說的」），兩顆可以同時亮 */
+.dorm-card.wake-msg-new .dorm-door { position: relative; }
+.dorm-card.wake-msg-new .dorm-door::before {
+    content: '';
+    position: absolute;
+    left: 41px;
+    top: 7px;
+    z-index: 1;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #e0453a;
+    box-shadow: 0 0 0 2px #fff;
+}
 /* 分身的模型角標 */
 .dorm-badge {
     position: absolute;

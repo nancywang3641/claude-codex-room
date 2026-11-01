@@ -761,6 +761,11 @@
         }
         // 紀錄那顆：這位有沒看過的「想跟妳說的」就點一顆（群聊沒有）
         if (window.RoomNotebook && typeof window.RoomNotebook.peekRoom === 'function') window.RoomNotebook.peekRoom();
+        // 🔴 他醒來傳的訊息：進他房間就算看過，門卡、宿舍入口、「‹」的紅點熄掉（群聊沒有）
+        if (provider !== 'group' && window.DormPanel && typeof window.DormPanel.markWakeSeen === 'function') {
+            const CTw = window.ClaudeTerminal;
+            try { window.DormPanel.markWakeSeen(CTw && CTw.getActiveResidentId ? CTw.getActiveResidentId(provider) : ''); } catch (e) {}
+        }
         // 🧹 摘要按鈕只在群聊房顯示
         const compactBtn = _winEl && _winEl.querySelector('.cw-tool-compact');
         if (compactBtn) compactBtn.style.display = (provider === 'group') ? '' : 'none';

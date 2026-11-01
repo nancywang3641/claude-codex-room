@@ -60,6 +60,19 @@
 }
 #aurelia-chat-window:not(.cw-view-dorm) .cw-back { display: flex; }
 #aurelia-chat-window .cw-back:hover { background: rgba(244, 239, 227, 0.18); color: #f4efe3; }
+/* 🔴 別的住戶醒來傳了訊息、還沒去看：「‹ 回宿舍」右上角一顆紅點（dorm.js 的 _wakeApply） */
+#aurelia-chat-window .cw-back { position: relative; }
+#aurelia-chat-window .cw-back.cw-back-msg::after {
+    content: '';
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #e0453a;
+    box-shadow: 0 0 0 2px rgba(30, 53, 84, 0.9);
+}
 
 /* 宿舍頁的工具列只留「設置」：留言板／額度走廊上就有，會話與摘要是房間的事 */
 #aurelia-chat-window.cw-view-dorm .cw-tool-btn[data-panel="spend"],
