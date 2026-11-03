@@ -28,7 +28,8 @@
             const r = CT.getActiveResident(provider);
             if (r && r.name) name = r.name;
         }
-        if (provider === 'group') return (icon ? icon + ' ' : '') + (name || '群聊區');
+        // 群聊 11-04 收掉了：只剩舊紀錄能翻（輸入列、摘要、會話那幾顆在 CSS 收起來）
+        if (provider === 'group') return (icon ? icon + ' ' : '') + '舊群聊 · 只能看';
         return (icon ? icon + ' ' : '') + (name || 'Claude') + ' 的房間';
     }
 

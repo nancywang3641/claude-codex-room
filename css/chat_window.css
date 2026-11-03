@@ -1591,3 +1591,10 @@
 
 /* 🌐 住戶講外語：泡泡與語音「字」那欄的中文翻譯，原文下面一行小字（chat_room.js _fillMdSeg／_buildVoice） */
 #aurelia-chat-window .claude-tl { margin-top: 4px; font-size: 0.82em; line-height: 1.5; opacity: 0.7; }
+
+/* 群聊 11-04 收掉了：走廊「舊群聊」進來只能看舊紀錄。說話、摘要重啟、會話（請上桌、清空）都收起來 */
+#aurelia-chat-window.cw-group .cw-input-row,
+#aurelia-chat-window.cw-group .cw-tool-compact,
+#aurelia-chat-window.cw-group .cw-tool-btn[data-panel="recents"] {
+    display: none !important;
+}

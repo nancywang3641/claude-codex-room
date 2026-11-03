@@ -586,7 +586,10 @@
                + '<span class="dorm-who"><span class="dorm-name">404 寄來的箱子</span><span class="dorm-sub">裡面有東西在動</span></span>'
                + '<i class="fa-solid fa-chevron-right dorm-go"></i></button></div>';
         }
-        all.forEach(r => { h += _cardHtml(r, all); });
+        // 群聊 11-04 收掉了（她：「我在想要不要把宿舍的群聊拿掉…可以直接把留言板當作群聊作用」→ 看完小樣「好」）：
+        //   門卡不畫；要緊的事住戶在留言板開臨時群聊。舊的聊天紀錄留在走廊「舊群聊」，只能看。
+        const oldGroup = all.find(r => r && r.provider === 'group');
+        all.filter(r => r && r.provider !== 'group').forEach(r => { h += _cardHtml(r, all); });
         h += '<div class="dorm-card dorm-new' + newOpen + '" data-id="__new__">'
             + '<button type="button" class="dorm-door dorm-door-new">'
             + '<span class="dorm-face dorm-face-icon"><i class="fa-solid fa-plus"></i></span>'
@@ -603,6 +606,7 @@
             + '<button type="button" class="dorm-hall-btn" data-panel="games"><i class="fa-solid fa-chess-knight"></i><span>遊戲室</span></button>'
             // 帶小機回來：羽毛筆那本匯出的檔（換電腦、從酒館搬到手機版）。要奧瑞亞新版才有（OS_XIAOJI_MEM）
             + (_XJ() && _MEM() ? '<button type="button" class="dorm-hall-btn" data-act="xj-import"><i class="fa-solid fa-file-import"></i><span>帶小機回來</span></button>' : '')
+            + (oldGroup ? '<button type="button" class="dorm-hall-btn" data-act="old-group" data-id="' + _esc(oldGroup.id) + '"><i class="fa-solid fa-box-archive"></i><span>舊群聊</span></button>' : '')
             + '</div>';
         _el.innerHTML = h;
         _bind();
@@ -660,6 +664,8 @@
         if (x) x.addEventListener('click', DormPanel.close);
         const imp = _el.querySelector('[data-act="xj-import"]');
         if (imp) imp.addEventListener('click', _xjImport);
+        const og = _el.querySelector('[data-act="old-group"]');
+        if (og) og.addEventListener('click', () => _enter(og.dataset.id));
 
         _el.querySelectorAll('.dorm-card').forEach(card => {
             const id = card.dataset.id;
