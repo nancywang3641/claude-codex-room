@@ -2562,7 +2562,7 @@ ${withOthers}
      * 叫某一位住戶「在他自己家」做一件事，一次就好（奧瑞亞 SN 32 樓的白板值班用）。
      * 不綁他的聊天串、不帶房間的 system、不存逐字稿；模型照他自己的（鎖了用鎖的、沒鎖用他挑過的、都沒有用房間那格）。
      * 只收 claude／codex（他們才有自己的家）；小機、蘇景明丟 NOT_RESIDENT。
-     * opts: { onProgress, signal, taskId }；回 { reply, usage }
+     * opts: { onProgress, signal, taskId }；回 { reply, usage, images }（images：Codex 這回合畫的圖，沒畫就是空陣列）
      */
     ClaudeTerminal.sendAs = async function (rid, messages, opts) {
         opts = opts || {};
@@ -2590,7 +2590,9 @@ ${withOthers}
             if (r.provider === 'codex') body.cc_sandbox = 'workspace-write';
         }
         const res = await _ccBridgePostQueued(cfg, body, opts.onProgress, opts.signal, opts.taskId);
-        return { reply: res.reply, usage: res.usage };
+        // images：阿洛（Codex）這回合用畫圖工具畫的圖，橋撿回來附在回覆裡（每張 { filename, mime, data, path }）。
+        //   SN 白板收尾的「宣傳片的畫面」靠這個拿他畫的圖（奧瑞亞 os_sn_board.js 的 _pvArtShift）；以前這裡只回文字，圖在半路被丟掉
+        return { reply: res.reply, usage: res.usage, images: res.images || [] };
     };
 
     /** 對話總數（給 UI badge / 標題用） */
