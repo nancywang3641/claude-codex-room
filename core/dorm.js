@@ -470,6 +470,29 @@
         return '<span class="dorm-face dorm-face-icon dorm-face-xj"' + (body ? ' data-xjbody="' + body + '"' : '') + '><i class="fa-solid fa-microchip"></i></span>';
     }
 
+    // 沒打扮、也不去橋上問的預設樣子（蘇景明＝鯨魚）：ClawdPortrait.faceOf 每種只畫一次，畫好之前先放一個小圖示，
+    //   畫好了把畫面上同一種的（[data-baseface]）都換成小圖。群成員格（chat_window.js）也來問這裡（DormPanel.baseFaceSrc）
+    const _baseFaces = {};      // base → 小圖；'' ＝畫好之前／畫不出來
+    function _baseFaceSrc(base) {
+        if (_baseFaces[base]) return _baseFaces[base];
+        const CP = window.ClawdPortrait;
+        if (_baseFaces[base] === undefined && CP && typeof CP.faceOf === 'function') {
+            _baseFaces[base] = '';
+            CP.faceOf(base).then(url => {
+                if (!url) return;
+                _baseFaces[base] = url;
+                document.querySelectorAll('[data-baseface="' + base + '"]').forEach(el => {
+                    el.classList.remove('dorm-face-icon', 'cw-mem-icon');
+                    if (el.classList.contains('dorm-face')) el.classList.add('dorm-face-img');
+                    const badge = el.querySelector('.dorm-badge');
+                    el.innerHTML = '<img class="ccr-look" src="' + url + '" alt="">' + (badge ? badge.outerHTML : '');
+                });
+            }).catch(() => {});
+        }
+        return '';
+    }
+    DormPanel.baseFaceSrc = _baseFaceSrc;
+
     function _faceHtml(r) {
         if (r.provider === 'xiaoji') return _xjFaceHtml(r);
         const look = (r.provider === 'claude' || r.provider === 'codex') ? _lookSrc(r) : '';
@@ -480,8 +503,11 @@
         if (r.provider === 'codex') {
             return '<span class="dorm-face dorm-face-codex" data-look="' + _esc(r.id) + '"></span>';
         }
+        // 蘇景明：藍鯨魚（11-06 她：「把景明的小人改成你之前畫的鯨魚」；以前是一個灰色的西裝人小圖示）
         if (r.provider === 'deepseek') {
-            return '<span class="dorm-face dorm-face-icon"><i class="fa-solid fa-user-tie"></i></span>';
+            const whale = _baseFaceSrc('whale');
+            if (whale) return '<span class="dorm-face dorm-face-img" data-look="' + _esc(r.id) + '" data-baseface="whale"><img class="ccr-look" src="' + whale + '" alt="">' + badge + '</span>';
+            return '<span class="dorm-face dorm-face-icon" data-look="' + _esc(r.id) + '" data-baseface="whale"><i class="fa-solid fa-fish"></i>' + badge + '</span>';
         }
         if (r.provider === 'group') {
             return '<span class="dorm-face dorm-face-icon"><i class="fa-solid fa-users"></i></span>';

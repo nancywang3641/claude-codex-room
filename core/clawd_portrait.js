@@ -5,6 +5,7 @@
  * 帽子疊上去他一換動作就懸在半空；打扮過的住戶改用這支一格一格畫他，戴的東西每一格都跟著身體算位置。
  * 沒打扮過的照舊是原本那組動圖——這支只在 show() 之後才接手。
  * 阿洛的預設樣子是洛德（base 'lorde'：他自己的墨藍幽靈管家，不是 Codex 那個機器人），沒有現成動圖，一律這支畫。
+ * 蘇景明是一隻藍鯨魚（base 'whale'，11-06 她要的，照奧瑞亞 tmp/shorts/bot 短片那隻）：會眨眼、頭上噴水，一樣一律這支畫。
  *
  * 打扮資料是橋 /v1/decor 帶回來的 wear：{ own, body: 身體顏色, items: [{ svg, ratio, x, y, w, face, eyes_only }], look }。
  * 座標以身體為準（寬 12、高 8，左上角 0,0），x、y 是那件東西底部中心，w 是寬；face 的跟著眼睛左看右看；
@@ -31,6 +32,7 @@
         hamster: { body: '#e3a867', eye: '#2a1a12', belly: '#fff1dc', ear: '#f4b3a8', nose: '#e88a8a', feet: '#f0b49a' },
         cat:     { body: '#9a78c9', eye: '#ffd54a', stripe: '#7a59ab', ear: '#f2a7c3', mouth: '#3b2754', teeth: '#fff6e8' },
         penguin: { body: '#5d7fb0', eye: '#1b2230', belly: '#fffaf2', beak: '#f2a03d', blush: '#f4a6a0' },
+        whale:   { body: '#5aa9e6', eye: '#1d1a33', fin: '#3f86c4', belly: '#d8ecff', spout: '#bfe3ff' },
     };
     const PAL = {
         shadow: 'rgba(58,36,24,.16)', gray: '#b8b1aa', dark: '#2a2623',
@@ -191,6 +193,28 @@
         return { bx: L + 2, by: top, kx: 1, ky: 1, right: L + 12, top, eyes: [[L + 4, top + 3, -1], [L + 9, top + 3, 1]] };
     }
 
+    // 鯨魚（蘇景明）：寬 16、頭朝右、尾巴翹在左上、淺色肚子、一隻眼睛，肚子底站在小螃蟹腳底那列。
+    //   她：「能不能順便把 景明的小人改成你之前畫的鯨魚」——照「如果 Claude 也出了 bot」短片裡宿舍窗戶那隻（drawWhale）。
+    //   醒著隔一陣子頭上噴水（兩格水珠一上一下），開心時一直噴，睡覺（閉眼）不噴；壓扁＝從中段抽掉幾列。沒有手。
+    const WHALE_ROWS = [[5, 12], [3, 14], [2, 15], [2, 15], [2, 15], [2, 15], [3, 14]];
+    function _whaleBody(o) {
+        const C = BASES.whale, sq = o.sq || 0, X = o.x + 1, B = _body;
+        const rows = WHALE_ROWS.filter((_, i) => i < 2 || i >= 2 + sq);
+        const bottom = o.y + 9, top = bottom - rows.length + 1;
+        rows.forEach(([a, b], i) => rect(X + a, top + i, b - a + 1, 1, B));
+        rect(X, top - 2, 2, 1, B); rect(X + 1, top - 1, 2, 1, B); rect(X + 2, top, 1, 1, B);      // 尾巴翹在左上
+        rect(X + 6, top + 1, 2, 1, 'rgba(255,255,255,.25)');                                         // 背上一點亮
+        rect(X + 4, bottom - 1, 10, 1, C.belly); rect(X + 5, bottom, 8, 1, C.belly);                 // 肚子
+        rect(X + 8, bottom - 2, 2, 1, C.fin);                                                         // 鰭
+        const eyes = o.eyes || 'open';
+        const spout = eyes !== 'closed' && (eyes === 'happy' || Math.floor(_f / 6) % 2 === 0);
+        if (spout) {
+            const d = Math.floor(_f / 2) % 2;
+            px(X + 11, top - 2, C.spout); px(X + 10, top - 3 - d, C.spout); px(X + 12, top - 3 - d, C.spout);
+        }
+        return { bx: X + 2, by: top, kx: 1, ky: 1, right: X + 15, top, eyes: [[X + 12, top + 1, 1]] };
+    }
+
     /** 他自己畫的形象：腳底站在跟小螃蟹一樣的地方、左右置中；壓扁就整張往下縮、往兩邊撐。 */
     function _lookBody(o) {
         const L = _look, sq = o.sq || 0;
@@ -208,7 +232,7 @@
     /** 本體＋表情＋身上的東西。o：x,y 位置；eyes open/blink/happy/x/closed；armL/armR down/up/tap；sq 壓扁；look 左右看；eyeDy 眼睛上下。
      *  回身體框，道具（冷汗、眼淚）照它擺，換了形象也落在對的地方。 */
     function clawd(o) {
-        const BODY = { lorde: _lordeBody, hamster: _hamsterBody, cat: _catBody, penguin: _penguinBody }[_base] || _crabBody;
+        const BODY = { lorde: _lordeBody, hamster: _hamsterBody, cat: _catBody, penguin: _penguinBody, whale: _whaleBody }[_base] || _crabBody;
         const m = _look ? _lookBody(o) : BODY(o);
         const look = o.look || 0, dy = o.eyeDy || 0;
         const EYE = (_look && _look.eye) || BASES[_base].eye;     // 形象可以自己指定眼睛顏色（Codex 工作服是青色）
@@ -341,7 +365,7 @@
         return { img, ratio: +L.ratio || 1, w: +L.w || 12, eyes, eye };
     }
 
-    /** 照這身打扮接手立繪。wear 是橋回的那包；base 是預設樣子（crab 小螃蟹／lorde 洛德／小機的 hamster、cat、penguin）。
+    /** 照這身打扮接手立繪。wear 是橋回的那包；base 是預設樣子（crab 小螃蟹／lorde 洛德／whale 鯨魚／小機的 hamster、cat、penguin）。
      *  小螃蟹沒打扮過（own=false）就交回原本的動圖；其他的沒有現成動圖，一律接手。 */
     ClawdPortrait.show = function (area, wear, base) {
         base = BASES[base] ? base : 'crab';

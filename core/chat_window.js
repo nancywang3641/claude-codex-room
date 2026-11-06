@@ -634,6 +634,8 @@
         }
         // 阿洛的預設樣子是洛德（他自己的幽靈管家），沒有現成動圖——先畫出來，免得閃一下 Codex 機器人
         if (CP && provider === 'codex') CP.show(area, null, 'lorde');
+        // 蘇景明是藍鯨魚（11-06），一樣先畫出來，免得閃一下小螃蟹的動圖
+        if (CP && provider === 'deepseek') CP.show(area, null, 'whale');
         const CT = window.ClaudeTerminal;
         const r = (CT && typeof CT.getActiveResident === 'function') ? CT.getActiveResident(provider) : null;
         const b = _decorBridge();
@@ -647,6 +649,7 @@
             // 打扮給 Claude 那幾位（預設小螃蟹，打扮過才接手立繪）跟阿洛（預設洛德）
             if (CP && provider === 'claude' && st.wear && st.wear.own) CP.show(area, st.wear, 'crab');
             if (CP && provider === 'codex') CP.show(area, st.wear, 'lorde');
+            if (CP && provider === 'deepseek') CP.show(area, st.wear, 'whale');
             if (!st.own) return;
             if (!window.RoomScene) return;
             img.src = window.RoomScene.dataUrl(st);
@@ -1170,7 +1173,11 @@
         const dl = ' data-look="' + String(r.id || '').replace(/[^\w-]/g, '') + '"';
         if (look) return '<span class="cw-mem-face"' + dl + '><img class="ccr-look" src="' + look + '" alt=""></span>';
         if (r.provider === 'codex')    return '<span class="cw-mem-face cw-mem-face-codex"' + dl + '></span>';
-        if (r.provider === 'deepseek') return '<span class="cw-mem-face cw-mem-icon"><i class="fa-solid fa-user-tie"></i></span>';
+        if (r.provider === 'deepseek') {      // 蘇景明：藍鯨魚（跟門卡同一顆，畫好之前先放小圖示，畫好會自己換）
+            const whale = (D && typeof D.baseFaceSrc === 'function') ? D.baseFaceSrc('whale') : '';
+            return whale ? '<span class="cw-mem-face"' + dl + '><img class="ccr-look" src="' + whale + '" alt=""></span>'
+                         : '<span class="cw-mem-face cw-mem-icon"' + dl + ' data-baseface="whale"><i class="fa-solid fa-fish"></i></span>';
+        }
         const src = (CT && CT.ASSETS && (CT.ASSETS.idle || CT.ASSETS.mini)) || '';
         const onerr = (CT && CT.imgOnError) || '';
         return src
