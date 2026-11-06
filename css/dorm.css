@@ -350,6 +350,24 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+/* 住戶自己的地毯（.dorm-rug-own）：花樣圖鋪在預設那層上面、照一樣的梯形剪；他畫的小標誌放在型號字前面 */
+.dorm-rug-img {
+    position: absolute;
+    left: 3px;
+    top: 2px;
+    width: calc(100% - 6px);
+    height: calc(100% - 5px);
+    object-fit: cover;
+    clip-path: polygon(13% 0, 87% 0, 100% 100%, 0 100%);
+}
+.dorm-rug-logo {
+    width: auto;
+    height: 13px;
+    max-width: 20px;
+    margin-right: 3px;
+    vertical-align: -2px;
+    object-fit: contain;
+}
 .dorm-rug-fable {
     --rug-edge: #9e4a33;
     --rug-pat: repeating-linear-gradient(45deg, rgba(255, 240, 225, 0.55) 0 1.5px, transparent 1.5px 8px),

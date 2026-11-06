@@ -382,6 +382,7 @@
         const st = await res.json();
         const wear = (st && st.wear) || null;
         _wears[rid] = { wear, at: Date.now() };
+        _setOwnRug(rid, st && st.rug);
         return wear;
     }
     async function _lookFor(r) {
@@ -592,10 +593,43 @@
         const fam = ['fable', 'opus', 'sonnet', 'haiku'].find(f => id.indexOf(f) >= 0);
         return fam || 'plain';
     }
+    // ---- 住戶自己的地毯（11-06 她：「地毯可以預設，到時候小機可以自己設計地毯樣式和模型LOGO」）----
+    //   現在只先接好「有就用他的、沒有就用模型的預設」；住戶自己設計那件還沒做（待辦「住戶自己設計地毯」等她選做法）。
+    //   放哪：宿舍住戶在橋 /v1/decor 那份裡的 rug（跟衣服同一通，不多打）；小機在它自己的存檔（OS_XIAOJI 的 rec.rug）。
+    //   長相：{ base: 借哪一款預設的邊框和字色, img: 花樣圖, logo: 他自己畫的小標誌 }。圖只收 data:image 的 png／webp／jpeg／svg
+    //   （放在 <img> 裡，svg 裡的程式不會跑），顏色不收字串（不開 inline style 的口子），要換色就挑 base。
+    const RUG_KINDS = ['fable', 'opus', 'sonnet', 'haiku', 'codex', 'deepseek', 'xiaoji', 'plain'];
+    const RUG_IMG = /^data:image\/(png|webp|jpeg|svg\+xml);base64,[A-Za-z0-9+/=]+$/;
+    const _ownRugs = {};        // rid → 洗過的那份；沒有＝undefined／null
+    function _cleanRug(x) {
+        if (!x || typeof x !== 'object') return null;
+        const out = {};
+        if (RUG_KINDS.indexOf(x.base) >= 0) out.base = x.base;
+        if (typeof x.img === 'string' && x.img.length <= 400000 && RUG_IMG.test(x.img)) out.img = x.img;
+        if (typeof x.logo === 'string' && x.logo.length <= 200000 && RUG_IMG.test(x.logo)) out.logo = x.logo;
+        return Object.keys(out).length ? out : null;
+    }
+    function _ownRugOf(r) {
+        if (r.provider === 'xiaoji') { const rec = _xj[r.id]; return _cleanRug(rec && rec.rug); }
+        return _ownRugs[r.id] || null;
+    }
+    /** 橋拿回來他自己的地毯：跟畫面上的不一樣才就地換那一塊（不整頁重畫，開著的登記抽屜不受影響） */
+    function _setOwnRug(rid, raw) {
+        const rug = _cleanRug(raw);
+        if (JSON.stringify(rug) === JSON.stringify(_ownRugs[rid] || null)) return;
+        _ownRugs[rid] = rug;
+        const CT = _CT();
+        if (!_el || !CT || typeof CT.getResident !== 'function') return;
+        const r = CT.getResident(rid);
+        const zone = r && _el.querySelector('.dorm-card[data-id="' + (window.CSS && CSS.escape ? CSS.escape(rid) : rid) + '"] .dorm-floorzone');
+        if (zone) zone.outerHTML = _rugHtml(r, typeof CT.listResidents === 'function' ? CT.listResidents() : []);
+    }
     function _rugHtml(r, all) {
-        return '<span class="dorm-floorzone"><span class="dorm-rug dorm-rug-' + _rugKind(r) + '">'
-            + '<span class="dorm-rug-weave" aria-hidden="true"></span>'
-            + '<span class="dorm-sub">' + _esc(_subtitle(r, all)) + '</span>'
+        const own = _ownRugOf(r);
+        const kind = (own && own.base) || _rugKind(r);
+        return '<span class="dorm-floorzone"><span class="dorm-rug dorm-rug-' + kind + (own ? ' dorm-rug-own' : '') + '">'
+            + '<span class="dorm-rug-weave" aria-hidden="true">' + (own && own.img ? '<img class="dorm-rug-img" src="' + _esc(own.img) + '" alt="">' : '') + '</span>'
+            + '<span class="dorm-sub">' + (own && own.logo ? '<img class="dorm-rug-logo" src="' + _esc(own.logo) + '" alt="">' : '') + _esc(_subtitle(r, all)) + '</span>'
             + '</span></span>';
     }
 
