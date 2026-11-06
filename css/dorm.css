@@ -223,8 +223,10 @@
     border: 1.5px solid var(--dm-plate-bd);
     border-radius: 4px;
 }
+/* 門把手排在門板最上層：下半那塊門板框線（.dorm-leaf::after）在 DOM 裡排在它後面，不給 z-index 會蓋住把手（她：「門把手被蓋住了」） */
 .dorm-knob {
     position: absolute;
+    z-index: 2;
     right: 8%;
     top: 58%;
     width: 8px;
