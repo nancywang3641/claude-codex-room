@@ -555,19 +555,43 @@
             + '"><i class="fa-solid fa-heart-pulse"></i></button>';
     }
 
-    function _cardHtml(r, all) {
+    // ---- 11-06 宿舍改成一棟樓：一層兩間房門，最底下是公共區（她拿阿洛畫的圖：「想說把主頁的聊天列表改成這樣」）----
+    //   每位住戶一扇門：門牌寫名字、門上的圓窗是他的頭像（跟著打扮換，跟以前門卡同一顆）、門墊底下一行是模型。
+    //   門旁的壁燈＝他會不會自己醒來（亮著＝會；開關還是那顆心跳鈕）；信箱塞了信＝他醒來傳訊息給妳、還沒去看。
+    //   走廊那排搬到一樓公共區：留言板是軟木板、遊戲室是一扇小門、新住戶是一個紙箱，額度／帶小機回來／舊群聊是底下的小木牌。
+    //   門的顏色：內建那幾位照圖固定（丹深棕、天天紫、克語藍、阿洛深藍、蘇景明綠），其他人照名冊順序拿還沒人用的顏色（第一位是黃）。
+    const DOOR_COLORS = 10;
+    const DOOR_FIXED = { dan: 0, tiantian: 1, keyu: 2, aluo: 3, sujingming: 4 };
+    function _doorColors(list) {
+        const out = {}, used = {};
+        list.forEach(r => { if (Object.prototype.hasOwnProperty.call(DOOR_FIXED, r.id)) { out[r.id] = DOOR_FIXED[r.id]; used[out[r.id]] = 1; } });
+        list.forEach(r => {
+            if (out[r.id] != null) return;
+            // 從 5 號往後找第一個還沒人用的（全滿了才重複）
+            let c = 5;
+            for (let k = 0; k < DOOR_COLORS && used[c]; k++) c = (c + 1) % DOOR_COLORS;
+            out[r.id] = c; used[c] = 1;
+        });
+        return out;
+    }
+
+    function _cardHtml(r, all, side, color) {
         const open = _editing === r.id ? ' dorm-editing' : '';
-        return '<div class="dorm-card' + open + '" data-id="' + _esc(r.id) + '">'
+        const waking = (r.provider !== 'xiaoji' && _hb[r.id] && _hb[r.id].enabled) ? ' is-waking' : '';
+        return '<div class="dorm-card dorm-side-' + side + ' dorm-c' + color + open + waking + '" data-id="' + _esc(r.id) + '">'
+            + '<div class="dorm-room">'
             + '<button type="button" class="dorm-door">'
-            + _faceHtml(r)
-            + '<span class="dorm-who">'
-            + '<span class="dorm-name">' + _esc(r.name) + '</span>'
+            + '<span class="dorm-lamp" aria-hidden="true"></span>'
+            + '<span class="dorm-plate"><span class="dorm-name">' + _esc(r.name) + '</span></span>'
+            + '<span class="dorm-leaf"><span class="dorm-arch">' + _faceHtml(r) + '</span><span class="dorm-knob"></span></span>'
+            + '<span class="dorm-mat"></span>'
             + '<span class="dorm-sub">' + _esc(_subtitle(r, all)) + '</span>'
-            + '</span>'
-            + '<i class="fa-solid fa-chevron-right dorm-go"></i>'
+            + '<span class="dorm-mail" aria-hidden="true"><i class="fa-solid fa-envelope"></i></span>'
+            + '<span class="dorm-plant" aria-hidden="true"><i class="fa-solid ' + (side === 'l' ? 'fa-seedling' : 'fa-spa') + '"></i></span>'
             + '</button>'
             + (r.provider === 'xiaoji' ? (_XJ() ? '<button type="button" class="dorm-train" title="培養室"><i class="fa-solid fa-graduation-cap"></i></button>' : '') : _wakeBtnHtml(r))
             + '<button type="button" class="dorm-pen" title="改這位住戶"><i class="fa-solid fa-pen"></i></button>'
+            + '</div>'
             + (_editing === r.id ? _formHtml(r) : '')
             + '</div>';
     }
@@ -580,34 +604,50 @@
         let h = '<div class="dorm-list">';
         let boxOpened = false;
         try { boxOpened = localStorage.getItem('xiaoji_box_opened') === '1'; } catch (e) {}
+        // 群聊 11-04 收掉了（她：「我在想要不要把宿舍的群聊拿掉…可以直接把留言板當作群聊作用」→ 看完小樣「好」）：
+        //   門卡不畫；要緊的事住戶在留言板開臨時群聊。舊的聊天紀錄留在走廊「舊群聊」，只能看。
+        const oldGroup = all.find(r => r && r.provider === 'group');
+        const people = all.filter(r => r && r.provider !== 'group');
+        const colors = _doorColors(people);
+        // 一層兩間，名冊前面的住頂樓（圖上丹、天天在 3F），樓層號由下往上數
+        const floors = Math.ceil(people.length / 2);
+        for (let f = 0; f < floors; f++) {
+            const pair = people.slice(f * 2, f * 2 + 2);
+            h += '<div class="dorm-floor"><span class="dorm-floor-sign">' + (floors - f) + 'F</span>';
+            pair.forEach((r, i) => { h += _cardHtml(r, all, i ? 'r' : 'l', colors[r.id]); });
+            // 單數那層右邊空著：放一扇窗，不讓一間房孤零零撐滿整層
+            if (pair.length === 1) h += '<div class="dorm-room dorm-room-empty" aria-hidden="true"><span class="dorm-window"></span><span class="dorm-plant"><i class="fa-solid fa-seedling"></i></span></div>';
+            h += '</div>';
+        }
+        // 一樓公共區：留言板、遊戲室、新住戶（紙箱）＋底下一排小木牌（原本走廊那排，一顆都沒少）
+        h += '<div class="dorm-floor dorm-common"><span class="dorm-floor-sign">公共區</span>'
+            + '<button type="button" class="dorm-hall-btn dorm-hall-board" data-panel="board">'
+            +   '<span class="dorm-plate"><span>留言板</span></span>'
+            +   '<span class="dorm-cork"><i></i><i></i><i></i></span></button>'
+            // 遊戲室：住戶醒來自己約棋、輪到誰走一步（GameRoom，橋 /v1/games）
+            + '<button type="button" class="dorm-hall-btn dorm-hall-games" data-panel="games">'
+            +   '<span class="dorm-plate"><span>遊戲室</span></span>'
+            +   '<span class="dorm-leaf dorm-leaf-games"><i class="fa-solid fa-gamepad"></i><span class="dorm-knob"></span></span></button>'
+            + '<div class="dorm-card dorm-new' + newOpen + '" data-id="__new__">'
+            +   '<div class="dorm-room"><button type="button" class="dorm-door dorm-door-new">'
+            +   '<span class="dorm-crate" title="再請一位進來住"><span class="dorm-name">新住戶</span></span>'
+            +   '</button></div>'
+            +   (_editing === '__new__' ? _formHtml(null) : '')
+            + '</div>'
+            + '<div class="dorm-signs">'
+            + '<button type="button" class="dorm-hall-btn dorm-sign" data-panel="spend"><i class="fa-solid fa-coins"></i><span>額度</span></button>'
+            // 帶小機回來：羽毛筆那本匯出的檔（換電腦、從酒館搬到手機版）。要奧瑞亞新版才有（OS_XIAOJI_MEM）
+            + (_XJ() && _MEM() ? '<button type="button" class="dorm-hall-btn dorm-sign" data-act="xj-import"><i class="fa-solid fa-file-import"></i><span>帶小機回來</span></button>' : '')
+            + (oldGroup ? '<button type="button" class="dorm-hall-btn dorm-sign" data-act="old-group" data-id="' + _esc(oldGroup.id) + '"><i class="fa-solid fa-box-archive"></i><span>舊群聊</span></button>' : '')
+            + '</div>';
+        // 404 寄來的箱子（還沒領養過小機才有）：擺在公共區最底下、會晃的包裹
         if (_XJ() && !boxOpened && !all.some(r => r && r.provider === 'xiaoji')) {
             h += '<div class="dorm-card dorm-box" data-id="__box__"><button type="button" class="dorm-door dorm-door-box">'
                + '<span class="dorm-face dorm-face-icon dorm-face-box"><i class="fa-solid fa-box"></i></span>'
                + '<span class="dorm-who"><span class="dorm-name">404 寄來的箱子</span><span class="dorm-sub">裡面有東西在動</span></span>'
                + '<i class="fa-solid fa-chevron-right dorm-go"></i></button></div>';
         }
-        // 群聊 11-04 收掉了（她：「我在想要不要把宿舍的群聊拿掉…可以直接把留言板當作群聊作用」→ 看完小樣「好」）：
-        //   門卡不畫；要緊的事住戶在留言板開臨時群聊。舊的聊天紀錄留在走廊「舊群聊」，只能看。
-        const oldGroup = all.find(r => r && r.provider === 'group');
-        all.filter(r => r && r.provider !== 'group').forEach(r => { h += _cardHtml(r, all); });
-        h += '<div class="dorm-card dorm-new' + newOpen + '" data-id="__new__">'
-            + '<button type="button" class="dorm-door dorm-door-new">'
-            + '<span class="dorm-face dorm-face-icon"><i class="fa-solid fa-plus"></i></span>'
-            + '<span class="dorm-who"><span class="dorm-name">新住戶</span>'
-            + '<span class="dorm-sub">再請一位進來住</span></span>'
-            + '</button>'
-            + (_editing === '__new__' ? _formHtml(null) : '')
-            + '</div>';
-        h += '</div>';
-        h += '<div class="dorm-hall">'
-            + '<button type="button" class="dorm-hall-btn" data-panel="board"><i class="fa-solid fa-note-sticky"></i><span>留言板</span></button>'
-            + '<button type="button" class="dorm-hall-btn" data-panel="spend"><i class="fa-solid fa-coins"></i><span>額度</span></button>'
-            // 遊戲室：住戶醒來自己約棋、輪到誰走一步（GameRoom，橋 /v1/games）
-            + '<button type="button" class="dorm-hall-btn" data-panel="games"><i class="fa-solid fa-chess-knight"></i><span>遊戲室</span></button>'
-            // 帶小機回來：羽毛筆那本匯出的檔（換電腦、從酒館搬到手機版）。要奧瑞亞新版才有（OS_XIAOJI_MEM）
-            + (_XJ() && _MEM() ? '<button type="button" class="dorm-hall-btn" data-act="xj-import"><i class="fa-solid fa-file-import"></i><span>帶小機回來</span></button>' : '')
-            + (oldGroup ? '<button type="button" class="dorm-hall-btn" data-act="old-group" data-id="' + _esc(oldGroup.id) + '"><i class="fa-solid fa-box-archive"></i><span>舊群聊</span></button>' : '')
-            + '</div>';
+        h += '</div></div>';
         _el.innerHTML = h;
         _bind();
         // 誰有沒看過的「想跟妳說的」：門卡上點一顆（在他房間的紀錄裡）
@@ -699,10 +739,12 @@
                     // 失敗再撥回來 —— 撥回去比一直轉圈更誠實。
                     wake.dataset.busy = '1';
                     wake.classList.toggle('waking', want);
+                    card.classList.toggle('is-waking', want);   // 門旁的壁燈跟著亮／暗
                     const res = await _hbSet(r, want);
                     delete wake.dataset.busy;
                     if (!res.ok) {
                         wake.classList.toggle('waking', !want);
+                        card.classList.toggle('is-waking', !want);
                         wake.title = res.msg || '沒設定成';
                         return;
                     }
