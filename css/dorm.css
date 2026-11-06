@@ -13,8 +13,9 @@
  *   .dorm-wake、.dorm-pen、.dorm-form、.dorm-hall-btn[data-panel]）一個都沒換。
  * ============================================================ */
 
-/* ---- 整棟樓的顏色（只在宿舍頁）---- */
-.cw-dorm .dorm-list {
+/* ---- 整棟樓的顏色（只在宿舍頁；抽屜在樓外面，所以掛在整頁上）---- */
+#aurelia-chat-window .cw-dorm { position: relative; }
+.cw-dorm {
     --dm-wood: #a5663a;        /* 樑柱 */
     --dm-wood-dk: #6e4022;
     --dm-wood-lt: #cf9258;     /* 樓板亮面 */
@@ -121,7 +122,9 @@
 .dorm-plate {
     position: relative;
     z-index: 1;
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: 4px;
     max-width: calc(100% - 12px);
     margin-bottom: 7px;
     padding: 2px 13px;
@@ -146,6 +149,7 @@
 .dorm-plate::after { right: 4px; }
 .dorm-plate > span {
     display: block;
+    min-width: 0;
     font-size: 14px;
     font-weight: 800;
     line-height: 1.45;
@@ -154,6 +158,29 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+/* 門牌是按鈕：點了打開底下的「房門登記」抽屜改他（11-06 她：「鉛筆轉到門牌便按鈕打開下面往上的抽屜UI」）。
+   蓋在門裡那塊看不見的同款門牌上（一樣的字、一樣大），所以門的位置不跟著變 */
+.dorm-plate-pen {
+    flex-shrink: 0;
+    font-size: 9px;
+    color: var(--dm-ink-soft);
+    opacity: 0.75;
+}
+.dorm-room > .dorm-pen.dorm-plate {
+    position: absolute;
+    z-index: 2;
+    top: 9px;
+    left: 0;
+    right: 0;
+    width: max-content;
+    margin: 0 auto;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+.dorm-room > .dorm-pen.dorm-plate:hover { background: #fff8ea; }
+.dorm-room > .dorm-pen.dorm-plate:focus-visible { outline: 2px solid #e4a54b; outline-offset: 2px; }
+.dorm-card.dorm-editing .dorm-pen.dorm-plate { border-color: #d28f2f; box-shadow: 0 0 0 2px #f2c46b, 0 2px 0 rgba(90, 52, 24, 0.35); }
 
 /* 門的顏色（門板、框線）：0 深棕（丹）1 紫（天天）2 藍（克語）3 深藍（阿洛）4 綠（蘇景明），其他人從 5 以後挑 */
 .dorm-c0 { --door: #5c3b2a; --door-dk: #3d2519; }
@@ -378,26 +405,34 @@
 .dorm-lamp,
 .dorm-mail,
 .dorm-plant { position: absolute; z-index: 1; }
-.dorm-side-l .dorm-lamp { left: calc(50% - var(--leaf-w) / 2 - 25px); }
-.dorm-side-r .dorm-lamp { right: calc(50% - var(--leaf-w) / 2 - 25px); }
+.dorm-side-l .dorm-lamp { left: calc(50% - var(--leaf-w) / 2 - 31px); }
+.dorm-side-r .dorm-lamp { right: calc(50% - var(--leaf-w) / 2 - 31px); }
 .dorm-side-l .dorm-mail { left: calc(50% - var(--leaf-w) / 2 - 34px); }
 .dorm-side-r .dorm-mail { right: calc(50% - var(--leaf-w) / 2 - 34px); }
 .dorm-side-l .dorm-plant { left: calc(50% - var(--leaf-w) / 2 - 36px); }
 .dorm-side-r .dorm-plant { right: calc(50% - var(--leaf-w) / 2 - 36px); }
 
-/* 壁燈：亮著＝他會自己醒來（開關還是內側那顆心跳鈕） */
+/* 壁燈：亮著＝他會自己醒來，點燈就開／關（11-06 她：「心跳轉到點燈邏輯」；以前是門旁一顆心跳鈕）。
+   按得到的範圍比燈大一圈（30×34），燈本身畫在中間；小機那盞是裝飾、不能按 */
 .dorm-lamp {
-    top: 44px;
-    width: 18px;
-    height: 24px;
-    background: linear-gradient(#6e4123, #6e4123) 50% 0 / 2px 6px no-repeat;
+    top: 40px;
+    width: 30px;
+    height: 34px;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    background: linear-gradient(#6e4123, #6e4123) 50% 4px / 2px 6px no-repeat;
+    box-sizing: border-box;
 }
+button.dorm-lamp { cursor: pointer; z-index: 2; }
+button.dorm-lamp:hover { background-color: rgba(255, 226, 150, 0.25); }
+button.dorm-lamp:focus-visible { outline: 2px solid #e4a54b; }
 .dorm-lamp::before {
     content: '';
     position: absolute;
-    left: 1px;
-    right: 1px;
-    top: 5px;
+    left: 7px;
+    right: 7px;
+    top: 9px;
     height: 9px;
     border-radius: 9px 9px 2px 2px;
     background: #b7863f;
@@ -406,18 +441,18 @@
 .dorm-lamp::after {
     content: '';
     position: absolute;
-    left: 5px;
-    top: 13px;
+    left: 11px;
+    top: 17px;
     width: 8px;
     height: 8px;
     border-radius: 50%;
     background: #d8c6a2;
 }
-.dorm-card.is-waking .dorm-lamp::after {
+.dorm-lamp.waking::after {
     background: #ffe07a;
     box-shadow: 0 0 6px 4px rgba(255, 212, 100, 0.9), 0 0 24px 14px rgba(255, 196, 80, 0.4);
 }
-.dorm-card.is-waking .dorm-lamp::before { background: #d39a3e; }
+.dorm-lamp.waking::before { background: #d39a3e; }
 
 /* 信箱：他醒來傳了訊息給妳、還沒進他房間看 → 塞一封信＋紅點 */
 .dorm-mail {
@@ -551,12 +586,11 @@
     white-space: nowrap;
 }
 
-/* 心跳鈕、鉛筆、培養室：內側一直排，跟門同高。桌機滑過才出現，手機常駐（底下 media）；開著自己醒來的那顆一直亮 */
-.dorm-room .dorm-wake,
-.dorm-room .dorm-pen,
+/* 小機的培養室：門內側一顆圓木牌（心跳併進壁燈、鉛筆併進門牌之後，內側只剩它） */
 .dorm-room .dorm-train {
     position: absolute;
     z-index: 2;
+    top: 74px;
     width: 26px;
     height: 26px;
     padding: 0;
@@ -570,34 +604,9 @@
     box-shadow: 0 2px 0 rgba(90, 52, 24, 0.3);
     box-sizing: border-box;
 }
-.dorm-room .dorm-wake,
-.dorm-room .dorm-train { top: 74px; }
-.dorm-room .dorm-pen { top: 106px; }
-.dorm-side-l .dorm-wake,
-.dorm-side-l .dorm-pen,
 .dorm-side-l .dorm-train { right: calc(50% - var(--leaf-w) / 2 - 35px); }
-.dorm-side-r .dorm-wake,
-.dorm-side-r .dorm-pen,
 .dorm-side-r .dorm-train { left: calc(50% - var(--leaf-w) / 2 - 35px); }
-.dorm-room .dorm-wake:hover,
-.dorm-room .dorm-pen:hover,
 .dorm-room .dorm-train:hover { background: #fff8ea; color: var(--dm-ink); }
-.dorm-pen,
-.dorm-wake {
-    opacity: 0;
-    transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
-}
-.dorm-card:hover .dorm-pen,
-.dorm-card.dorm-editing .dorm-pen,
-.dorm-card:hover .dorm-wake,
-.dorm-card.dorm-editing .dorm-wake,
-.dorm-wake.waking { opacity: 1; }
-.dorm-room .dorm-wake.waking {
-    background: #c8553d;
-    border-color: #8e3322;
-    color: #fff;
-}
-.dorm-room .dorm-wake.waking:hover { background: #b14830; color: #fff; }
 
 /* 單數那層空著的那半：一扇窗＋盆栽（.dorm-wall 跟隔壁同一副骨架，見上面） */
 .dorm-window {
@@ -643,7 +652,7 @@
 .dorm-common .dorm-room { position: relative; z-index: 1; }
 /* 留言板掛在牆上，不落地 */
 .dorm-common .dorm-hall-board { margin-bottom: 14px; }
-.dorm-common .dorm-form { grid-row: 3; margin: 6px 0 10px; }
+
 .dorm-common .dorm-floor-sign { left: 12px; top: 8px; }
 .dorm-common .dorm-hall-btn {
     min-width: 0;
@@ -823,37 +832,160 @@
     92% { rotate: -4deg; }
 }
 
-/* ---- 就地編輯列：展開成那層底下一整條紙片，小三角指著是哪一間 ---- */
-.dorm-form {
-    grid-column: 1 / -1;
-    order: 1;
-    position: relative;
-    z-index: 2;
+/* ---- 房門登記抽屜：點門牌（或新住戶紙箱）從底下往上拉出來 ----
+   她：「打開下面往上的抽屜UI，可以設計成 文件木板夾紙框配筆，類似上門紀錄」。
+   一塊木板夾、上緣一個金屬夾子夾著一張橫線登記紙，右邊斜放一支筆；紙上就是原本那份編輯（名字、模型、穿法、奧瑞亞工具、存／搬走）。
+   點灰底或紙右上 ✕ 收回去。抽屜掛在宿舍頁最外層（.cw-dorm），不跟著樓捲。 */
+.dorm-drawer {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    margin: 10px 0 4px;
-    padding: 10px;
-    border: 2px solid #b07a4c;
-    border-radius: 10px;
-    background: #fffaf1;
-    box-shadow: 0 3px 0 rgba(90, 52, 24, 0.3);
-    color: var(--dm-ink);
+    justify-content: flex-end;
 }
-.dorm-form::before {
+.dorm-drawer-shade {
+    position: absolute;
+    inset: 0;
+    background: rgba(40, 22, 10, 0.45);
+}
+.dorm-clip {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    max-height: 86%;
+    margin: 0 8px;
+    padding: 24px 12px 0;
+    box-sizing: border-box;
+    border-radius: 16px 16px 0 0;
+    background:
+        repeating-linear-gradient(92deg, rgba(255, 255, 255, 0.05) 0 3px, rgba(0, 0, 0, 0.04) 3px 7px),
+        linear-gradient(#c48a52, #a96f3d);
+    box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.35), inset 0 2px 0 rgba(255, 240, 220, 0.35);
+}
+.dorm-drawer.is-fresh .dorm-drawer-shade { animation: dorm-shade-in 0.22s ease-out; }
+.dorm-drawer.is-fresh .dorm-clip { animation: dorm-clip-up 0.26s cubic-bezier(0.2, 0.8, 0.3, 1); }
+.dorm-drawer.is-closing .dorm-drawer-shade { opacity: 0; transition: opacity 0.18s ease-in; }
+.dorm-drawer.is-closing .dorm-clip { translate: 0 100%; transition: translate 0.18s ease-in; }
+@keyframes dorm-shade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes dorm-clip-up { from { translate: 0 100%; } to { translate: 0 0; } }
+@media (prefers-reduced-motion: reduce) {
+    .dorm-drawer.is-fresh .dorm-drawer-shade,
+    .dorm-drawer.is-fresh .dorm-clip { animation: none; }
+}
+/* 金屬夾子 */
+.dorm-clip-clamp {
+    position: absolute;
+    z-index: 2;
+    top: -10px;
+    left: 0;
+    right: 0;
+    width: 104px;
+    height: 30px;
+    margin: 0 auto;
+    border-radius: 7px 7px 10px 10px;
+    background: linear-gradient(#f2f3f6, #b9bec7 55%, #8f959f);
+    box-shadow: 0 3px 4px rgba(0, 0, 0, 0.3), inset 0 1px 0 #fff;
+}
+.dorm-clip-clamp::before {
     content: '';
     position: absolute;
+    left: 50%;
     top: -9px;
-    left: calc(25% - 8px);
-    width: 14px;
-    height: 14px;
-    background: #fffaf1;
-    border-left: 2px solid #b07a4c;
-    border-top: 2px solid #b07a4c;
-    rotate: 45deg;
+    width: 34px;
+    height: 16px;
+    margin-left: -17px;
+    border: 4px solid #a8aeb8;
+    border-bottom: none;
+    border-radius: 14px 14px 0 0;
+    box-sizing: border-box;
 }
-.dorm-side-r .dorm-form::before { left: calc(75% - 8px); }
-.dorm-new .dorm-form::before { left: calc(87% - 8px); }
+/* 一支筆橫躺在夾子右邊的木板上（筆尖朝左），不壓到紙上的 ✕ */
+.dorm-clip-pen {
+    position: absolute;
+    z-index: 3;
+    top: 7px;
+    right: 22px;
+    width: 72px;
+    height: 9px;
+    border-radius: 2px 4px 4px 2px;
+    background: linear-gradient(#3d5d9e, #233a6b 55%, #1b2d55);
+    box-shadow: 0 2px 3px rgba(0, 0, 0, 0.35);
+}
+.dorm-clip-pen::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -12px;
+    width: 13px;
+    background: linear-gradient(90deg, #8a6a3c 0 3px, #e8d2a6 3px);
+    clip-path: polygon(100% 0, 100% 100%, 0 50%);
+}
+.dorm-clip-pen::after {
+    content: '';
+    position: absolute;
+    top: -2px;
+    right: 8px;
+    width: 24px;
+    height: 3px;
+    border-radius: 2px;
+    background: #d9b45a;
+}
+/* 登記紙：橫線紙，左邊一條紅邊線；內容太長在紙裡捲 */
+.dorm-clip-paper {
+    position: relative;
+    z-index: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 20px 14px 16px 22px;
+    border-radius: 4px 4px 0 0;
+    background:
+        linear-gradient(90deg, transparent 13px, rgba(214, 90, 70, 0.45) 13px 14px, transparent 14px),
+        repeating-linear-gradient(transparent 0 25px, #eadfcc 25px 26px),
+        #fffdf6;
+    box-shadow: 0 0 0 1px rgba(120, 80, 40, 0.18);
+    color: var(--dm-ink);
+}
+.dorm-clip-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 2px solid #c9a477;
+}
+.dorm-clip-title {
+    flex: 1;
+    min-width: 0;
+    font-size: 15px;
+    font-weight: 800;
+    color: var(--dm-ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.dorm-clip-close {
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: rgba(142, 90, 51, 0.12);
+    color: var(--dm-ink-soft);
+    font-size: 15px;
+    cursor: pointer;
+}
+.dorm-clip-close:hover { background: rgba(142, 90, 51, 0.22); color: var(--dm-ink); }
+/* 紙上那份編輯 */
+.dorm-form {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    color: var(--dm-ink);
+}
 
 /* 酒館主題對 input/select 寫了 !important 暗底，對衝（scoped 在自己 class 不外洩） */
 .cw-dorm .dorm-input {

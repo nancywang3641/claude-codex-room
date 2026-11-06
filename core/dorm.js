@@ -543,16 +543,16 @@
         return h;
     }
 
-    /** 門卡上的「自己醒來」鈕。跟入席鈕一樣是狀態，開著的常駐顯示、不必 hover 也不必展開。
-     *  群聊區沒有 —— 那是桌子不是人。 */
+    /** 「自己醒來」的開關＝門旁那盞壁燈（11-06 她：「心跳轉到點燈邏輯」）：燈亮著＝他會自己醒來，點燈就開／關。
+     *  以前是門卡上一顆心跳鈕；狀態一眼要看得到，所以做成一直亮著／暗著的燈，不藏在編輯裡。
+     *  群聊區沒有 —— 那是桌子不是人；小機不會自己醒，門旁只掛一盞不能按的燈。 */
     function _wakeBtnHtml(r) {
         if (r.provider === 'group' || r.provider === 'xiaoji') return '';
         const info = _hb[r.id];
         const on = !!(info && info.enabled);
         const when = on ? ('，' + _hbWhen(info)) : '';
-        return '<button type="button" class="dorm-wake' + (on ? ' waking' : '') + '" title="'
-            + (on ? '他會自己醒來' + when + '，點一下改成等妳開口' : '只有妳開口他才在，點一下讓他自己醒來')
-            + '"><i class="fa-solid fa-heart-pulse"></i></button>';
+        const tip = on ? '燈亮著：他會自己醒來' + when + '。點一下關燈，改成等妳開口' : '燈暗著：只有妳開口他才在。點一下開燈，讓他自己醒來';
+        return '<button type="button" class="dorm-wake dorm-lamp' + (on ? ' waking' : '') + '" title="' + tip + '" aria-label="' + tip + '"></button>';
     }
 
     // ---- 11-06 宿舍改成一棟樓：一層兩間房門，最底下是公共區（她拿阿洛畫的圖：「想說把主頁的聊天列表改成這樣」）----
@@ -599,14 +599,20 @@
             + '</span></span>';
     }
 
+    // 門牌：點了打開底下往上的「房門登記」抽屜改他（11-06 她：「鉛筆轉到門牌便按鈕打開下面往上的抽屜UI」）。
+    //   門裡留一塊看不見的同款門牌撐出一樣的高度，真的門牌（.dorm-pen）蓋在它上面、在門的按鈕外面，點門牌不會進房。
+    function _plateInner(name) {
+        return '<span class="dorm-name">' + _esc(name) + '</span><i class="fa-solid fa-pen dorm-plate-pen" aria-hidden="true"></i>';
+    }
+
     function _cardHtml(r, all, side, color) {
         const open = _editing === r.id ? ' dorm-editing' : '';
-        const waking = (r.provider !== 'xiaoji' && _hb[r.id] && _hb[r.id].enabled) ? ' is-waking' : '';
-        return '<div class="dorm-card dorm-side-' + side + ' dorm-c' + color + open + waking + '" data-id="' + _esc(r.id) + '">'
+        const lamp = (r.provider === 'xiaoji' || r.provider === 'group') ? '<span class="dorm-lamp" aria-hidden="true"></span>' : '';
+        return '<div class="dorm-card dorm-side-' + side + ' dorm-c' + color + open + '" data-id="' + _esc(r.id) + '">'
             + '<div class="dorm-room">'
             + '<button type="button" class="dorm-door">'
-            + '<span class="dorm-lamp" aria-hidden="true"></span>'
-            + '<span class="dorm-plate"><span class="dorm-name">' + _esc(r.name) + '</span></span>'
+            + lamp
+            + '<span class="dorm-plate dorm-ghost" aria-hidden="true">' + _plateInner(r.name).replace('dorm-name', 'dorm-ghost-name') + '</span>'
             + '<span class="dorm-leaf"><span class="dorm-arch">' + _faceHtml(r) + '</span><span class="dorm-knob"></span></span>'
             // 門底就是地板線：門下面直接接地板，護牆板畫在地板線上面（她：「底板線跟門底要一塊，分開會看起來門不再牆上」）
             + _rugHtml(r, all)
@@ -614,10 +620,29 @@
             + '<span class="dorm-plant" aria-hidden="true"><i class="fa-solid ' + (side === 'l' ? 'fa-seedling' : 'fa-spa') + '"></i></span>'
             + '</button>'
             + (r.provider === 'xiaoji' ? (_XJ() ? '<button type="button" class="dorm-train" title="培養室"><i class="fa-solid fa-graduation-cap"></i></button>' : '') : _wakeBtnHtml(r))
-            + '<button type="button" class="dorm-pen" title="改這位住戶"><i class="fa-solid fa-pen"></i></button>'
+            + '<button type="button" class="dorm-pen dorm-plate" title="改這位住戶">' + _plateInner(r.name) + '</button>'
             + '</div>'
-            + (_editing === r.id ? _formHtml(r) : '')
             + '</div>';
+    }
+
+    // ---- 房門登記抽屜：從底下往上拉出來，做成木板夾＋紙＋一支筆（她：「可以設計成 文件木板夾紙框配筆，類似上門紀錄」）----
+    //   裡面就是原本的編輯列（_formHtml），按鈕、存法一樣。抽屜掛在宿舍頁最外層、記著是誰的（data-for），點灰底或右上 ✕ 收回去。
+    let _drawerFresh = false;   // 剛打開那一次才播往上滑；開著時重畫（心跳拉回來之類）不再滑一次
+    function _drawerHtml(r) {
+        const id = r ? r.id : '__new__';
+        const title = r ? '房門登記 · ' + _esc(r.name) : '新住戶登記';
+        const fresh = _drawerFresh ? ' is-fresh' : '';
+        _drawerFresh = false;
+        return '<div class="dorm-drawer' + fresh + '" data-for="' + _esc(id) + '">'
+            + '<div class="dorm-drawer-shade"></div>'
+            + '<div class="dorm-clip" role="dialog" aria-label="' + title + '">'
+            + '<span class="dorm-clip-clamp" aria-hidden="true"></span>'
+            + '<span class="dorm-clip-pen" aria-hidden="true"></span>'
+            + '<div class="dorm-clip-paper">'
+            + '<div class="dorm-clip-head"><span class="dorm-clip-title">' + title + '</span>'
+            + '<button type="button" class="dorm-clip-close" title="收起來"><i class="fa-solid fa-xmark"></i></button></div>'
+            + _formHtml(r)
+            + '</div></div></div>';
     }
 
     function _render() {
@@ -659,7 +684,6 @@
             +   '<div class="dorm-room"><button type="button" class="dorm-door dorm-door-new">'
             +   '<span class="dorm-crate" title="再請一位進來住"><span class="dorm-name">新住戶</span></span>'
             +   '</button></div>'
-            +   (_editing === '__new__' ? _formHtml(null) : '')
             + '</div>'
             // 公共區的地板：留言板掛牆上，遊戲室的門和紙箱站在這條地板線上，小木牌擺在地板上
             + '<div class="dorm-common-floor" aria-hidden="true"></div>'
@@ -677,6 +701,10 @@
                + '<i class="fa-solid fa-chevron-right dorm-go"></i></button></div>';
         }
         h += '</div></div>';
+        if (_editing) {
+            const er = _editing === '__new__' ? null : all.find(x => x && x.id === _editing);
+            if (_editing === '__new__' || er) h += _drawerHtml(er);
+        }
         _el.innerHTML = h;
         _bind();
         // 誰有沒看過的「想跟妳說的」：門卡上點一顆（在他房間的紀錄裡）
@@ -768,12 +796,10 @@
                     // 失敗再撥回來 —— 撥回去比一直轉圈更誠實。
                     wake.dataset.busy = '1';
                     wake.classList.toggle('waking', want);
-                    card.classList.toggle('is-waking', want);   // 門旁的壁燈跟著亮／暗
                     const res = await _hbSet(r, want);
                     delete wake.dataset.busy;
                     if (!res.ok) {
                         wake.classList.toggle('waking', !want);
-                        card.classList.toggle('is-waking', !want);
                         wake.title = res.msg || '沒設定成';
                         return;
                     }
@@ -789,7 +815,7 @@
                 if (pen) pen.addEventListener('click', (e) => { e.stopPropagation(); _toggleEdit(id); });
             }
 
-            const form = card.querySelector('.dorm-form');
+            const form = (_editing === id) ? _el.querySelector('.dorm-drawer[data-for="' + id + '"] .dorm-form') : null;
             if (!form) return;
             const nameIn = form.querySelector('.dorm-in-name');
             const modelIn = form.querySelector('.dorm-in-model');
@@ -926,18 +952,39 @@
                     _render();
                 });
             }
-            setTimeout(() => { try { nameIn.focus(); } catch (_) {} }, 0);
+            setTimeout(() => { try { nameIn.focus({ preventScroll: true }); } catch (_) {} }, 260);
         });
 
         _el.querySelectorAll('.dorm-hall-btn').forEach(b => {
             b.addEventListener('click', () => _enterHall(b.dataset.panel));
         });
+
+        // 房門登記抽屜：點灰底、右上 ✕ 收回去
+        const dr = _el.querySelector('.dorm-drawer');
+        if (dr) {
+            const shut = () => _closeDrawer(dr);
+            dr.querySelector('.dorm-drawer-shade').addEventListener('click', shut);
+            dr.querySelector('.dorm-clip-close').addEventListener('click', shut);
+        }
     }
 
     function _toggleEdit(id) {
         _editing = (_editing === id) ? null : id;
+        _drawerFresh = !!_editing;
         _disarmDelete();
         _render();
+    }
+
+    /** 收抽屜：先往下滑（約 0.18 秒），滑完才重畫。存好、搬走那兩條照舊當場收（不播） */
+    function _closeDrawer(dr) {
+        if (!dr || dr.classList.contains('is-closing')) return;
+        dr.classList.add('is-closing');
+        setTimeout(() => {
+            if (!_editing || !dr.isConnected) return;
+            _editing = null;
+            _disarmDelete();
+            _render();
+        }, 180);
     }
 
     /** 改名字的時候房間正開著，順手把標題列換掉 */
