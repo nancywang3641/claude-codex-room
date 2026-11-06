@@ -575,6 +575,30 @@
         return out;
     }
 
+    // ---- 門前的地毯：照他用的模型挑花樣（11-06 她：「地毯可以設計成自己的模型地毯設計」）----
+    //   同一個模型家族的人花樣一樣，換了模型地毯跟著換；模型名字織在地毯中間。只用顏色、紋樣分，不放任何公司的標誌。
+    function _claudeModelId(r) {
+        if (r.modelId) return r.modelId;
+        const cfg = _cfg();
+        const own = cfg.residentModels && cfg.residentModels[r.id];
+        if (own) return own;
+        return (cfg.providerModels && cfg.providerModels.claude) || cfg.inlineModel || cfg.model || '';
+    }
+    function _rugKind(r) {
+        if (r.provider === 'codex') return 'codex';
+        if (r.provider === 'deepseek') return 'deepseek';
+        if (r.provider === 'xiaoji') return 'xiaoji';
+        const id = String(_claudeModelId(r) || '').toLowerCase();
+        const fam = ['fable', 'opus', 'sonnet', 'haiku'].find(f => id.indexOf(f) >= 0);
+        return fam || 'plain';
+    }
+    function _rugHtml(r, all) {
+        return '<span class="dorm-floorzone"><span class="dorm-rug dorm-rug-' + _rugKind(r) + '">'
+            + '<span class="dorm-rug-weave" aria-hidden="true"></span>'
+            + '<span class="dorm-sub">' + _esc(_subtitle(r, all)) + '</span>'
+            + '</span></span>';
+    }
+
     function _cardHtml(r, all, side, color) {
         const open = _editing === r.id ? ' dorm-editing' : '';
         const waking = (r.provider !== 'xiaoji' && _hb[r.id] && _hb[r.id].enabled) ? ' is-waking' : '';
@@ -584,8 +608,8 @@
             + '<span class="dorm-lamp" aria-hidden="true"></span>'
             + '<span class="dorm-plate"><span class="dorm-name">' + _esc(r.name) + '</span></span>'
             + '<span class="dorm-leaf"><span class="dorm-arch">' + _faceHtml(r) + '</span><span class="dorm-knob"></span></span>'
-            + '<span class="dorm-mat"></span>'
-            + '<span class="dorm-sub">' + _esc(_subtitle(r, all)) + '</span>'
+            // 門底就是地板線：門下面直接接地板，護牆板畫在地板線上面（她：「底板線跟門底要一塊，分開會看起來門不再牆上」）
+            + _rugHtml(r, all)
             + '<span class="dorm-mail" aria-hidden="true"><i class="fa-solid fa-envelope"></i></span>'
             + '<span class="dorm-plant" aria-hidden="true"><i class="fa-solid ' + (side === 'l' ? 'fa-seedling' : 'fa-spa') + '"></i></span>'
             + '</button>'
@@ -616,7 +640,10 @@
             h += '<div class="dorm-floor"><span class="dorm-floor-sign">' + (floors - f) + 'F</span>';
             pair.forEach((r, i) => { h += _cardHtml(r, all, i ? 'r' : 'l', colors[r.id]); });
             // 單數那層右邊空著：放一扇窗，不讓一間房孤零零撐滿整層
-            if (pair.length === 1) h += '<div class="dorm-room dorm-room-empty" aria-hidden="true"><span class="dorm-window"></span><span class="dorm-plant"><i class="fa-solid fa-seedling"></i></span></div>';
+            //   跟隔壁同一副骨架（看不見的門牌和門撐出一樣的高度），地板線才會跟隔壁接成一條
+            if (pair.length === 1) h += '<div class="dorm-room dorm-room-empty" aria-hidden="true"><div class="dorm-wall">'
+                + '<span class="dorm-plate dorm-ghost"><span>　</span></span><span class="dorm-leaf dorm-ghost"></span><span class="dorm-floorzone"></span>'
+                + '<span class="dorm-window"></span><span class="dorm-plant"><i class="fa-solid fa-seedling"></i></span></div></div>';
             h += '</div>';
         }
         // 一樓公共區：留言板、遊戲室、新住戶（紙箱）＋底下一排小木牌（原本走廊那排，一顆都沒少）
@@ -634,6 +661,8 @@
             +   '</button></div>'
             +   (_editing === '__new__' ? _formHtml(null) : '')
             + '</div>'
+            // 公共區的地板：留言板掛牆上，遊戲室的門和紙箱站在這條地板線上，小木牌擺在地板上
+            + '<div class="dorm-common-floor" aria-hidden="true"></div>'
             + '<div class="dorm-signs">'
             + '<button type="button" class="dorm-hall-btn dorm-sign" data-panel="spend"><i class="fa-solid fa-coins"></i><span>額度</span></button>'
             // 帶小機回來：羽毛筆那本匯出的檔（換電腦、從酒館搬到手機版）。要奧瑞亞新版才有（OS_XIAOJI_MEM）

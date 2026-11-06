@@ -87,20 +87,23 @@
     --leaf-w: clamp(70px, 44%, 96px);
     position: relative;
     min-width: 0;
+    display: flex;
+    flex-direction: column;
 }
-.dorm-door {
+/* 11-06 她：「底板線跟門底要一塊，分開會看起來門不再牆上」→ 牆只畫上面那片，護牆板、地板線、地板都掛在門底下那塊（.dorm-floorzone）。
+   門直接站在地板線上；單數那層空的半邊（.dorm-wall）用同一副骨架，地板線跟隔壁接成一條。 */
+.dorm-door,
+.dorm-wall {
     position: relative;
+    flex: 1;
     width: 100%;
-    min-height: 178px;
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 9px 4px 7px;
+    padding: 9px 0 0;
     border: none;
     border-radius: 48% 48% 0 0 / 34px 34px 0 0;
     background:
-        linear-gradient(var(--dm-rail), var(--dm-rail)) 0 63% / 100% 3px no-repeat,
-        repeating-linear-gradient(90deg, var(--dm-plank) 0 12px, var(--dm-plank-ln) 12px 13px) 0 100% / 100% 36% no-repeat,
         radial-gradient(ellipse at 50% 0%, #fff6e8 0%, rgba(255, 246, 232, 0) 70%),
         linear-gradient(var(--dm-wall), var(--dm-wall-2));
     color: var(--dm-ink);
@@ -111,6 +114,8 @@
 }
 .dorm-door:hover { filter: brightness(1.03); }
 .dorm-card.dorm-editing .dorm-door { box-shadow: inset 0 0 0 3px #e4a54b; }
+.dorm-wall { cursor: default; }
+.dorm-ghost { visibility: hidden; }
 
 /* 門牌 */
 .dorm-plate {
@@ -150,17 +155,17 @@
     white-space: nowrap;
 }
 
-/* 門的顏色（門板、框線、門墊格子）：0 深棕（丹）1 紫（天天）2 藍（克語）3 深藍（阿洛）4 綠（蘇景明），其他人從 5 以後挑 */
-.dorm-c0 { --door: #5c3b2a; --door-dk: #3d2519; --mat: #d9786b; }
-.dorm-c1 { --door: #8e64c7; --door-dk: #66439b; --mat: #a98bd6; }
-.dorm-c2 { --door: #50719f; --door-dk: #37557e; --mat: #6f8fbf; }
-.dorm-c3 { --door: #2b3350; --door-dk: #1b2137; --mat: #4a5785; }
-.dorm-c4 { --door: #3e5b3c; --door-dk: #2a4029; --mat: #6f9a63; }
-.dorm-c5 { --door: #e2a447; --door-dk: #b67a25; --mat: #edc77b; }
-.dorm-c6 { --door: #a5473d; --door-dk: #7c3129; --mat: #cf7c6f; }
-.dorm-c7 { --door: #3c8783; --door-dk: #286461; --mat: #6fb2ac; }
-.dorm-c8 { --door: #c26e8b; --door-dk: #974d67; --mat: #dea0b6; }
-.dorm-c9 { --door: #697586; --door-dk: #4c5665; --mat: #97a3b3; }
+/* 門的顏色（門板、框線）：0 深棕（丹）1 紫（天天）2 藍（克語）3 深藍（阿洛）4 綠（蘇景明），其他人從 5 以後挑 */
+.dorm-c0 { --door: #5c3b2a; --door-dk: #3d2519; }
+.dorm-c1 { --door: #8e64c7; --door-dk: #66439b; }
+.dorm-c2 { --door: #50719f; --door-dk: #37557e; }
+.dorm-c3 { --door: #2b3350; --door-dk: #1b2137; }
+.dorm-c4 { --door: #3e5b3c; --door-dk: #2a4029; }
+.dorm-c5 { --door: #e2a447; --door-dk: #b67a25; }
+.dorm-c6 { --door: #a5473d; --door-dk: #7c3129; }
+.dorm-c7 { --door: #3c8783; --door-dk: #286461; }
+.dorm-c8 { --door: #c26e8b; --door-dk: #974d67; }
+.dorm-c9 { --door: #697586; --door-dk: #4c5665; }
 
 /* 門：顏色由上面 .dorm-c0～9 給（JS 照住戶挑） */
 .dorm-leaf {
@@ -236,34 +241,137 @@
     box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3);
 }
 
-/* 門墊 */
-.dorm-mat {
+/* 門底下那塊地板：上緣就是地板線（門底），往上畫護牆板（::before，排在門後面），本身是橫向木地板 */
+.dorm-floorzone {
     position: relative;
-    z-index: 1;
-    display: block;
-    width: calc(var(--leaf-w) + 16px);
-    height: 9px;
-    border-radius: 3px;
-    background: repeating-linear-gradient(90deg, var(--mat, #d9786b) 0 6px, #f6ead6 6px 12px);
-    box-shadow: 0 2px 0 rgba(0, 0, 0, 0.18);
+    z-index: 0;
+    align-self: stretch;
+    flex-shrink: 0;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    height: 40px;
+    background:
+        linear-gradient(rgba(60, 30, 10, 0.22), rgba(60, 30, 10, 0) 6px),
+        repeating-linear-gradient(180deg, #c78b55 0 9px, #b0753f 9px 10px);
 }
-/* 模型那行：門墊底下一塊小紙條 */
-.dorm-room .dorm-sub {
+.dorm-floorzone::before,
+.dorm-common-floor::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 100%;
+    height: 46px;
+    background:
+        linear-gradient(var(--dm-rail), var(--dm-rail)) 0 0 / 100% 3px no-repeat,
+        linear-gradient(#8a5a33, #8a5a33) 0 100% / 100% 2px no-repeat,
+        repeating-linear-gradient(90deg, var(--dm-plank) 0 12px, var(--dm-plank-ln) 12px 13px);
+}
+
+/* 門前的地毯：平鋪在地板上的梯形（近大遠小），上緣貼著門底、跟門一樣寬；模型名字織在中間。
+   花樣照模型家族（.dorm-rug-fable／opus／sonnet／haiku／codex／deepseek／xiaoji／plain），只用顏色和紋樣分 */
+.dorm-rug {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    width: calc(var(--leaf-w) + 40px);
+    max-width: calc(100% - 8px);
+    height: 30px;
+    padding: 0 9px 5px;
+    box-sizing: border-box;
+}
+.dorm-rug-weave {
+    position: absolute;
+    inset: 0;
+    clip-path: polygon(14% 0, 86% 0, 100% 100%, 0 100%);
+    background: var(--rug-edge, #8e6f4d);
+}
+.dorm-rug-weave::before {
+    content: '';
+    position: absolute;
+    inset: 2px 3px 3px;
+    clip-path: polygon(13% 0, 87% 0, 100% 100%, 0 100%);
+    background: var(--rug-pat, #c9ad86);
+}
+/* 地毯前緣的流蘇 */
+.dorm-rug::after {
+    content: '';
+    position: absolute;
+    left: 3px;
+    right: 3px;
+    top: 100%;
+    height: 4px;
+    background: repeating-linear-gradient(90deg, var(--rug-edge, #8e6f4d) 0 2px, transparent 2px 4px);
+}
+.dorm-rug .dorm-sub {
     position: relative;
     z-index: 1;
     display: block;
-    max-width: calc(100% - 8px);
-    margin-top: 6px;
-    padding: 1px 8px;
+    max-width: 100%;
+    padding: 0 5px;
     box-sizing: border-box;
-    border-radius: 8px;
-    background: rgba(253, 241, 220, 0.9);
-    font-size: 11px;
-    line-height: 1.5;
-    color: var(--dm-ink-soft);
+    border-radius: 3px;
+    background: var(--rug-label-bg, #fbf3e6);
+    color: var(--rug-label-fg, #6a4f30);
+    font-size: 10.5px;
+    font-weight: 700;
+    line-height: 1.45;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+.dorm-rug-fable {
+    --rug-edge: #9e4a33;
+    --rug-pat: repeating-linear-gradient(45deg, rgba(255, 240, 225, 0.55) 0 1.5px, transparent 1.5px 8px),
+               repeating-linear-gradient(-45deg, rgba(255, 240, 225, 0.55) 0 1.5px, transparent 1.5px 8px), #d9805f;
+    --rug-label-bg: #fbeee2;
+    --rug-label-fg: #8a3d27;
+}
+.dorm-rug-opus {
+    --rug-edge: #4a2654;
+    --rug-pat: linear-gradient(transparent 20%, #d9ae4f 20% 30%, transparent 30% 66%, #d9ae4f 66% 76%, transparent 76%), #74437f;
+    --rug-label-bg: #f6e9c8;
+    --rug-label-fg: #4a2654;
+}
+.dorm-rug-sonnet {
+    --rug-edge: #255d5a;
+    --rug-pat: radial-gradient(circle, rgba(240, 250, 245, 0.75) 1.3px, transparent 1.8px) 0 0 / 7px 7px, #3f8f8a;
+    --rug-label-bg: #e8f5f2;
+    --rug-label-fg: #255d5a;
+}
+.dorm-rug-haiku {
+    --rug-edge: #627e52;
+    --rug-pat: repeating-linear-gradient(90deg, rgba(255, 255, 240, 0.45) 0 2px, transparent 2px 7px), #9cb88a;
+    --rug-label-bg: #f4f8ec;
+    --rug-label-fg: #4d6640;
+}
+.dorm-rug-codex {
+    --rug-edge: #1d2229;
+    --rug-pat: linear-gradient(rgba(140, 160, 190, 0.35) 1px, transparent 1px) 0 0 / 7px 7px,
+               linear-gradient(90deg, rgba(140, 160, 190, 0.35) 1px, transparent 1px) 0 0 / 7px 7px, #303845;
+    --rug-label-bg: #1d2229;
+    --rug-label-fg: #d6e4f0;
+}
+.dorm-rug-deepseek {
+    --rug-edge: #1f3f6e;
+    --rug-pat: radial-gradient(circle at 50% 100%, transparent 3px, rgba(220, 235, 255, 0.6) 3.5px 4.5px, transparent 5px) 0 0 / 10px 6px, #2f5f9e;
+    --rug-label-bg: #e6f0fb;
+    --rug-label-fg: #1f3f6e;
+}
+.dorm-rug-xiaoji {
+    --rug-edge: #a07418;
+    --rug-pat: conic-gradient(#f0c75a 25%, #e2ae38 0 50%, #f0c75a 0 75%, #e2ae38 0) 0 0 / 10px 10px;
+    --rug-label-bg: #fff6dc;
+    --rug-label-fg: #7a5610;
+}
+.dorm-rug-plain {
+    --rug-edge: #8e6f4d;
+    --rug-pat: #c9ad86;
+    --rug-label-bg: #fbf3e6;
+    --rug-label-fg: #6a4f30;
 }
 
 /* ---- 門兩旁：外側壁燈、信箱、盆栽；內側心跳鈕、鉛筆 ---- */
@@ -367,7 +475,7 @@
 
 /* 盆栽 */
 .dorm-plant {
-    bottom: 22px;
+    bottom: 30px;
     width: 28px;
     height: 36px;
     display: flex;
@@ -491,15 +599,7 @@
 }
 .dorm-room .dorm-wake.waking:hover { background: #b14830; color: #fff; }
 
-/* 單數那層空著的那半：一扇窗＋盆栽 */
-.dorm-room-empty {
-    min-height: 178px;
-    border-radius: 48% 48% 0 0 / 34px 34px 0 0;
-    background:
-        linear-gradient(var(--dm-rail), var(--dm-rail)) 0 63% / 100% 3px no-repeat,
-        repeating-linear-gradient(90deg, var(--dm-plank) 0 12px, var(--dm-plank-ln) 12px 13px) 0 100% / 100% 36% no-repeat,
-        linear-gradient(var(--dm-wall), var(--dm-wall-2));
-}
+/* 單數那層空著的那半：一扇窗＋盆栽（.dorm-wall 跟隔壁同一副骨架，見上面） */
 .dorm-window {
     position: absolute;
     left: 50%;
@@ -520,15 +620,30 @@
 /* ---- 一樓公共區：一整面牆 ---- */
 .dorm-floor.dorm-common {
     grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: auto auto auto auto;
     align-items: end;
-    row-gap: 10px;
-    padding: 34px 14px 22px;
-    background:
-        linear-gradient(var(--dm-rail), var(--dm-rail)) 0 70% / 100% 3px no-repeat,
-        repeating-linear-gradient(90deg, var(--dm-plank) 0 12px, var(--dm-plank-ln) 12px 13px) 0 100% / 100% 30% no-repeat,
-        linear-gradient(var(--dm-wall), var(--dm-wall-2));
+    row-gap: 0;
+    padding: 34px 14px 12px;
+    background: linear-gradient(var(--dm-wall), var(--dm-wall-2));
     box-shadow: inset 6px 0 0 var(--dm-wood), inset -6px 0 0 var(--dm-wood);
 }
+/* 第二排起整片是地板（上緣＝地板線，往上畫護牆板）；小木牌、編輯列、404 箱子都擺在地板上 */
+.dorm-common-floor {
+    grid-column: 1 / -1;
+    grid-row: 2 / 5;
+    align-self: stretch;
+    position: relative;
+    z-index: 0;
+    margin: 0 -8px;
+    background:
+        linear-gradient(rgba(60, 30, 10, 0.22), rgba(60, 30, 10, 0) 6px),
+        repeating-linear-gradient(180deg, #c78b55 0 9px, #b0753f 9px 10px);
+}
+.dorm-common > .dorm-hall-btn,
+.dorm-common .dorm-room { position: relative; z-index: 1; }
+/* 留言板掛在牆上，不落地 */
+.dorm-common .dorm-hall-board { margin-bottom: 14px; }
+.dorm-common .dorm-form { grid-row: 3; margin: 6px 0 10px; }
 .dorm-common .dorm-floor-sign { left: 12px; top: 8px; }
 .dorm-common .dorm-hall-btn {
     min-width: 0;
@@ -601,8 +716,8 @@
 }
 .dorm-leaf.dorm-leaf-games::after { height: 26%; }
 
-/* 新住戶：一個紙箱 */
-.dorm-common .dorm-room { min-width: 0; }
+/* 新住戶：一個紙箱（站在地板線上、箱底落進地板一點） */
+.dorm-common .dorm-room { min-width: 0; margin-bottom: -6px; }
 .dorm-door.dorm-door-new {
     min-height: 0;
     padding: 0;
@@ -653,12 +768,13 @@
     text-align: center;
     box-shadow: 0 0 0 2px #fff;
 }
-.dorm-common .dorm-room .dorm-sub { margin-top: 5px; font-size: 10.5px; }
 
 /* 底下一排小木牌：額度、帶小機回來、舊群聊（原本走廊那幾顆） */
 .dorm-signs {
     grid-column: 1 / -1;
-    order: 2;
+    grid-row: 2;
+    align-self: start;
+    margin: 12px 0;
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
@@ -682,7 +798,8 @@
 /* 404 寄來的箱子：最底下一整條、會晃的包裹 */
 .dorm-common .dorm-door.dorm-door-box {
     grid-column: 1 / -1;
-    order: 3;
+    grid-row: 4;
+    margin-bottom: 10px;
     position: relative;
     z-index: 2;
     min-height: 0;
