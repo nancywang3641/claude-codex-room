@@ -202,10 +202,11 @@
     border-radius: 50% 50% 4px 4px / 34% 34% 4px 4px;
     box-sizing: border-box;
 }
+/* 只換底色：阿洛沒連橋時那顆是 .dorm-face-codex 的背景圖，寫 background 簡寫會把圖整個洗掉 */
 .dorm-arch .dorm-face {
     width: 38px;
     height: 38px;
-    background: #fbf0dc;
+    background-color: #fbf0dc;
     box-shadow: 0 0 0 2px var(--door-dk, #3d2519);
     overflow: visible;
 }
