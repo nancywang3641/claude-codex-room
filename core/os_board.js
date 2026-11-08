@@ -966,7 +966,7 @@
                     ${cover}
                     ${viaNote}
                     ${_wakesHtml(hbConf, st.wakes)}
-                    ${L ? '<div class="ob-lg-card" hidden></div>' : ''}
+                    ${L ? '<div class="ob-lg-card" hidden></div>' + _meetListHtml(all, idx) : ''}
                     ${_tabsHtml(tabs, cur)}
                     ${pane('feed', '<section class="ob-feed">' + feedHtml + '</section>')}
                     ${pane('props', _propsHtml(st.props))}
@@ -1027,6 +1027,81 @@
             + '<button type="button" class="ob-lg-card-x" title="收起"><i class="fa-solid fa-xmark"></i></button></div>'
             + '<div class="ob-lg-card-acts">' + (items ? go('wakes', '做了什麼') : '') + go('mem', '記憶') + go('sch', '日程') + '</div>';
     }
+    // ---- 交誼廳底下的臨時群聊卡（11-09，照阿洛那張模板）：一串一張，像聊天列表 ----
+    //   列還在聊的、和一天內聊完的（最多三串，還在聊的排前面）；沒有就整段不畫。
+    //   點一張＝跳到板子上那一串（金框那則）、閃一下；她沒看過的新留言在右邊亮藍點，看過記 ccr_meet_seen（第一次打開全當看過）。
+    const MEET_SEEN = 'ccr_meet_seen';
+    function _meetSeen() { try { const raw = localStorage.getItem(MEET_SEEN); return raw ? (JSON.parse(raw) || {}) : null; } catch (_) { return null; } }
+    function _meetSetSeen(map) { try { localStorage.setItem(MEET_SEEN, JSON.stringify(map)); } catch (_) {} }
+    function _meetThreads(all, idx) {
+        const now = Date.now();
+        return all.filter(p => !_isReaction(p)).map(p => ({ p, m: _meets[String(p.id)] }))
+            .filter(x => x.m && x.m.kind === 'meet')
+            .map(x => {
+                const rs = idx.byParent[String(x.p.id)] || [];
+                const last = rs.length ? rs[rs.length - 1] : x.p;
+                return Object.assign(x, { rs, last, lastMs: _tsMs(last.created_at) });
+            })
+            .filter(x => x.m.status === 'open' || (now - x.lastMs) < 24 * 3600 * 1000)
+            .sort((a, b) => ((b.m.status === 'open') - (a.m.status === 'open')) || (b.lastMs - a.lastMs))
+            .slice(0, 3);
+    }
+    function _meetClock(ms) {
+        if (isNaN(ms)) return '';
+        const d = new Date(ms), now = new Date();
+        const day0 = t => new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime();
+        const diff = Math.round((day0(now) - day0(d)) / 86400000);
+        if (diff === 0) return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+        if (diff === 1) return '昨天';
+        return (d.getMonth() + 1) + '/' + d.getDate();
+    }
+    // 一行就好：去掉 markdown 記號、只留第一行
+    const _oneLine = s => String(s || '').split('\n').map(x => x.replace(/^[#>*\-\s]+/, '').replace(/[*_`~]/g, '').trim()).find(Boolean) || '';
+    function _meetListHtml(all, idx) {
+        const list = _meetThreads(all, idx);
+        if (!list.length) return '';
+        let seen = _meetSeen();
+        if (!seen) { seen = {}; list.forEach(x => { seen[x.p.id] = x.last.id; }); _meetSetSeen(seen); }
+        return '<section class="ob-meets"><div class="ob-meets-cap"><i class="fa-solid fa-comment-dots"></i>臨時群聊</div>'
+            + list.map(x => {
+                const names = [x.p.author].concat((x.m.members || []).map(mm => mm.name)).filter((n, i, a) => n && a.indexOf(n) === i);
+                const live = x.m.status === 'open';
+                const fresh = x.last.author !== ME && Number(x.last.id) > Number(seen[x.p.id] || 0);
+                const tail = x.rs.length ? x.last.author + '：' + _oneLine(x.last.content) : _meetStatus(x.m);
+                return '<button type="button" class="ob-meetrow' + (live ? ' is-live' : '') + (fresh ? ' is-new' : '') + '" data-pid="' + _esc(x.p.id) + '" data-last="' + _esc(x.last.id) + '">'
+                    + '<span class="ob-meetrow-avs">' + names.slice(0, 3).map(n => _avatarHtml(n)).join('') + '</span>'
+                    + '<span class="ob-meetrow-main">'
+                    + '<span class="ob-meetrow-top"><span class="ob-meetrow-title">' + _esc(_oneLine(x.p.content) || '臨時群聊') + '</span>'
+                    + '<span class="ob-meetrow-badge">' + (live ? '進行中' : '聊完了') + '</span></span>'
+                    + '<span class="ob-meetrow-who">' + _esc(names.join('、')) + '</span>'
+                    + '<span class="ob-meetrow-last">' + _esc(tail) + '</span></span>'
+                    + '<span class="ob-meetrow-side"><time class="ob-meetrow-time">' + _esc(_meetClock(x.lastMs)) + '</time><span class="ob-meetrow-dot"></span></span>'
+                    + '<i class="fa-solid fa-chevron-right ob-meetrow-go"></i></button>';
+            }).join('')
+            + '</section>';
+    }
+    function _meetGo(container, row) {
+        const root = container.querySelector('.ob-container');
+        if (!root || !row) return;
+        const pid = row.dataset.pid;
+        const seen = _meetSeen() || {};
+        seen[pid] = Number(row.dataset.last) || 0;
+        _meetSetSeen(seen);
+        row.classList.remove('is-new');
+        const st = _state.get(container);
+        if (st && st.tab && st.tab !== 'feed' && root.querySelector('.ob-tab[data-tab="feed"]')) _tabGo(container, 'feed');
+        const post = root.querySelector('.ob-feed .ob-post[data-pid="' + String(pid).replace(/"/g, '') + '"]');
+        const sc = root.querySelector('.ob-scroll');
+        if (!post || !sc) return;
+        const nav = root.querySelector('.ob-tabs');
+        const top = sc.scrollTop + post.getBoundingClientRect().top - sc.getBoundingClientRect().top - (nav ? nav.offsetHeight : 0) - 8;
+        try { sc.scrollTo({ top: Math.max(0, top), behavior: 'smooth' }); } catch (_) { sc.scrollTop = Math.max(0, top); }
+        post.classList.remove('is-flash');
+        void post.offsetWidth;
+        post.classList.add('is-flash');
+        setTimeout(() => post.classList.remove('is-flash'), 1800);
+    }
+
     function _lgPick(container, rid) {
         const st = _state.get(container);
         const root = container.querySelector('.ob-container');
@@ -1645,6 +1720,8 @@
                 return;
             }
             if (t.closest('.ob-lg')) { if (st.lgPick) _lgPick(container, ''); return; }
+            const meetRow = t.closest('.ob-meetrow');
+            if (meetRow) { _meetGo(container, meetRow); return; }
 
             // 等你同意的：點一張打開單子
             const ppRow = t.closest('.ob-prop');

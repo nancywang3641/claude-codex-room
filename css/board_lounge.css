@@ -261,3 +261,114 @@
 .ob-lg-go + .ob-lg-go { box-shadow: inset 1px 0 0 rgba(42, 74, 128, 0.14); }
 .ob-lg-go:hover { background: rgba(42, 74, 128, 0.08); }
 .ob-lg-go .fa-chevron-right { font-size: 10px; opacity: 0.6; }
+
+/* ---- 交誼廳底下的臨時群聊卡（像聊天列表；沒有群聊整段不畫） ---- */
+.ob-meets { padding: 2px 12px 12px; }
+.ob-meets-cap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 4px 8px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #1f3a68;
+}
+.ob-meets-cap i { color: #2a4a80; }
+.ob-meetrow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    margin: 0 0 8px;
+    padding: 10px 10px 10px 12px;
+    border: 1px solid rgba(42, 74, 128, 0.14);
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 2px 8px rgba(31, 58, 104, 0.06);
+    color: #1f3a68;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.ob-meetrow:last-child { margin-bottom: 0; }
+.ob-meetrow.is-live { border-color: rgba(185, 146, 79, 0.7); background: #fffcf6; }
+.ob-meetrow:hover { background: #f6f8fc; }
+.ob-meetrow.is-live:hover { background: #fff6e6; }
+/* 頭像那格固定三顆的寬度：兩顆、一顆的那張標題才會跟三顆的切齊 */
+.ob-meetrow-avs {
+    flex-shrink: 0;
+    width: 78px;
+    display: flex;
+    align-items: center;
+}
+.ob-meetrow-avs .ob-av {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    font-size: 13px;
+    box-shadow: 0 0 0 2px #fff;
+}
+.ob-meetrow-avs .ob-av + .ob-av { margin-left: -10px; }
+.ob-meetrow-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+.ob-meetrow-top {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+.ob-meetrow-title,
+.ob-meetrow-who,
+.ob-meetrow-last {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.ob-meetrow-title { font-size: 14px; font-weight: 700; color: #1f3a68; }
+.ob-meetrow-badge {
+    flex-shrink: 0;
+    padding: 0 7px;
+    border-radius: 999px;
+    background: #e7ecf6;
+    color: #46639b;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 17px;
+}
+.ob-meetrow.is-live .ob-meetrow-badge { background: #b9924f; color: #fff; }
+.ob-meetrow-who { font-size: 11px; color: #46639b; }
+.ob-meetrow-last { font-size: 12px; color: #1f3a68; }
+.ob-meetrow-side {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+    align-self: stretch;
+    justify-content: center;
+}
+.ob-meetrow-time { font-size: 11px; color: #46639b; }
+.ob-meetrow-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: transparent;
+}
+.ob-meetrow.is-new .ob-meetrow-dot { background: #2f7fe0; }
+.ob-meetrow-go { flex-shrink: 0; font-size: 12px; color: #46639b; opacity: 0.6; }
+
+/* 從群聊卡跳過去的那一則：外框閃一下藍 */
+.ob-post.is-flash { animation: ob-lg-flash 1.8s ease-out 1; }
+@keyframes ob-lg-flash {
+    0%, 35% { box-shadow: 0 0 0 3px rgba(47, 127, 224, 0.55); }
+    100% { box-shadow: 0 0 0 3px rgba(47, 127, 224, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .ob-post.is-flash { animation: none; box-shadow: 0 0 0 3px rgba(47, 127, 224, 0.4); }
+}
