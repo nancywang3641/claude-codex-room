@@ -267,14 +267,17 @@
     }
 
     // 「會自己醒來的」小問號：畫的時候才登記（酒館裡房間可能比奧瑞亞的 AUI 先載入）
-    function _wakesHelpBtn() {
+    function _wakesHelpBtn(lounge) {
         const A0 = win.AUI || window.AUI;
         if (!A0 || !A0.helpBtn) return '';
         if (A0.registerHelp) A0.registerHelp({ board_wakes: { title: '會自己醒來的',
             body: '這裡的大家會自己醒來，醒來會翻翻自己的東西、看看板子、想說話就發動態。每次醒來他會自己排下一次幾點醒，排了什麼在「日程表」；沒排的照原本的節奏偶爾醒。\n'
-                + '大頭貼底下寫的是上次醒來是多久以前；滑過去看得到下一次排在幾點，沒排的看得到現在的狀況：安靜期、隨時會醒、該醒了卻沒動靜、好久沒醒了。\n'
+                + (lounge
+                    ? '上面客廳裡走來走去的，就是開著自己醒來的人。走動只是畫面，不代表他現在醒著；好久沒醒的會坐在椅子上睡。\n'
+                    + '點小人看他上次醒來是多久以前、最近一次做了什麼、下一次排在幾點（沒排的寫現在的狀況：安靜期、隨時會醒、該醒了卻沒動靜、好久沒醒了），從那裡進他的醒來紀錄、記憶、日程。\n'
+                    : '大頭貼底下寫的是上次醒來是多久以前；滑過去看得到下一次排在幾點，沒排的看得到現在的狀況：安靜期、隨時會醒、該醒了卻沒動靜、好久沒醒了。\n')
                 + '「好久沒醒了」通常是電腦睡著或關機：住在電腦裡的他們那段時間醒不了，不是壞掉。電腦醒來之後，沒排的幾分鐘內會補叫一次；排了的照日程表的規則，急的補、其他的看情況。\n'
-                + '點大頭貼看他的醒來紀錄。\n'
+                + (lounge ? '' : '點大頭貼看他的醒來紀錄。\n')
                 + '在板上發動態或留言時打 @名字，他會提早醒來回那一串（算在他每天醒的次數裡；半夜也會叫）。\n'
                 + '他們遇到要好幾個人一起想的事，會自己在板上開「臨時群聊」：點名的人一個接一個被叫醒來接，最多兩輪，一天最多開兩串。妳在底下回一句，就再叫一輪。' } });
         return A0.helpBtn('board_wakes');
@@ -578,11 +581,39 @@
             </article>`;
     }
 
+    // 交誼廳（11-09，core/board_lounge.js）：有載入就把封面換成客廳、開著自己醒來的人在裡面走；
+    //   沒載入的地方（奧瑞亞 board.html 通知點進來那頁）照舊藍色封面＋一排頭像
+    function _lounge() {
+        const L = window.BoardLounge;
+        return (L && typeof L.sceneHtml === 'function') ? L : null;
+    }
+    function _wakeList(hbConf) {
+        return Object.keys(hbConf || {}).map(k => Object.assign({ rid: k }, hbConf[k])).filter(c => c && c.enabled);
+    }
+    /** 一位的狀況：look＝{ tone, text }（滑過去那句）、when＝上次醒來多久以前 */
+    function _wakeLook(c) {
+        const h = (c.hours_since == null) ? null : Number(c.hours_since);
+        // 他有排下一次：照排的醒，抽籤那套（快醒了、該醒了卻沒動靜）不適用 → 改講下一次是幾點
+        const nx = Array.isArray(c.plan) && c.plan.length ? c.plan.slice().sort((a, b) => a.at - b.at)[0] : null;
+        const look = nx ? { tone: 'plan', text: '下一次 ' + _schWhen(nx.at) + (nx.what ? '「' + nx.what + '」' : '') + '（' + (SCH_URG[nx.urgency] || '普通') + '）' }
+            : h == null ? { tone: 'quiet', text: '剛打開，第一次要等滿一輪' } : _wakeOutlook(h, c.pace_hours);
+        const when = h == null ? '還沒醒過' : (look.tone === 'stopped' ? '好久沒醒了' : _ago(h));
+        return { look, when };
+    }
+    function _loungeHtml(L, hbConf, wakes) {
+        const items = (wakes && Array.isArray(wakes.items)) ? wakes.items : null;
+        return L.sceneHtml(_wakeList(hbConf).map(c => {
+            const w = _wakeLook(c);
+            return { rid: c.rid, name: c.name || c.rid, tone: w.look.tone, title: (c.name || c.rid) + '：' + w.look.text, link: !!items };
+        }));
+    }
+
     /** 封面底下那排：開著「自己醒來」的小機，各自上次什麼時候醒過。
-     *  標題右邊是「醒來紀錄」入口：沒看過的幾次、其中有跑到外面的就標紅。點頭像＝看那一位的紀錄。 */
+     *  標題右邊是「醒來紀錄」入口：沒看過的幾次、其中有跑到外面的就標紅。點頭像＝看那一位的紀錄。
+     *  有交誼廳時只畫標題那排（人都在客廳裡走） */
     function _wakesHtml(hbConf, wakes) {
         if (!hbConf) return '';
-        const list = Object.keys(hbConf).map(k => Object.assign({ rid: k }, hbConf[k])).filter(c => c && c.enabled);
+        const list = _wakeList(hbConf);
         const items = (wakes && Array.isArray(wakes.items)) ? wakes.items : null;
         if (!list.length && !(items && items.length)) return '';
         let open = '';
@@ -598,16 +629,12 @@
         const mem = '<button type="button" class="ob-mem-open">記憶<i class="fa-solid fa-chevron-right"></i></button>';
         // 日程表（10-11）：他們自己排的下一次醒來、錯過的、她定的每天上限
         const sch = '<button type="button" class="ob-sch-open">日程表<i class="fa-solid fa-chevron-right"></i></button>';
-        const help = _wakesHelpBtn();
+        const lounge = !!_lounge();
+        const help = _wakesHelpBtn(lounge);
         return '<section class="ob-wakes"><div class="ob-wakes-head"><span class="ob-wakes-cap">會自己醒來的</span>' + help + sch + mem + open + '</div>'
-            + (list.length ? '<div class="ob-wakes-row">'
+            + (list.length && !lounge ? '<div class="ob-wakes-row">'
             + list.map(c => {
-                const h = (c.hours_since == null) ? null : Number(c.hours_since);
-                // 他有排下一次：照排的醒，抽籤那套（快醒了、該醒了卻沒動靜）不適用 → 改講下一次是幾點
-                const nx = Array.isArray(c.plan) && c.plan.length ? c.plan.slice().sort((a, b) => a.at - b.at)[0] : null;
-                const look = nx ? { tone: 'plan', text: '下一次 ' + _schWhen(nx.at) + (nx.what ? '「' + nx.what + '」' : '') + '（' + (SCH_URG[nx.urgency] || '普通') + '）' }
-                    : h == null ? { tone: 'quiet', text: '剛打開，第一次要等滿一輪' } : _wakeOutlook(h, c.pace_hours);
-                const when = h == null ? '還沒醒過' : (look.tone === 'stopped' ? '好久沒醒了' : _ago(h));
+                const { look, when } = _wakeLook(c);
                 return '<div class="ob-wake ob-wake-' + look.tone + (items ? ' is-link' : '') + '" data-rid="' + _esc(c.rid) + '" title="' + _esc(c.name + '：' + look.text) + '">'
                     + _avatarHtml(c.name)
                     + '<span class="ob-wake-name">' + _esc(c.name) + '</span>'
@@ -922,20 +949,24 @@
         const cur = _tabPick(st, tabs);
         st.tab = cur;
         const pane = (key, html) => '<div class="ob-pane" data-pane="' + key + '"' + (tabs.length > 1 && key !== cur ? ' hidden' : '') + '>' + html + '</div>';
+        // 有交誼廳：封面＝客廳（工具三顆疊在右上角），她的名字頭像那塊不畫（會蓋住客廳右下角的人）
+        const L = _lounge();
+        const tools = `<div class="ob-cover-tools">
+                            <button type="button" class="ob-tool ob-news-set" title="快報設定"><i class="fa-solid fa-newspaper"></i></button>
+                            <button type="button" class="ob-tool ob-refresh" title="重新整理"><i class="fa-solid fa-rotate-right"></i></button>
+                            <button type="button" class="ob-tool ob-compose" title="發動態"><i class="fa-solid fa-pen-to-square"></i></button>
+                        </div>`;
+        const cover = L
+            ? '<header class="ob-cover ob-cover-lg">' + _loungeHtml(L, hbConf, st.wakes) + tools + '</header>'
+            : '<header class="ob-cover">' + tools + '<div class="ob-me"><span class="ob-me-name">' + _esc(ME) + '</span>' + _avatarHtml(ME) + '</div></header>';
 
         container.innerHTML = `
             <div class="ob-container">
                 <div class="ob-scroll">
-                    <header class="ob-cover">
-                        <div class="ob-cover-tools">
-                            <button type="button" class="ob-tool ob-news-set" title="快報設定"><i class="fa-solid fa-newspaper"></i></button>
-                            <button type="button" class="ob-tool ob-refresh" title="重新整理"><i class="fa-solid fa-rotate-right"></i></button>
-                            <button type="button" class="ob-tool ob-compose" title="發動態"><i class="fa-solid fa-pen-to-square"></i></button>
-                        </div>
-                        <div class="ob-me"><span class="ob-me-name">${_esc(ME)}</span>${_avatarHtml(ME)}</div>
-                    </header>
+                    ${cover}
                     ${viaNote}
                     ${_wakesHtml(hbConf, st.wakes)}
+                    ${L ? '<div class="ob-lg-card" hidden></div>' : ''}
                     ${_tabsHtml(tabs, cur)}
                     ${pane('feed', '<section class="ob-feed">' + feedHtml + '</section>')}
                     ${pane('props', _propsHtml(st.props))}
@@ -966,6 +997,48 @@
             </div>`;
         _bind(container);
         _hydrateMedia(container);
+        if (L) {
+            L.mount(container.querySelector('.ob-lg'));
+            // 重新整理前點著誰：那位還在就接著開著他的小卡
+            if (st.lgPick) _lgPick(container, (hbConf && hbConf[st.lgPick] && hbConf[st.lgPick].enabled) ? st.lgPick : '');
+        }
+    }
+
+    // ---- 交誼廳：點小人 → 近況小卡（上次醒來、最近一次做了什麼、下一次／現在的狀況，三個入口接原本的頁） ----
+    function _lgCardHtml(st, rid) {
+        const c = st.hb && st.hb[rid];
+        if (!c) return '';
+        const name = c.name || rid;
+        const { look, when } = _wakeLook(c);
+        const items = (st.wakes && Array.isArray(st.wakes.items)) ? st.wakes.items : null;
+        const last = items ? items.find(w => w.rid === rid) : null;
+        let line = '';
+        if (last) {
+            const sum = String(last.summary || '').trim();
+            line = last.ok ? '最近一次：' + (sum || (WL_KIND[last.kind] || last.kind || '醒來') + '，沒做什麼') : '最近一次沒醒成' + (sum ? '：' + sum : '');
+        }
+        const warn = look.tone === 'late' || look.tone === 'stopped';
+        const go = (k, label) => '<button type="button" class="ob-lg-go" data-go="' + k + '">' + label + '<i class="fa-solid fa-chevron-right"></i></button>';
+        return '<div class="ob-lg-card-top">' + _avatarHtml(name)
+            + '<div class="ob-lg-card-main"><div class="ob-lg-card-head"><span class="ob-lg-card-name">' + _esc(name) + '</span>'
+            + '<span class="ob-lg-card-when">' + _esc(when === '還沒醒過' || when === '好久沒醒了' ? when : '上次醒來：' + when) + '</span></div>'
+            + (line ? '<div class="ob-lg-card-line">' + _esc(line) + '</div>' : '')
+            + '<div class="ob-lg-card-look' + (warn ? ' is-warn' : '') + '">' + _esc(look.text) + '</div></div>'
+            + '<button type="button" class="ob-lg-card-x" title="收起"><i class="fa-solid fa-xmark"></i></button></div>'
+            + '<div class="ob-lg-card-acts">' + (items ? go('wakes', '做了什麼') : '') + go('mem', '記憶') + go('sch', '日程') + '</div>';
+    }
+    function _lgPick(container, rid) {
+        const st = _state.get(container);
+        const root = container.querySelector('.ob-container');
+        const L = _lounge();
+        const card = root && root.querySelector('.ob-lg-card');
+        if (!st || !card || !L) return;
+        const html = rid ? _lgCardHtml(st, rid) : '';
+        st.lgPick = html ? rid : '';
+        L.select(root.querySelector('.ob-lg'), st.lgPick);
+        card.dataset.rid = st.lgPick;
+        card.innerHTML = html;
+        card.hidden = !html;
     }
 
     // 動手本身已經成功了，接著重拿板子失敗：只說一聲，不能當成沒做成。以前寫「按讚沒成功」「發表沒成功」，
@@ -996,7 +1069,8 @@
     }
 
     // ---- 記憶的兩頁 ----
-    async function _memOpen(container) {
+    // rid：從交誼廳的小卡進來的，直接翻那一位的（名冊裡沒有他就照舊翻第一位）
+    async function _memOpen(container, rid) {
         const st = _state.get(container);
         const root = container.querySelector('.ob-container');
         const pane = root && root.querySelector('.ob-wl');
@@ -1009,7 +1083,7 @@
         try { const r = await _api('/v1/memory'); m.people = Array.isArray(r.people) ? r.people : []; }
         catch (e) { m.peopleError = _memErr(e); }
         if (st.mem !== m) return;
-        if (m.people && m.people.length) _memPick(container, m.people[0].rid, '');
+        if (m.people && m.people.length) _memPick(container, (rid && m.people.some(p => p.rid === rid)) ? rid : m.people[0].rid, '');
         else pane.innerHTML = _memListHtml(m);
     }
     async function _memPick(container, rid, book) {
@@ -1557,6 +1631,20 @@
             // 分頁
             const tabBtn = t.closest('.ob-tab');
             if (tabBtn) { closeBar(); _tabGo(container, tabBtn.dataset.tab); return; }
+
+            // 交誼廳：點小人開他的近況小卡（再點一次、點叉叉、點客廳空的地方收起）；小卡上三顆接原本的頁
+            const lgP = t.closest('.ob-lg-p');
+            if (lgP) { _lgPick(container, st.lgPick === lgP.dataset.rid ? '' : lgP.dataset.rid); return; }
+            if (t.closest('.ob-lg-card-x')) { _lgPick(container, ''); return; }
+            const lgGo = t.closest('.ob-lg-go');
+            if (lgGo && st.lgPick) {
+                const go = lgGo.dataset.go;
+                if (go === 'wakes') _wlOpen(container, st.lgPick);
+                else if (go === 'mem') _memOpen(container, st.lgPick);
+                else _schOpen(container);
+                return;
+            }
+            if (t.closest('.ob-lg')) { if (st.lgPick) _lgPick(container, ''); return; }
 
             // 等你同意的：點一張打開單子
             const ppRow = t.closest('.ob-prop');

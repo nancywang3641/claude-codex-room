@@ -1,0 +1,263 @@
+/* ========================================
+ * board_lounge.css — 留言板最上面的交誼廳（core/board_lounge.js）
+ * 客廳圖 940×450 等比例縮放；小人站在固定幾個站位，換站位＝換 class，left/top 用 transition 走過去。
+ * 前後層：背景 z0 → 小人（z＝腳底 y）→ 前景茶几 z377（茶几腳底那一列）。
+ * 近況小卡（點小人）也在這支。
+ * ======================================== */
+
+/* ---- 封面換成客廳 ---- */
+.ob-cover.ob-cover-lg {
+    height: auto;
+    margin-bottom: 0;
+    background: #f3d6a8;
+}
+.ob-cover-lg .ob-cover-tools { z-index: 600; }
+.ob-cover-lg .ob-tool { background: rgba(58, 34, 18, 0.42); }
+.ob-cover-lg .ob-tool:hover { background: rgba(58, 34, 18, 0.6); }
+.ob-cover-lg + .ob-via + .ob-wakes,
+.ob-cover-lg + .ob-wakes { padding: 10px 16px 9px; }
+.ob-cover-lg ~ .ob-wakes .ob-wakes-head { margin-bottom: 0; }
+
+.ob-lg {
+    position: relative;
+    isolation: isolate;
+    width: 100%;
+    aspect-ratio: 940 / 450;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+}
+.ob-lg-bg,
+.ob-lg-fg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    pointer-events: none;
+}
+.ob-lg-bg { z-index: 0; }
+.ob-lg-fg { z-index: 377; }
+.ob-lg-people { position: absolute; inset: 0; }
+.ob-lg-empty {
+    position: absolute;
+    z-index: 400;
+    left: 50%;
+    bottom: 7%;
+    transform: translateX(-50%);
+    padding: 2px 10px;
+    border-radius: 999px;
+    background: rgba(255, 244, 222, 0.9);
+    border: 1px solid #b07a4a;
+    color: #6b4426;
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+/* ---- 小人：整張畫布（32×24 格）同一個比例，腳底在畫布 22/24 那列 ---- */
+.ob-lg .ob-wake.ob-lg-p {
+    position: absolute;
+    width: 19%;
+    padding: 0;
+    margin: 0;
+    border: none;
+    background: none;
+    display: block;
+    transform: translate(-50%, -91.6%);
+    transition-property: left, top;
+    transition-timing-function: linear;
+    transition-duration: 1.6s;
+    pointer-events: none;
+    font: inherit;
+    color: inherit;
+}
+.ob-lg-fig {
+    position: relative;
+    display: block;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+}
+.ob-lg-img {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: 100%;
+    image-rendering: pixelated;
+    pointer-events: none;
+    visibility: hidden;
+}
+.ob-lg-p.is-drawn .ob-lg-img { visibility: visible; }
+.ob-lg-p.is-left .ob-lg-fig { transform: scaleX(-1); }
+/* 點得到的地方只有身體那塊和名牌（整張畫布四周是空的，不能擋到旁邊的人） */
+.ob-lg-hit {
+    position: absolute;
+    left: 22%;
+    right: 22%;
+    top: 24%;
+    bottom: 4%;
+    pointer-events: auto;
+    cursor: pointer;
+}
+.ob-lg .ob-lg-p .ob-wake-name {
+    position: absolute;
+    left: 50%;
+    top: 93%;
+    transform: translateX(-50%);
+    max-width: 7em;
+    padding: 0 5px;
+    border: 1px solid #b07a4a;
+    border-radius: 7px;
+    background: rgba(255, 244, 222, 0.94);
+    color: #5c391e;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: auto;
+    cursor: pointer;
+}
+/* 點到的：腳下一圈藍、名牌換深色 */
+.ob-lg-p.is-on .ob-lg-fig::before {
+    content: '';
+    position: absolute;
+    left: 29%;
+    right: 29%;
+    bottom: 3%;
+    height: 10%;
+    border: 2px solid #4a8fd6;
+    border-radius: 50%;
+    background: rgba(74, 143, 214, 0.18);
+}
+.ob-lg .ob-lg-p.is-on .ob-wake-name { background: #2a4a80; border-color: #1e3554; color: #fff; }
+/* 好久沒醒的：坐著睡，顏色淡一點 */
+.ob-lg-p.ob-wake-stopped .ob-lg-img { filter: saturate(0.55); opacity: 0.88; }
+
+/* 走路：上下小跳；跳上座位：一個拋物線 */
+.ob-lg-p.is-walk .ob-lg-img { animation: ob-lg-bob 0.38s steps(2, jump-none) infinite; }
+.ob-lg-p.is-hop .ob-lg-img { animation: ob-lg-hop 1.6s ease-in-out 1; }
+@keyframes ob-lg-bob {
+    from { transform: translateY(0); }
+    to { transform: translateY(-5%); }
+}
+@keyframes ob-lg-hop {
+    0% { transform: translateY(0); }
+    35% { transform: translateY(-34%); }
+    70% { transform: translateY(-10%); }
+    100% { transform: translateY(0); }
+}
+.ob-lg .ob-lg-p.ob-lg-d1 { transition-duration: 1.6s; }
+.ob-lg .ob-lg-p.ob-lg-d2 { transition-duration: 2.6s; }
+.ob-lg .ob-lg-p.ob-lg-d3 { transition-duration: 3.6s; }
+.ob-lg .ob-lg-p.ob-lg-d4 { transition-duration: 4.6s; }
+@media (prefers-reduced-motion: reduce) {
+    .ob-lg .ob-wake.ob-lg-p { transition: none; }
+    .ob-lg-p.is-walk .ob-lg-img,
+    .ob-lg-p.is-hop .ob-lg-img { animation: none; }
+}
+
+/* ---- 站位：left/top＝腳底在圖上的位置（x/940、y/450），z＝腳底 y。改這裡要跟 board_lounge.js 的 SPOTS 一起改 ---- */
+.ob-lg-at-tea { left: 13.298%; top: 82.667%; }
+.ob-lg-at-fridge { left: 27.872%; top: 84.889%; }
+.ob-lg-at-win { left: 76.064%; top: 82.667%; }
+.ob-lg-at-fl { left: 18.936%; top: 91.556%; }
+.ob-lg-at-rugl { left: 33.83%; top: 87.556%; }
+.ob-lg-at-fm { left: 50%; top: 92%; }
+.ob-lg-at-rugr { left: 64.894%; top: 87.556%; }
+.ob-lg-at-fr { left: 85.106%; top: 91.556%; }
+.ob-lg-at-sofal { left: 40.957%; top: 68%; }
+.ob-lg-at-sofar { left: 63.298%; top: 68%; }
+.ob-lg-at-chair { left: 86.702%; top: 74%; }
+.ob-lg-z-tea { z-index: 372; }
+.ob-lg-z-fridge { z-index: 382; }
+.ob-lg-z-win { z-index: 372; }
+.ob-lg-z-fl { z-index: 412; }
+.ob-lg-z-rugl { z-index: 394; }
+.ob-lg-z-fm { z-index: 414; }
+.ob-lg-z-rugr { z-index: 394; }
+.ob-lg-z-fr { z-index: 412; }
+.ob-lg-z-sofal { z-index: 306; }
+.ob-lg-z-sofar { z-index: 306; }
+.ob-lg-z-chair { z-index: 333; }
+
+/* ---- 近況小卡（點小人才出現；跟板子同一套白藍金） ---- */
+.ob-lg-card {
+    margin: 10px 12px 12px;
+    padding: 10px 12px 10px;
+    border: 1px solid rgba(42, 74, 128, 0.14);
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 2px 8px rgba(31, 58, 104, 0.08);
+}
+.ob-lg-card[hidden] { display: none; }
+.ob-lg-card-top {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+.ob-lg-card-top .ob-av {
+    width: 46px;
+    height: 46px;
+    border-radius: 10px;
+}
+.ob-lg-card-main { flex: 1; min-width: 0; }
+.ob-lg-card-head {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 2px 10px;
+}
+.ob-lg-card-name { font-size: 16px; font-weight: 700; color: #1f3a68; }
+.ob-lg-card-when { font-size: 12px; color: #46639b; }
+.ob-lg-card-line,
+.ob-lg-card-look {
+    margin-top: 3px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #1f3a68;
+    overflow-wrap: anywhere;
+}
+.ob-lg-card-look { font-size: 12px; color: #46639b; }
+.ob-lg-card-look.is-warn { color: #b5563f; }
+.ob-lg-card-x {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    margin: -4px -6px 0 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: #46639b;
+    font-size: 14px;
+    cursor: pointer;
+}
+.ob-lg-card-x:hover { background: rgba(42, 74, 128, 0.08); }
+.ob-lg-card-acts {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    margin-top: 10px;
+    border-radius: 9px;
+    background: #eef2f9;
+    overflow: hidden;
+}
+.ob-lg-go {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    min-width: 0;
+    padding: 8px 4px;
+    border: none;
+    background: transparent;
+    color: #2a4a80;
+    font-size: 13px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.ob-lg-go + .ob-lg-go { box-shadow: inset 1px 0 0 rgba(42, 74, 128, 0.14); }
+.ob-lg-go:hover { background: rgba(42, 74, 128, 0.08); }
+.ob-lg-go .fa-chevron-right { font-size: 10px; opacity: 0.6; }
