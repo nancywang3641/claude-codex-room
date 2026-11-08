@@ -86,6 +86,32 @@
     }
 
     let _el = null;
+    let _perNow = 0;          // 現在畫的是一層幾間（窗拉寬拉窄跨過門檻才重畫）
+    let _ro = null, _roEl = null;
+    let _moreSync = null;     // 重算「往下還有」那顆（窗拉高拉矮時 ResizeObserver 叫）
+    // 一層幾間：寬窗三間、手機那種窄窗兩間。三間要每格至少約 128px（門 64＋兩旁壁燈、信箱、盆栽），
+    //   算上左右留白和門縫，宿舍頁寬 410 以上才排得下；量不到寬度（頁還沒顯示）先當兩間
+    function _perFloor() {
+        const w = _el ? _el.clientWidth : 0;
+        return w >= 410 ? 3 : 2;
+    }
+    // 門在一層裡的哪一格：左＝壁燈信箱盆栽放門左邊；右＝全放右邊；三間時中間那扇壁燈信箱放左、盆栽放右
+    function _sideOf(i, per) {
+        if (per === 3) return i === 0 ? 'l' : (i === 1 ? 'm' : 'r');
+        return i ? 'r' : 'l';
+    }
+    // 主窗可以拉大拉小：宿舍頁寬度跨過門檻就重畫成另一種排法。只盯一個元素，換了容器才換盯的
+    function _watchWidth() {
+        if (!_el || typeof ResizeObserver !== 'function' || _roEl === _el) return;
+        if (_ro) _ro.disconnect();
+        _roEl = _el;
+        _ro = new ResizeObserver(() => {
+            if (!_el || _el !== _roEl || !_el.clientWidth || !_el.isConnected) return;
+            if (_perNow && _perFloor() !== _perNow) _render();
+            else if (_moreSync) _moreSync();   // 窗拉高拉矮：「往下還有」那顆要不要出來重算
+        });
+        _ro.observe(_el);
+    }
     let _editing = null;      // 展開編輯列的住戶 id；'__new__' = 底下那張新住戶卡
     let _delArmed = null;     // 兩段確認：已經按過第一下的住戶 id
     let _delTimer = null;
@@ -718,19 +744,27 @@
         const oldGroup = all.find(r => r && r.provider === 'group');
         const people = all.filter(r => r && r.provider !== 'group');
         const colors = _doorColors(people);
-        // 一層兩間，名冊前面的住頂樓（圖上丹、天天在 3F），樓層號由下往上數
-        const floors = Math.ceil(people.length / 2);
+        // 一層幾間看窗多寬：電腦那種寬窗三間、手機窄窗兩間（11-09 她：「要不要３門一起 這樣窗口才好看點」；
+        //   手機寬度塞三扇門，門和門牌會小到看不清楚）。名冊前面的住頂樓（圖上丹在最上面），樓層號由下往上數
+        const per = _perFloor();
+        _perNow = per;
+        const floors = Math.ceil(people.length / per);
+        // 樓層自己捲；公共區不跟著捲，一直在窗的最底下（11-09 她：「公共區固定下面？　這樣我就不用滑下去」）
+        h += '<div class="dorm-floors dorm-per' + per + '">';
         for (let f = 0; f < floors; f++) {
-            const pair = people.slice(f * 2, f * 2 + 2);
-            h += '<div class="dorm-floor"><span class="dorm-floor-sign">' + (floors - f) + 'F</span>';
-            pair.forEach((r, i) => { h += _cardHtml(r, all, i ? 'r' : 'l', colors[r.id]); });
-            // 單數那層右邊空著：放一扇窗，不讓一間房孤零零撐滿整層
+            const row = people.slice(f * per, f * per + per);
+            h += '<div class="dorm-floor dorm-f' + per + '"><span class="dorm-floor-sign">' + (floors - f) + 'F</span>';
+            row.forEach((r, i) => { h += _cardHtml(r, all, _sideOf(i, per), colors[r.id]); });
+            // 住不滿的那層空著的格子：放一扇窗，不讓房間孤零零撐滿整層
             //   跟隔壁同一副骨架（看不見的門牌和門撐出一樣的高度），地板線才會跟隔壁接成一條
-            if (pair.length === 1) h += '<div class="dorm-room dorm-room-empty" aria-hidden="true"><div class="dorm-wall">'
+            for (let k = row.length; k < per; k++) h += '<div class="dorm-room dorm-room-empty" aria-hidden="true"><div class="dorm-wall">'
                 + '<span class="dorm-plate dorm-ghost"><span>　</span></span><span class="dorm-leaf dorm-ghost"></span><span class="dorm-floorzone"></span>'
                 + '<span class="dorm-window"></span><span class="dorm-plant"><i class="fa-solid fa-seedling"></i></span></div></div>';
             h += '</div>';
         }
+        // 樓層捲不完（手機上常見）：底邊一顆往下的小木牌，點了捲到最底。剛好切在樓板上時整層藏起來，看起來像沒有那層
+        if (floors) h += '<button type="button" class="dorm-more" title="往下還有"><i class="fa-solid fa-chevron-down"></i></button>';
+        h += '</div>';
         // 一樓公共區：留言板、遊戲室、新住戶（紙箱）＋底下一排小木牌（原本走廊那排，一顆都沒少）
         h += '<div class="dorm-floor dorm-common"><span class="dorm-floor-sign">公共區</span>'
             + '<button type="button" class="dorm-hall-btn dorm-hall-board" data-panel="board">'
@@ -765,7 +799,22 @@
             const er = _editing === '__new__' ? null : all.find(x => x && x.id === _editing);
             if (_editing === '__new__' || er) h += _drawerHtml(er);
         }
+        // 重畫前記住樓層捲到哪（心跳拉回來、改完住戶都會整頁重畫，不要一畫就跳回最上面）
+        const oldFloors = _el.querySelector('.dorm-floors');
+        const keepTop = oldFloors ? oldFloors.scrollTop : 0;
         _el.innerHTML = h;
+        const nf = _el.querySelector('.dorm-floors');
+        if (nf) {
+            if (keepTop) nf.scrollTop = keepTop;
+            const more = nf.querySelector('.dorm-more');
+            const sync = () => nf.classList.toggle('has-more', nf.scrollTop + nf.clientHeight < nf.scrollHeight - 4);
+            nf.addEventListener('scroll', sync, { passive: true });
+            if (more) more.addEventListener('click', () => nf.scrollTo({ top: nf.scrollHeight, behavior: 'smooth' }));
+            sync();
+            requestAnimationFrame(sync);   // 頭像圖載進來、字型換好之後高度會變，下一格再量一次
+            _moreSync = sync;
+        }
+        _watchWidth();
         _bind();
         // 誰有沒看過的「想跟妳說的」：門卡上點一顆（在他房間的紀錄裡）
         if (window.RoomNotebook && typeof window.RoomNotebook.markDoors === 'function') window.RoomNotebook.markDoors(_el);

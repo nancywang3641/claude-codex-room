@@ -30,7 +30,9 @@
     --dm-ink-soft: #85552f;
 }
 
-/* ---- 樓（可以捲）---- */
+/* ---- 樓：上面的樓層自己捲，公共區釘在最底下（11-09 她：「公共區固定下面？　這樣我就不用滑下去」）----
+   樓層那塊（.dorm-floors）吃掉剩下的高度、自己捲；住戶少、樓層矮的時候第一層 margin-top:auto，整棟樓往下坐在公共區上，空的在上面。
+   窗矮到連樓層那塊最小高度都放不下時，整頁一起捲（.dorm-list 的 overflow），公共區不會把樓層擠成零 */
 .dorm-list {
     flex: 1;
     min-height: 0;
@@ -39,6 +41,57 @@
     flex-direction: column;
     background: var(--dm-wood-dk, #6e4022);
 }
+.dorm-floors {
+    flex: 1 1 0;
+    min-height: 170px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    display: flex;
+    flex-direction: column;
+}
+.dorm-floors > .dorm-floor:first-child { margin-top: auto; }
+/* 頂樓上面一根屋樑：窗比樓高、上面空出一截時，看起來是屋頂下面，不是樓蓋到一半。樓層塞滿時它在捲動區外面，看不到 */
+.dorm-floors > .dorm-floor:first-child::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: -10px;
+    height: 10px;
+    background: linear-gradient(#8a502a, #b8763f 55%, var(--dm-wood-lt));
+    box-shadow: 0 -2px 0 rgba(0, 0, 0, 0.28);
+    pointer-events: none;
+}
+/* 樓層捲不完時底邊中間一顆往下的小木牌（JS 量到底下還有東西才給 .has-more），捲到底就收起來 */
+.dorm-more {
+    position: sticky;
+    bottom: 8px;
+    z-index: 4;
+    align-self: center;
+    flex-shrink: 0;
+    width: 34px;
+    height: 24px;
+    margin-top: -24px;
+    padding: 0;
+    border: 2px solid var(--dm-plate-bd);
+    border-radius: 12px;
+    background: var(--dm-plate);
+    color: var(--dm-ink);
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    box-shadow: 0 2px 0 rgba(90, 52, 24, 0.35), 0 0 0 3px rgba(255, 241, 220, 0.35);
+    box-sizing: border-box;
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity 0.18s, visibility 0.18s;
+}
+/* 一層三間時正中間是門：小木牌挪到第一、二扇門中間那道空牆（格寬＝(寬−左右留白16−門縫12)/3） */
+.dorm-floors.dorm-per3 > .dorm-more { align-self: flex-start; margin-left: calc((100% - 28px) / 3 - 6px); }
+.dorm-floors.has-more .dorm-more { visibility: visible; opacity: 1; animation: dorm-more-bob 1.6s ease-in-out infinite; }
+.dorm-more:hover { background: #fff8ea; }
+@keyframes dorm-more-bob { 0%, 100% { translate: 0 0; } 50% { translate: 0 3px; } }
+@media (prefers-reduced-motion: reduce) { .dorm-floors.has-more .dorm-more { animation: none; } }
 
 /* ---- 一層：兩格，底下一條樓板 ---- */
 .dorm-floor {
@@ -82,6 +135,26 @@
 
 /* 門卡本身不佔格子：門那一格、編輯列各自是樓層的一格 */
 .dorm-floor .dorm-card { display: contents; }
+
+/* 一層三間（寬窗）：格子窄一點，門跟著縮、門旁的壁燈信箱盆栽往門靠 4px，才不會貼到牆邊。
+   一格約 128～150px：門 60～84px，兩旁各留 30px 上下放東西 */
+.dorm-floor.dorm-f3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    column-gap: 6px;
+}
+.dorm-f3 .dorm-room { --leaf-w: clamp(60px, 48%, 84px); }
+.dorm-f3.dorm-floor .dorm-side-l .dorm-lamp,
+.dorm-f3.dorm-floor .dorm-side-m .dorm-lamp { left: calc(50% - var(--leaf-w) / 2 - 30px); }
+.dorm-f3.dorm-floor .dorm-side-r .dorm-lamp { right: calc(50% - var(--leaf-w) / 2 - 30px); }
+.dorm-f3.dorm-floor .dorm-side-l .dorm-mail,
+.dorm-f3.dorm-floor .dorm-side-m .dorm-mail { left: calc(50% - var(--leaf-w) / 2 - 30px); }
+.dorm-f3.dorm-floor .dorm-side-r .dorm-mail { right: calc(50% - var(--leaf-w) / 2 - 30px); }
+.dorm-f3.dorm-floor .dorm-side-l .dorm-plant { left: calc(50% - var(--leaf-w) / 2 - 31px); }
+.dorm-f3.dorm-floor .dorm-side-m .dorm-plant,
+.dorm-f3.dorm-floor .dorm-side-r .dorm-plant { right: calc(50% - var(--leaf-w) / 2 - 31px); }
+.dorm-f3.dorm-floor .dorm-side-l .dorm-train,
+.dorm-f3.dorm-floor .dorm-side-m .dorm-train { right: calc(50% - var(--leaf-w) / 2 - 31px); }
+.dorm-f3.dorm-floor .dorm-side-r .dorm-train { left: calc(50% - var(--leaf-w) / 2 - 31px); }
 
 /* ---- 一間房（拱形牆面）---- */
 .dorm-room {
@@ -429,6 +502,10 @@
 .dorm-side-r .dorm-mail { right: calc(50% - var(--leaf-w) / 2 - 34px); }
 .dorm-side-l .dorm-plant { left: calc(50% - var(--leaf-w) / 2 - 36px); }
 .dorm-side-r .dorm-plant { right: calc(50% - var(--leaf-w) / 2 - 36px); }
+/* 一層三間時中間那扇：壁燈、信箱在門左邊，盆栽在右邊（兩邊各擺一點，不會全堆在跟左邊那扇門中間） */
+.dorm-side-m .dorm-lamp { left: calc(50% - var(--leaf-w) / 2 - 31px); }
+.dorm-side-m .dorm-mail { left: calc(50% - var(--leaf-w) / 2 - 34px); }
+.dorm-side-m .dorm-plant { right: calc(50% - var(--leaf-w) / 2 - 36px); }
 
 /* 壁燈：亮著＝他會自己醒來，點燈就開／關（11-06 她：「心跳轉到點燈邏輯」；以前是門旁一顆心跳鈕）。
    按得到的範圍比燈大一圈（30×34），燈本身畫在中間；小機那盞是裝飾、不能按 */
@@ -541,7 +618,8 @@ button.dorm-lamp:focus-visible { outline: 2px solid #e4a54b; }
     color: #4f8a3c;
     margin-bottom: -3px;
 }
-.dorm-side-r .dorm-plant i { color: #e8a0b4; }
+.dorm-side-r .dorm-plant i,
+.dorm-side-m .dorm-plant i { color: #e8a0b4; }
 .dorm-plant::after {
     content: '';
     width: 20px;
@@ -622,7 +700,8 @@ button.dorm-lamp:focus-visible { outline: 2px solid #e4a54b; }
     box-shadow: 0 2px 0 rgba(90, 52, 24, 0.3);
     box-sizing: border-box;
 }
-.dorm-side-l .dorm-train { right: calc(50% - var(--leaf-w) / 2 - 35px); }
+.dorm-side-l .dorm-train,
+.dorm-side-m .dorm-train { right: calc(50% - var(--leaf-w) / 2 - 35px); }
 .dorm-side-r .dorm-train { left: calc(50% - var(--leaf-w) / 2 - 35px); }
 .dorm-room .dorm-train:hover { background: #fff8ea; color: var(--dm-ink); }
 
@@ -653,6 +732,10 @@ button.dorm-lamp:focus-visible { outline: 2px solid #e4a54b; }
     padding: 34px 14px 12px;
     background: linear-gradient(var(--dm-wall), var(--dm-wall-2));
     box-shadow: inset 6px 0 0 var(--dm-wood), inset -6px 0 0 var(--dm-wood);
+}
+/* 公共區釘在底下、樓層從它上面捲過去：頂邊往上投一點影子，看得出樓層是在它後面滑 */
+.dorm-floors + .dorm-floor.dorm-common {
+    box-shadow: inset 6px 0 0 var(--dm-wood), inset -6px 0 0 var(--dm-wood), 0 -3px 7px rgba(40, 20, 6, 0.4);
 }
 /* 第二排起整片是地板（上緣＝地板線，往上畫護牆板）；小木牌、編輯列、404 箱子都擺在地板上 */
 .dorm-common-floor {
