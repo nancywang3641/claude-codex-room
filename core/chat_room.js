@@ -29,6 +29,12 @@
     // 當前浮窗對話歷史。ChatWindow.open 時由 setHistory() 灌入，送訊息時 push。
     let _roomHistory = [];
     function _activeHistory() { return _roomHistory; }
+    // 🪟 無痛換會話（11-09）：開著這串是換會話接上來的，上一串畫在上面、中間一條細線，看起來還是同一個聊天。
+    //   { msgs: 上一串（再往前載的也接在前面，中間夾 { _roll } 當細線）, shown: 畫最後幾則, olderId: 再上一串, segId: msgs 最前面那串,
+    //     rollAt, rollWhy: 開著這串是什麼時候、為什麼換的 }；不是接上來的＝null
+    let _prev = null;
+    const PREV_SHOW = 40;          // 上一串先畫最後幾則（整串畫太多進房會卡），「看更早的」一次多 40 則
+    let _lastDay = '';             // 畫到哪一天了（換日插一條日期）
 
     // 持久化（debounced）：寫回 ClaudeTerminal 當前 conv 的 IndexedDB
     let _saveTimer = null;
@@ -1778,6 +1784,14 @@
 
         // 小機只交了單子沒說話：不畫空泡泡，只掛單子（只記了待修也一樣）
         if (isUser || String(content || '').trim() || !((opts.props && opts.props.length) || bugTitles.length)) wrap.appendChild(bubble);
+        // 🕰 幾點說的（像 LINE 泡泡旁那行小字；她 11-09：「我以為聊天室的泡泡會標時間🤔」）
+        const _ts = _msgTs(opts.msg);
+        if (_ts) {
+            const tm = document.createElement('div');
+            tm.className = 'claude-bubble-time';
+            tm.textContent = _hhmm(_ts);
+            wrap.appendChild(tm);
+        }
 
         // ASK marker UI：附在氣泡下方、用量 footer 上方
         askMatches.forEach(ask => {
@@ -1826,36 +1840,182 @@
             note.innerHTML = '<i class="fa-regular fa-moon"></i> 醒來時傳給妳的';
             wrap.appendChild(note);
         }
+        if (_ts) _dayMark(stream, _ts);
         stream.appendChild(wrap);
         if (!opts.noScroll) _scrollClaudeChatToBottom();
     }
 
+    function _msgTs(m) { return Number((m && (m.ts || m.timestamp)) || 0); }
+    function _hhmm(ts) { const d = new Date(ts); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); }
+    /** 換了一天：先插一條日期（今天／昨天／11/08（六）），像 LINE */
+    function _dayMark(stream, ts) {
+        const d = new Date(ts);
+        const key = d.toDateString();
+        if (key === _lastDay) return;
+        _lastDay = key;
+        const today = new Date();
+        const yest = new Date(today.getTime() - 86400000);
+        const el = document.createElement('div');
+        el.className = 'claude-day-sep';
+        el.textContent = key === today.toDateString() ? '今天' : key === yest.toDateString() ? '昨天'
+            : String(d.getMonth() + 1).padStart(2, '0') + '/' + String(d.getDate()).padStart(2, '0') + '（' + '日一二三四五六'[d.getDay()] + '）';
+        stream.appendChild(el);
+    }
+    /** 換會話那條細線：「11/09（日）17:40 換了新會話 · 丹改了功能 · 最後 10 句帶過去了」 */
+    function _renderRollLine(stream, at, why) {
+        const CT = window.ClaudeTerminal;
+        const el = document.createElement('div');
+        el.className = 'claude-roll-line';
+        const whyText = (CT && typeof CT.rollWhyText === 'function') ? CT.rollWhyText(why) : '';
+        // 今天的只寫幾點，別天的寫日期（手機寬一行放不下時，三段各自整段折行，不會從字中間斷開）
+        const d = at ? new Date(at) : null;
+        const when = !d ? '' : (d.toDateString() === new Date().toDateString() ? '' : String(d.getMonth() + 1).padStart(2, '0') + '/' + String(d.getDate()).padStart(2, '0') + ' ') + _hhmm(at) + ' ';
+        const span = document.createElement('span');
+        [when + '換了新會話', whyText, '最後 10 句帶過去了'].filter(Boolean).forEach((t, i) => {
+            if (i) span.appendChild(document.createTextNode(' · '));
+            const p = document.createElement('span');
+            p.className = 'claude-roll-part';
+            p.textContent = t;
+            span.appendChild(p);
+        });
+        el.appendChild(span);
+        stream.appendChild(el);
+    }
+    function _renderMsg(m, extra) {
+        _renderClaudeBubble(m.role === 'user' ? 'user' : 'assistant', m.content, Object.assign({
+            attachments: m.attachments || [],
+            thinking: m.thinking || null,
+            usage: m.usage || null,
+            toolsUsed: (Array.isArray(m.tools_used) && m.tools_used.length) ? m.tools_used : null,
+            voice: m.voiceAudio ? { audioId: m.voiceAudio, sec: m.voiceSec } : null,
+            props: (Array.isArray(m.props) && m.props.length) ? m.props : null,
+            plan: m.plan || null,
+            calls: m.calls || 0,
+            stopped: !!m.stopped,
+            noScroll: true,
+            msg: m,
+        }, extra || {}));
+    }
+    /** 上一串（們）畫在最上面：最後 shown 則；前面還有就放一顆「看更早的」 */
+    function _hydratePrev(stream) {
+        if (!_prev) return;
+        const all = _prev.msgs || [];
+        const n = Math.min(all.length, _prev.shown || PREV_SHOW);
+        if (all.length > n || _prev.olderId) {
+            const more = document.createElement('button');
+            more.type = 'button';
+            more.className = 'claude-prev-more';
+            more.textContent = '看更早的';
+            more.addEventListener('click', _showOlder);
+            stream.appendChild(more);
+        }
+        all.slice(all.length - n).forEach(m => {
+            if (m && m._roll) _renderRollLine(stream, m._roll.at, m._roll.why);
+            else if (m && (m.role === 'user' || m.role === 'assistant')) _renderMsg(m);
+        });
+        _renderRollLine(stream, _prev.rollAt, _prev.rollWhy);
+    }
+    /** 「看更早的」：已經載的先多畫 40 則；載的畫完了就去拿再上一串接在前面。捲動位置留在原本看的那則 */
+    async function _showOlder() {
+        if (!_prev) return;
+        const stream = _el('claude-chat-stream');
+        const all = _prev.msgs || [];
+        const shown = _prev.shown || PREV_SHOW;
+        if (all.length <= shown && _prev.olderId) {
+            const CT = window.ClaudeTerminal;
+            const seg = (CT && typeof CT.prevSegment === 'function') ? await CT.prevSegment(_prev.segId).catch(() => null) : null;
+            if (!_prev) return;
+            if (seg) {
+                _prev.msgs = (seg.messages || []).concat([{ _roll: { at: _prev.segRollAt, why: _prev.segRollWhy } }], all);
+                _prev.segId = seg.id;
+                _prev.segRollAt = seg.meta.rollAt || 0;
+                _prev.segRollWhy = seg.meta.rollWhy || '';
+                _prev.olderId = seg.meta.prev || null;
+            } else {
+                _prev.olderId = null;   // 上一串被刪了或拿不到
+            }
+        }
+        _prev.shown = shown + PREV_SHOW;
+        const before = stream ? stream.scrollHeight - stream.scrollTop : 0;
+        _hydrateClaudeStream({ keepScroll: true });
+        if (stream) stream.scrollTop = stream.scrollHeight - before;
+    }
+    /** 開房間時（ChatWindow._loadRoom 叫）：這串是換會話接上來的，就把上一串拿來畫在上面 */
+    async function _loadPrev() {
+        _prev = null;
+        const CT = window.ClaudeTerminal;
+        if (!CT || typeof CT.prevSegment !== 'function' || _provider() === 'group') return;
+        const ctx = CT.captureCtx();
+        const f = CT.findConv(ctx.convId);
+        if (!f || !f.meta || !f.meta.prev) return;
+        let seg = null;
+        try { seg = await CT.prevSegment(ctx.convId, ctx); } catch (_) { seg = null; }
+        if (!seg) return;
+        _prev = { msgs: seg.messages || [], shown: PREV_SHOW, rollAt: f.meta.rollAt || 0, rollWhy: f.meta.rollWhy || '',
+                  segId: seg.id, segRollAt: seg.meta.rollAt || 0, segRollWhy: seg.meta.rollWhy || '', olderId: seg.meta.prev || null };
+    }
+
+    /** 換新會話（無痛）：舊那串存好、她放著還沒送的搬到新那串，開一串新的接在後面（舊的在背景收拾）。
+     *  opts.quiet：不重畫（開房間時，等一下 ChatWindow 自己畫）。回新那串的 ctx；沒換成回 null */
+    async function _rollNow(ctx, why, opts) {
+        opts = opts || {};
+        const CT = window.ClaudeTerminal;
+        if (!CT || typeof CT.rollSession !== 'function' || !ctx) return null;
+        const open = CT.isCtxOpen(ctx);
+        const f = CT.findConv(ctx.convId);
+        const olderId = (f && f.meta && f.meta.prev) || null;
+        const oldRollAt = (f && f.meta && f.meta.rollAt) || 0, oldRollWhy = (f && f.meta && f.meta.rollWhy) || '';
+        const oldHist = open ? _roomHistory : null;
+        let move = [];
+        if (open) {
+            if (_saveTimer) { clearTimeout(_saveTimer); _saveTimer = null; }
+            move = _heldTail();
+            if (move.length) oldHist.splice(oldHist.length - move.length, move.length);
+            await CT.saveHistory(oldHist, ctx);
+        }
+        const nctx = await CT.rollSession(ctx, why, { move: move });
+        if (!nctx) {
+            if (move.length) { oldHist.push(...move); await CT.saveHistory(oldHist, ctx); }
+            return null;
+        }
+        if (open && CT.isCtxOpen(nctx)) {
+            _prev = { msgs: oldHist.slice(), shown: PREV_SHOW, rollAt: Date.now(), rollWhy: why,
+                      segId: ctx.convId, segRollAt: oldRollAt, segRollWhy: oldRollWhy, olderId: olderId };
+            _roomHistory = move;
+            if (!opts.quiet) {
+                const stream = _el('claude-chat-stream');
+                // 她沒有放著的：畫面上的就是上一串，接一條細線就好（不整個重畫，泡泡不會再跳一次）
+                if (!move.length && stream) { _renderRollLine(stream, _prev.rollAt, why); _scrollClaudeChatToBottom(); }
+                else _hydrateClaudeStream();
+                _paintHeld();
+            }
+            if (typeof window._VoidClaudeUpdateChip === 'function') { try { window._VoidClaudeUpdateChip(); } catch (_) {} }
+        }
+        return nctx;
+    }
+    /** 開房間時：說明書換版或換了模型就先換好（舊的背景收拾，她開口時通常已經收完），再把上一串載進來 */
+    async function _prepareSegments() {
+        const CT = window.ClaudeTerminal;
+        if (!CT || typeof CT.rollReason !== 'function' || _provider() === 'group') { _prev = null; return; }
+        const ctx = CT.captureCtx();
+        const rid = ctx.rid;
+        if (!_inflight[rid]) {
+            const why = CT.rollReason(ctx, null);
+            if (why) { try { await _rollNow(ctx, why, { quiet: true }); } catch (e) { console.warn('[VoidClaudeRoom] 換會話沒換成：', e); } }
+        }
+        await _loadPrev();
+    }
+
     /** 進入浮窗時用：把 _roomHistory 全部 render 成氣泡（含附件 + thinking + usage）
      *  🚨 一則一則畫的時候不捲：每捲一次瀏覽器就得把整串排一次版（276 則＝排 277 次，聊越多越卡）。畫完才捲一次 */
-    function _hydrateClaudeStream() {
+    function _hydrateClaudeStream(opts) {
         const stream = _el('claude-chat-stream');
         if (!stream) return;
         stream.innerHTML = '';
-        (_activeHistory() || []).forEach(m => {
-            _renderClaudeBubble(
-                m.role === 'user' ? 'user' : 'assistant',
-                m.content,
-                {
-                    attachments: m.attachments || [],
-                    thinking: m.thinking || null,
-                    usage: m.usage || null,
-                    toolsUsed: (Array.isArray(m.tools_used) && m.tools_used.length) ? m.tools_used : null,
-                    voice: m.voiceAudio ? { audioId: m.voiceAudio, sec: m.voiceSec } : null,
-                    props: (Array.isArray(m.props) && m.props.length) ? m.props : null,
-                    plan: m.plan || null,
-                    calls: m.calls || 0,
-                    stopped: !!m.stopped,
-                    noScroll: true,
-                    msg: m,
-                }
-            );
-        });
-        _scrollClaudeChatToBottom();
+        _lastDay = '';
+        _hydratePrev(stream);   // 🪟 換會話接上來的：上一串畫在上面＋細線
+        (_activeHistory() || []).forEach(m => _renderMsg(m));
+        if (!(opts && opts.keepScroll)) _scrollClaudeChatToBottom();
         _paintHeld();
     }
 
@@ -2200,9 +2360,9 @@
         }
         // 這一輪是哪一間：送出那一刻照下來。她送出後切去別間，回覆照樣寫回這間、不畫進別人的房間（待修 #288/#289）
         const CT = window.ClaudeTerminal;
-        const ctx = (typeof CT.captureCtx === 'function') ? CT.captureCtx() : null;
+        let ctx = (typeof CT.captureCtx === 'function') ? CT.captureCtx() : null;
         const rid = ctx ? ctx.rid : '';
-        const hist = _roomHistory;
+        let hist = _roomHistory;
         const here = () => !ctx || CT.isCtxOpen(ctx);
         if (_inflight[rid]) return;        // 這位正在回，這時候放的等下一次（別位不擋）
         const held = _heldTail();
@@ -2216,6 +2376,28 @@
         };
         _inflight[rid] = me;
         _paintSendBtn();
+        // 🪟 無痛換會話：開著房間時她換了模型（或說明書換版）→ 先換新會話，她放著的這幾則搬過去一起送
+        if (ctx && typeof CT.rollReason === 'function') {
+            try {
+                const why = CT.rollReason(ctx, null);
+                if (why) {
+                    const n = await _rollNow(ctx, why);
+                    if (n) { ctx = n; hist = _roomHistory; }
+                }
+            } catch (e) { console.warn('[VoidClaudeRoom] 換會話沒換成，照舊送：', e); }
+        }
+        // 舊那串還在收拾（記進記憶）：等它收完再開口，新的他才讀得到（最多三分鐘，等不到照送，最後 10 句照樣帶）
+        const _pk = (typeof CT.packingOf === 'function') ? CT.packingOf(rid) : null;
+        if (_pk && here()) {
+            const r0 = CT.getResident && CT.getResident(rid);
+            const line = document.createElement('div');
+            line.className = 'claude-sys-line';
+            line.textContent = ((r0 && r0.name) || '他') + '在收拾上一段的記憶，收好就回…';
+            const st = _el('claude-chat-stream');
+            if (st) { st.appendChild(line); _scrollClaudeChatToBottom(); }
+            await Promise.race([_pk, new Promise(r => setTimeout(r, 180000))]);
+            if (line.parentNode) line.parentNode.removeChild(line);
+        }
         const text = held.map(m => m.content).join('\n');
         const attachmentsSnapshot = [].concat(...held.map(m => m.attachments || []))
             .map(a => Object.assign({ path: a.path, filename: a.filename, mime: a.mime, size: a.size }, a.local ? { local: true, thumb: a.thumb } : {}));
@@ -2423,10 +2605,18 @@
                 if (xj.stopped) assistantRecord.stopped = true;   // 「（中途停下）」重開也還在（以前只存幾通，重畫就不見了）
                 if (xj.log && xj.log.length) assistantRecord.xjlog = xj.log.map(x => ({ label: x.label, ok: x.ok, text: String(x.text || '').slice(0, 12000) }));   // 下一句才改的時候要抄得到原文（OS_XIAOJI 只把最近那則留長）
             }
+            // 🪟 回完這句聊太長了（或說明書剛換版）：換新會話，舊的在背景收拾，她下一句就落在新的那串
+            const _rollAfter = () => {
+                try {
+                    const why = (typeof CT.rollReason === 'function') ? CT.rollReason(ctx, usage) : null;
+                    if (why) _rollNow(ctx, why).catch(e => console.warn('[VoidClaudeRoom] 換會話沒換成：', e));
+                } catch (e) { console.warn('[VoidClaudeRoom] 換會話沒換成：', e); }
+            };
             if (!here()) {
                 // 她已經在別間：這輪的回覆存回它自己那一串，不畫、不動立繪；她回到這間時房間會重新載入
                 hist.push(assistantRecord);
                 await window.ClaudeTerminal.saveHistory(hist, ctx);
+                _rollAfter();
                 return;
             }
             _activeHistory().push(assistantRecord);
@@ -2452,6 +2642,7 @@
             if (typeof window._VoidClaudeUpdateChip === 'function') {
                 try { window._VoidClaudeUpdateChip(); } catch (_) {}
             }
+            _rollAfter();
         } catch (e) {
             if (!here()) return;   // 已經在別間：不畫錯誤進別人的房間（送的那支已經把她這句存回原樣）
             const isAbort = e?.name === 'AbortError' || /abort/i.test(e?.message || '');
@@ -2506,7 +2697,19 @@
         }
     }
 
-    VoidClaudeRoom.setHistory        = function (arr) { _roomHistory = Array.isArray(arr) ? arr : []; };
+    VoidClaudeRoom.setHistory        = function (arr) { _roomHistory = Array.isArray(arr) ? arr : []; _prev = null; };
+    // 🪟 無痛換會話：開房間時先換好、載上一串（ChatWindow._loadRoom 在 setHistory 之後、hydrate 之前叫）
+    VoidClaudeRoom.prepareSegments   = _prepareSegments;
+    VoidClaudeRoom.hasPrev           = function () { return !!_prev; };
+    /** 會話清單「新會話」：有開過會話的就無痛換（舊的背景收拾、接在後面）；回 true＝換了，呼叫端重開房間 */
+    VoidClaudeRoom.rollNow           = async function (why) {
+        const CT = window.ClaudeTerminal;
+        if (!CT || typeof CT.rollSession !== 'function' || _provider() === 'group' || _provider() === 'xiaoji') return false;
+        const ctx = CT.captureCtx();
+        if (_inflight[ctx.rid]) { _renderClaudeNotice('他正在回，等他回完再換。'); return 'busy'; }
+        if (!CT.getSessionId(ctx)) return false;
+        return !!(await _rollNow(ctx, why || 'manual', { quiet: true }));
+    };
     VoidClaudeRoom.getHistory        = _activeHistory;
     VoidClaudeRoom.applyRoomUi       = _applyClaudeRoomUi;
     VoidClaudeRoom.updatePortalBtn   = _updateClaudePortalBtn;

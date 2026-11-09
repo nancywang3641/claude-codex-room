@@ -26,10 +26,13 @@
     const CHAT_ROOM_MAX = 3;
     const WALL_DEFAULT = '#efe6d8', FLOOR_DEFAULT = '#cdb99c';   // 同橋
     const OUTFIT_MAX = 30, OUTFIT_GAP = 20 * 60 * 1000;     // 舊的那套穿超過 20 分鐘才收進衣櫃（同橋）
-    const RANGE = { room: { x: [0, 100], y: [0, 100], w: [3, 60], w0: 15 }, wear: { x: [-6, 18], y: [-10, 12], w: [1, 24], w0: 6 }, look: { w: [6, 20], w0: 12 } };
+    // 打扮的 y 到 24、x 到 26（11-09，同橋）：以前照預設身體的高度定死，自己畫的高形象裙子穿不到腳
+    const RANGE = { room: { x: [0, 100], y: [0, 100], w: [3, 60], w0: 15 }, wear: { x: [-6, 26], y: [-10, 24], w: [1, 24], w0: 6 }, look: { w: [6, 20], w0: 12, neck: [0, 40] } };
+    // wear_put 的 on：face 跟著眼睛、eyes 只在睜眼時畫、body 穿在身上（形象有脖子線時畫在頭底下）。存在 item.face：1／2／3
+    const ON = { face: 1, eyes: 2, body: 3 };
     const COLOR_RE = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
     const PAIR_RE = /[<＜]\s*(room_place|wear_put|look_set)\b([^>＞]*?)[>＞]([\s\S]*?)[<＜]\s*\/\s*\1\s*[>＞]/gi;
-    const SINGLE_RE = /[<＜]\s*(room_paint|room_move|room_remove|wear_color|wear_move|wear_remove|wear_outfit|wear_keep|look_reset)\b([^>＞]*?)\/?\s*[>＞]/gi;
+    const SINGLE_RE = /[<＜]\s*(room_paint|room_move|room_remove|wear_color|wear_move|wear_remove|wear_outfit|wear_keep|look_reset|look_neck)\b([^>＞]*?)\/?\s*[>＞]/gi;
     const CODE_RE = /```[\s\S]*?```|`[^`\n]*`/g;
 
     // 預設樣子：名字、長怎樣、座標（對得上 clawd_portrait.js 的 _hamsterBody／_catBody／_penguinBody 回的身體框）
@@ -116,11 +119,13 @@
         tag = tag.toLowerCase();
         const kind = tag.split('_')[0], rg = RANGE[kind];
         if (tag === 'look_reset') return { verb: tag };
+        if (tag === 'look_neck') return { verb: tag, neck: _num(attrs, 'y', rg.neck[0], rg.neck[1]) };   // 不寫 y＝拿掉脖子線
         if (tag === 'look_set') {
             const svg = cleanSvg(inner);
             if (!svg) return null;
             const w = _num(attrs, 'w', rg.w[0], rg.w[1]);
-            return { verb: tag, svg, w: w != null ? w : rg.w0, eyes: _eyes(attrs), eye: _color(attrs, 'eye') };
+            return { verb: tag, svg, w: w != null ? w : rg.w0, eyes: _eyes(attrs), eye: _color(attrs, 'eye'),
+                neck: _num(attrs, 'neck', rg.neck[0], rg.neck[1]) };
         }
         if (tag === 'wear_outfit') {
             const p = _attr(attrs, '(?<![\\w:-])preset').toLowerCase();
@@ -144,7 +149,7 @@
             if (!svg || x == null || y == null) return null;
             const w = _num(attrs, 'w', rg.w[0], rg.w[1]);
             return { verb: tag, name: _name(attrs) || '沒取名的東西', svg, x, y, w: w != null ? w : rg.w0,
-                face: ({ face: 1, eyes: 2 })[_attr(attrs, '(?<![\\w:-])on').toLowerCase()] || 0 };
+                face: ON[_attr(attrs, '(?<![\\w:-])on').toLowerCase()] || 0 };
         }
         const id = parseInt(_attr(attrs, '(?<![\\w:-])id'), 10);
         if (!isFinite(id)) return null;
@@ -252,7 +257,19 @@
     }
     function _doOne(rec, a) {
         const w = _wear(rec), v = a.verb, src = { at: Date.now(), via: a.via || null, outfit: null };
-        if (v === 'look_set') { w.look = { svg: a.svg, ratio: svgRatio(a.svg), w: a.w, eyes: a.eyes, eye: a.eye || null }; w.lookSrc = src; return '換了自己畫的形象（寬 ' + _fmt(a.w) + '、眼睛 ' + a.eyes.length + ' 隻）'; }
+        if (v === 'look_set') {
+            w.look = { svg: a.svg, ratio: svgRatio(a.svg), w: a.w, eyes: a.eyes, eye: a.eye || null };
+            if (a.neck != null) w.look.neck = a.neck;
+            w.lookSrc = src;
+            return '換了自己畫的形象（寬 ' + _fmt(a.w) + '、眼睛 ' + a.eyes.length + ' 隻' + (a.neck != null ? '、脖子線 ' + _fmt(a.neck) : '') + '）';
+        }
+        if (v === 'look_neck') {
+            if (!w.look) return null;   // 還是原本的樣子：沒有自己畫的形象可以標
+            w.look = Object.assign({}, w.look);
+            if (a.neck == null) delete w.look.neck; else w.look.neck = a.neck;
+            w.lookSrc = src;
+            return a.neck != null ? '把脖子線標在 ' + _fmt(a.neck) : '拿掉脖子線';
+        }
         if (v === 'look_reset') { if (!w.look) return null; w.look = null; w.lookSrc = null; return '換回原本的樣子'; }
         if (v === 'wear_color') { w.body = a.body; w.bodySrc = src; return '身體換成 ' + a.body; }
         if (v === 'wear_put') {
@@ -345,7 +362,8 @@
     function client(o) {
         o = o || {};
         return { own: !_plain({ body: o.body, items: o.items || [], look: o.look }), body: o.body || null,
-            items: (o.items || []).map(it => Object.assign({}, it, { face: !!it.face, eyes_only: it.face === 2 })), look: o.look || null };
+            items: (o.items || []).map(it => Object.assign({}, it, { face: it.face === 1 || it.face === 2, eyes_only: it.face === 2, body: it.face === 3 })),
+            look: o.look || null };
     }
     RoomWear.client = function (wear) { return client(wear); };
     RoomWear.plain = function (rec) { return _plain(_now(rec || {})); };
@@ -425,6 +443,7 @@
         if (w.look) {
             const L = w.look, eyes = (L.eyes || []).map(e => '(' + _fmt(e[0]) + ',' + _fmt(e[1]) + ')').join('、') || '沒交給程式畫';
             out.push('形象：你自己畫的那張，寬 ' + _fmt(L.w) + '、高約 ' + _fmt(Math.round(L.w * (L.ratio || 1) * 10) / 10) + '，眼睛 ' + eyes
+                + (L.neck != null ? '，脖子線 y ' + _fmt(L.neck) + '（上面算頭、下面算身體）' : '，沒標脖子線（整張一起畫，戴的東西都疊在最上面）')
                 + _paren(w.lookSrc, '換的', null, user) + '。');
         } else out.push('形象：原本的' + bn + '。');
         const bodyNotes = (w.body && w.bodySrc ? [_paren(w.bodySrc, '換的', null, user).slice(1, -1)] : []).concat(w.look ? ['只有' + bn + '用得到'] : []);
@@ -432,7 +451,7 @@
         if (w.items.length) {
             out.push('身上有 ' + w.items.length + ' 件（最多 ' + MAX_WEAR + ' 件）：');
             w.items.forEach(it => out.push('#' + it.id + ' ' + it.name + '｜x ' + _fmt(it.x) + '、y ' + _fmt(it.y) + '、寬 ' + _fmt(it.w)
-                + (it.face === 2 ? '｜跟著眼睛、只在睜眼時看得到' : it.face ? '｜跟著眼睛' : '')
+                + (it.face === 2 ? '｜跟著眼睛、只在睜眼時看得到' : it.face === 1 ? '｜跟著眼睛' : it.face === 3 ? '｜穿在身上（頭蓋在它上面）' : '')
                 + '｜' + _src(it.at, it.via, '戴上的', null, it.outfit, user)));
             out.push('每件最後那段是程式自動記的：什麼時候、哪一路戴上的，' + user + '從衣櫃幫你換的會寫' + user + '。');
         } else out.push('身上什麼都沒戴。');
@@ -445,16 +464,19 @@
             '<wear_move id="號碼" x="左右" y="上下"/>',
             '<wear_remove id="號碼"/>',
             '座標以你的身體為準，單位是格。' + sh[1] + '自己畫的形象：以那張圖的左上角為 0,0，單位跟它的 w 一樣。'
-            + 'x、y 是這件東西底部中心的位置（可以寫負數或超過身體，頭頂上的東西 y 在 0 附近往上長），w 是它的寬（身體寬是 ' + bw + ' 格），高度照 svg 的比例跟著算。'
+            + 'x、y 是這件東西底部中心的位置（可以寫負數或超過身體，頭頂上的東西 y 在 0 附近往上長；自己畫的形象比較高的，y 可以寫到腳底那麼低），w 是它的寬（身體寬是 ' + bw + ' 格），高度照 svg 的比例跟著算。'
             // face／eyes 要用「在哪裡」分（戴在臉上 vs 畫在眼珠上）：說成「閉眼時看不看得到」，Haiku 冷讀兩次都把眼鏡歸成 eyes；改這個說法後五題全對
             + 'wear_put 另外寫 on="face" 的會跟著眼睛往左往右看，閉眼時照樣在，戴在臉上、擋在眼睛前面的東西用這個；'
-            + '寫 on="eyes" 的也跟著眼睛看，但只在睜著眼時畫出來，眨眼、笑、閉眼睡覺時跟著收起來，畫在眼珠上、算眼睛本身一部分的東西才用這個。'
+            + '寫 on="eyes" 的也跟著眼睛看，但只在睜著眼時畫出來，眨眼、笑、閉眼睡覺時跟著收起來，畫在眼珠上、算眼睛本身一部分的東西才用這個；'
+            + '寫 on="body" 的是穿在身上的衣服，你的形象標了脖子線時畫在頭底下（頭蓋在它上面），沒標脖子線就跟其他東西一樣疊在最上面；帽子、頭飾這種戴在頭上的不要寫 on="body"。'
             + 'svg 要有 viewBox，全部畫在裡面，不接外部圖片或字型，背景留透明。身上最多 ' + MAX_WEAR + ' 件，滿了要先拿下一件。',
-            '換形象：畫一張完整的自己寫進 look_set，換回' + bn + '寫 look_reset：',
-            '<look_set w="寬" eyes="左右,上下 左右,上下" eye="#色碼">一張完整的自己（svg）</look_set>',
+            '換形象：畫一張完整的自己寫進 look_set，換回' + bn + '寫 look_reset；只想補標或改脖子線寫 look_neck（不寫 y 是拿掉）：',
+            '<look_set w="寬" eyes="左右,上下 左右,上下" eye="#色碼" neck="上下">一張完整的自己（svg）</look_set>',
             '<look_reset/>',
+            '<look_neck y="上下"/>',
             'w 是你站著的寬度，範圍 6 到 20，腳底站在地上。eyes 寫每隻眼睛在你這張圖裡的格子位置（以圖的左上角為 0,0），程式會在那裡畫眼睛跟表情（眨眼、笑、閉眼睡覺），'
-            + '那幾格留給程式、自己不用畫；想自己畫臉就不要寫 eyes。eye 是眼睛顏色，可省。');
+            + '那幾格留給程式、自己不用畫；想自己畫臉就不要寫 eyes。eye 是眼睛顏色，可省。'
+            + 'neck 是脖子線：你這張圖裡頭跟身體分開的那條橫線的上下位置（單位跟 w 一樣，可省）。標了脖子線，程式先畫線以下的身體、再畫穿在身上的衣服、最後把頭蓋上去，衣服就從下巴底下開始穿、不會蓋到臉。');
         const c = _closet(rec);
         out.push('', '衣櫃：你換下來的衣服會自動收進衣櫃（穿了一陣子的那套才收，連著換幾件的中間樣子不收），' + user + '也打得開、可以幫你換。');
         const list = RoomWear.wardrobe(rec, base).outfits;

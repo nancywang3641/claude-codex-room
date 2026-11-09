@@ -819,9 +819,15 @@
         const room = window.VoidClaudeRoom;
         if (!room) return;
         if (typeof room.setHistory === 'function') room.setHistory(hist || []);
+        // 🪟 無痛換會話：說明書換版／換了模型就先換好；這串是換會話接上來的，把上一串載進來畫在上面
+        if (typeof room.prepareSegments === 'function') {
+            try { await room.prepareSegments(); } catch (e) { console.warn('[ChatWindow] 上一段會話沒載到：', e); }
+        }
         if (typeof room.applyRoomUi === 'function') room.applyRoomUi();
         if (typeof room.hydrateStream === 'function') room.hydrateStream();
-        if ((!hist || !hist.length) && typeof room.renderBubble === 'function') {
+        const _hasPrev = typeof room.hasPrev === 'function' && room.hasPrev();
+        const _nowHist = (typeof room.getHistory === 'function' && room.getHistory()) || hist;
+        if ((!_nowHist || !_nowHist.length) && !_hasPrev && typeof room.renderBubble === 'function') {
             room.renderBubble('assistant', provider === 'codex'
                 ? '這裡是 Codex 的房間，跟外面是分開的線。說吧。'
                 : provider === 'xiaoji'
@@ -1026,7 +1032,15 @@
         newBtn.className = 'cw-rec-new';
         newBtn.innerHTML = '<i class="fa-solid fa-plus"></i> 新會話';
         newBtn.addEventListener('click', async () => {
-            if (CT.startNewConversation) CT.startNewConversation(curTab);
+            // 🪟 無痛換會話（11-09）：開過會話的，舊的在背景叫他收拾記憶、新的接在後面（畫面看起來還是同一串）；
+            //   還沒開過會話（沒有 session）或小機，照舊開一串空的
+            const room = window.VoidClaudeRoom;
+            let rolled = false;
+            if (room && typeof room.rollNow === 'function') {
+                try { rolled = await room.rollNow('manual'); } catch (e) { console.warn('[ChatWindow] 換會話沒換成：', e); }
+            }
+            if (rolled === 'busy') { ChatWindow.closeSubPanel(); return; }   // 他正在回：房間已經說了等他回完
+            if (!rolled && CT.startNewConversation) CT.startNewConversation(curTab);
             await _loadRoom(_provider);
             ChatWindow.closeSubPanel();
         });

@@ -12,6 +12,8 @@
  * eyes_only（他寫 on="eyes"）的也跟著眼睛，而且只在睜眼時畫——眼睛裡的亮點閉眼還掛著會浮在眼縫上。
  * look 是他自己畫的形象 { svg, ratio, w, eyes: [[x,y]…], eye }（沒有＝預設的小螃蟹）：整張當身體畫，腳底站在小螃蟹的位置，
  * 眼睛跟表情照 eyes 畫在他指定的格子（eye 有給就用那個顏色）；戴的東西改以那張圖的左上角為原點。手的姿勢只有小螃蟹有。
+ * look.neck（脖子線，11-09）＋戴的東西 body（他寫 on="body"＝穿在身上）：先畫脖子線以下的身體 → 穿在身上的那幾件 → 再把頭蓋上去 → 眼睛 → 其他戴的。
+ *   以前形象一整張畫、戴的全疊在最上面，克語的女僕裝只好往上畫、黑色那截壓到下巴。沒標脖子線或沒有穿在身上的，照舊一整張畫。
  * 衣櫃（core/wardrobe.js）每一套也用這支畫定格。
  * 橋念給住戶聽的是同一套（cc-bridge room_decor.brief_wear），改一邊要改另一邊。
  *
@@ -215,25 +217,50 @@
         return { bx: X + 2, by: top, kx: 1, ky: 1, right: X + 15, top, eyes: [[X + 12, top + 1, 1]] };
     }
 
-    /** 他自己畫的形象：腳底站在跟小螃蟹一樣的地方、左右置中；壓扁就整張往下縮、往兩邊撐。 */
-    function _lookBody(o) {
+    /** 他自己畫的形象：腳底站在跟小螃蟹一樣的地方、左右置中；壓扁就整張往下縮、往兩邊撐。
+     *  part：'body' 只畫脖子線以下、'head' 只畫脖子線以上（標了脖子線才分；穿在身上的衣服夾在兩段中間，11-09 克語的女僕裝） */
+    function _lookBox(o) {
         const L = _look, sq = o.sq || 0;
         let w = L.w, h = L.w * L.ratio;
         if (h > 20) { w = w * 20 / h; h = 20; }          // 太高的整張縮進畫布
         const kx = (w / L.w) * (sq >= 2 ? 1.12 : 1), ky = (h / (L.w * L.ratio)) * (1 - sq / 10);
         const dw = L.w * kx, dh = L.w * L.ratio * ky;
-        const left = o.x + 9 - dw / 2, top = o.y + 10 - dh;
-        if (L.img.complete && L.img.naturalWidth) _ctx.drawImage(L.img, left * S, top * S, dw * S, dh * S);
+        return { kx, ky, dw, dh, left: o.x + 9 - dw / 2, top: o.y + 10 - dh };
+    }
+    function _lookDraw(b, part) {
+        const L = _look;
+        if (!L.img.complete || !L.img.naturalWidth) return;
+        if (!part || L.neck === null) { _ctx.drawImage(L.img, b.left * S, b.top * S, b.dw * S, b.dh * S); return; }
+        // 畫布座標的脖子線：照整張的縮放換算，壓扁時跟著往下
+        const cut = Math.round((b.top + L.neck * b.ky) * S);
+        _ctx.save();
+        _ctx.beginPath();
+        if (part === 'head') _ctx.rect(0, 0, W * S, cut);
+        else _ctx.rect(0, cut, W * S, H * S - cut);
+        _ctx.clip();
+        _ctx.drawImage(L.img, b.left * S, b.top * S, b.dw * S, b.dh * S);
+        _ctx.restore();
+    }
+    function _lookBody(o, part) {
+        const L = _look;
+        const b = _lookBox(o);
+        _lookDraw(b, part);
         const mid = L.w / 2;
-        return { bx: left, by: top, kx, ky, right: left + dw, top,
-                 eyes: L.eyes.map(([ex, ey]) => [Math.round(left + ex * kx), Math.round(top + ey * ky), ex < mid ? -1 : 1]) };
+        return { bx: b.left, by: b.top, kx: b.kx, ky: b.ky, right: b.left + b.dw, top: b.top,
+                 eyes: L.eyes.map(([ex, ey]) => [Math.round(b.left + ex * b.kx), Math.round(b.top + ey * b.ky), ex < mid ? -1 : 1]) };
     }
 
     /** 本體＋表情＋身上的東西。o：x,y 位置；eyes open/blink/happy/x/closed；armL/armR down/up/tap；sq 壓扁；look 左右看；eyeDy 眼睛上下。
      *  回身體框，道具（冷汗、眼淚）照它擺，換了形象也落在對的地方。 */
     function clawd(o) {
         const BODY = { lorde: _lordeBody, hamster: _hamsterBody, cat: _catBody, penguin: _penguinBody, whale: _whaleBody }[_base] || _crabBody;
-        const m = _look ? _lookBody(o) : BODY(o);
+        // 🪡 形象標了脖子線：先畫脖子線以下的身體 → 穿在身上的衣服（on="body"）→ 再把頭蓋上去，衣服就從下巴底下開始、不會蓋到臉
+        const split = !!(_look && _look.neck !== null && _worn.some(it => it.onBody));
+        const m = _look ? _lookBody(o, split ? 'body' : null) : BODY(o);
+        if (split) {
+            for (const it of _worn) if (it.onBody) _drawWorn(it, m, 0, 0);
+            _lookDraw(_lookBox(o), 'head');
+        }
         const look = o.look || 0, dy = o.eyeDy || 0;
         const EYE = (_look && _look.eye) || BASES[_base].eye;     // 形象可以自己指定眼睛顏色（Codex 工作服是青色）
         // 程式有畫眼睛、而且這一格不是睜著的（眨眼、瞇眼笑、皺成一團、閉眼）：只在睜眼時畫的那幾件這格不畫
@@ -248,15 +275,18 @@
                 case 'closed': rect(ex - 1, ey + 1, 3, 1, EYE); break;
             }
         }
-        // 戴的東西：以身體左上角為原點，跟著身體縮放；跟著眼睛的再加上眼睛的偏移
+        // 戴的東西：以身體左上角為原點，跟著身體縮放；跟著眼睛的再加上眼睛的偏移（穿在身上的那幾件上面已經畫在頭底下了）
         for (const it of _worn) {
-            if (!it.img.complete || !it.img.naturalWidth) continue;
+            if (split && it.onBody) continue;
             if (it.eyesOnly && shut) continue;
-            const fx = it.face ? look : 0, fy = it.face ? dy : 0;
-            const w = it.w * m.kx, h = it.w * (it.ratio || 1) * m.ky;
-            _ctx.drawImage(it.img, (m.bx + it.x * m.kx + fx - w / 2) * S, (m.by + it.y * m.ky + fy - h) * S, w * S, h * S);
+            _drawWorn(it, m, it.face ? look : 0, it.face ? dy : 0);
         }
         return m;
+    }
+    function _drawWorn(it, m, fx, fy) {
+        if (!it.img.complete || !it.img.naturalWidth) return;
+        const w = it.w * m.kx, h = it.w * (it.ratio || 1) * m.ky;
+        _ctx.drawImage(it.img, (m.bx + it.x * m.kx + fx - w / 2) * S, (m.by + it.y * m.ky + fy - h) * S, w * S, h * S);
     }
 
     const ACTIONS = {
@@ -351,7 +381,8 @@
         return ((wear && wear.items) || []).map(it => {
             const img = new Image();
             img.src = 'data:image/svg+xml;base64,' + _b64(it.svg || '');
-            return { img, ratio: +it.ratio || 1, x: +it.x || 0, y: +it.y || 0, w: +it.w || 6, face: !!it.face, eyesOnly: !!it.eyes_only };
+            return { img, ratio: +it.ratio || 1, x: +it.x || 0, y: +it.y || 0, w: +it.w || 6, face: !!it.face, eyesOnly: !!it.eyes_only,
+                     onBody: !!it.body };
         });
     }
 
@@ -362,7 +393,9 @@
         img.src = 'data:image/svg+xml;base64,' + _b64(L.svg);
         const eyes = (Array.isArray(L.eyes) ? L.eyes : []).filter(e => Array.isArray(e) && e.length >= 2).map(e => [+e[0] || 0, +e[1] || 0]);
         const eye = /^#[0-9a-f]{3,6}$/i.test(L.eye || '') ? L.eye : null;
-        return { img, ratio: +L.ratio || 1, w: +L.w || 12, eyes, eye };
+        // 脖子線（11-09）：以那張圖左上角為 0、單位跟 w 一樣；沒標＝整張一起畫
+        const neck = (L.neck === null || L.neck === undefined || L.neck === '' || !isFinite(+L.neck)) ? null : +L.neck;
+        return { img, ratio: +L.ratio || 1, w: +L.w || 12, eyes, eye, neck };
     }
 
     /** 照這身打扮接手立繪。wear 是橋回的那包；base 是預設樣子（crab 小螃蟹／lorde 洛德／whale 鯨魚／小機的 hamster、cat、penguin）。

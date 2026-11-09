@@ -216,6 +216,65 @@
     padding: 0 12px;
 }
 
+/* 🕰 泡泡底下幾點說的（像 LINE 那行小字）：她的靠右、他的靠左，跟著泡泡那一側（wrap 的 align-items） */
+.claude-bubble-time {
+    font-size: 10px;
+    line-height: 1.2;
+    color: var(--cl-cafe-latte, #46639b);
+    opacity: 0.6;
+    padding: 0 4px;
+    margin-top: -3px;
+    user-select: none;
+}
+/* 換了一天：置中一顆日期小膠囊（今天／昨天／11/08（六）） */
+.claude-day-sep {
+    align-self: center;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--cl-cafe-latte, #46639b);
+    background: rgba(70, 99, 155, 0.08);
+    border-radius: 999px;
+    padding: 1px 10px;
+    margin: 6px 0 2px;
+    user-select: none;
+}
+/* 🪟 換會話那條細線：兩邊各一條淡線、中間一行小字（上面是上一段，下面是新的會話） */
+.claude-roll-line {
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 10px 0 6px;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--cl-cafe-latte, #46639b);
+    opacity: 0.75;
+    user-select: none;
+}
+.claude-roll-line::before,
+.claude-roll-line::after {
+    content: '';
+    flex: 1 1 12px;
+    min-width: 12px;
+    height: 1px;
+    background: currentColor;
+    opacity: 0.35;
+}
+.claude-roll-line > span { flex: 0 1 auto; text-align: center; }
+.claude-roll-part { white-space: nowrap; }
+/* 上一段最上面那顆：再往前多看 40 則 */
+.claude-prev-more {
+    align-self: center;
+    font-size: 12px;
+    color: var(--cl-cafe-latte, #46639b);
+    background: transparent;
+    border: 1px solid rgba(70, 99, 155, 0.25);
+    border-radius: 999px;
+    padding: 2px 12px;
+    margin: 4px 0;
+    cursor: pointer;
+}
+
 /* 🫧 泡泡一顆一顆出來（私聊與群聊共用）：
    等下一段時的點點泡泡；冒出來那一下（計時器 400ms 後拿掉 class）；已經出來的不再重播進場動畫。
    still 要排在 pop 前面：兩個 class 同時在時 pop 贏，拿掉 pop 之後 still 接手，不會又播一次。 */

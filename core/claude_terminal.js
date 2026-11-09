@@ -672,6 +672,7 @@ ${withOthers}
 
     const SYNC_MIGRATED_KEY = 'ccr_room_synced_v1';
     let _pulledKey   = null;   // 已經拉過的 provider|rid|tab，換人換頁時清掉
+    const _bridgeRules = {};   // 住戶 id → 橋說他開場說明書現在是哪一版（/v1/room/state 的 rules；無痛換會話用）
     // 推清單、推逐字稿都按「誰的哪一份」各排各的，內容在排程那一刻就照下來：
     //   以前只有一個位置、送出時才回頭讀「現在開著哪間」，阿洛那輪跑到一半切去丹的房間，
     //   兩間 1.2 秒內各存一次就吃掉一筆，或把丹那份推成阿洛的（待修 #288/#289）
@@ -863,6 +864,8 @@ ${withOthers}
                                    '&tab=' + encodeURIComponent(tab));
             if (!res) return;
             // 本機這份還推不上去（橋關著時建的會話、改的標題）：不拿橋上的蓋，下次開房間再推再拉
+            // 這位開場說明書現在是哪一版（橋 _rules_fp）：會話出生時那一版不一樣了，房間就替她換新會話。舊橋沒有這格
+            if (res.rules) _bridgeRules[rid] = String(res.rules);
             if (_unsynced().c[rid + '|' + tab]) return;
             ClaudeTerminal.bridgeDown = false;
             _pulledKey = key;
@@ -1203,6 +1206,8 @@ ${withOthers}
             msgCount: 0,
         };
         if (tab === 'api') meta.presetId = opts.presetId || '';
+        // 無痛換會話（rollSession）：接在哪一串後面、什麼時候、為什麼換的。畫面照這個把上一串畫在上面、中間一條細線
+        if (opts.prev) { meta.prev = String(opts.prev); meta.rollAt = opts.rollAt || Date.now(); meta.rollWhy = opts.rollWhy || ''; }
         const list = ClaudeTerminal.listConversations(tab);
         list.unshift(meta);
         ClaudeTerminal._saveConvsList(tab, list);
@@ -1525,6 +1530,225 @@ ${withOthers}
         tab = _normalizeTab(tab);
         return ClaudeTerminal.createConversation(tab);
     };
+
+    // ============== 無痛換會話（11-09）==============
+    // 她：「怎麼讓宿舍的小機無痛換窗口0..0 每次更新，我都得在聊天室喊打包，再去開新會話…想想怎麼設計能看起來像真的line/微信那樣，
+    //   比如都在一個窗口，但程式後端已經幫我們打包好了」。
+    // 會話一出生，開場說明書（房間這份 system、橋上的留言板／打扮／工具規則、他家的家規）跟模型就定死了；丹一改功能，
+    //   舊會話裡的他拿的還是舊版。現在房間自己判斷該不該換，換的時候：
+    //   ① 舊那串在背景叫他一次「要收了，把該帶走的記進記憶」（以前她喊的「打包」），她不用等；
+    //   ② 開一串新的接在後面（meta.prev），畫面把上一串畫在上面、中間一條細線，看起來還是同一個聊天；
+    //   ③ 新會話第一句附上一串最後 10 句原話，前面標「停在幾點、不是她剛說的」（克語定的兩個條件：只算說話的、尾巴要標清楚）。
+    // 什麼時候換：說明書版本變了、換了模型、聊太長（搶在 CLI 自己壓縮之前）、她按「新會話」。小機（API）不經橋、每次自己帶歷史，不換。
+    const CTX_ROLL_AT = 300000;        // 跟群聊自動整理同一條線（chat_group.js 的 CTX_COMPACT_AT，理由寫在那邊）
+    const TAIL_N = 10;                 // 新會話帶幾句上一串的原話
+    const TAIL_CHARS = 300;            // 一句太長只帶前面這麼多字
+    const GAP_NOTE_MS = 60 * 60 * 1000;   // 離上一句超過這麼久，每輪的時間那行多寫一句隔了多久
+    const PACK_WAIT_MS = 180000;       // 新會話第一句最多等舊的收拾多久，等不到就照送（最後 10 句照樣帶）
+    const _packing = {};               // 住戶 id → 舊那串正在收拾的 Promise
+    const _WD = '日一二三四五六';
+
+    function _hashStr(s) {
+        let h = 2166136261 >>> 0;
+        s = String(s || '');
+        for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+        return h.toString(36);
+    }
+    function _pad2(n) { return String(n).padStart(2, '0'); }
+    /** 11/09（日）17:32 */
+    function _fmtWhen(ts) {
+        const d = new Date(ts);
+        return _pad2(d.getMonth() + 1) + '/' + _pad2(d.getDate()) + '（' + _WD[d.getDay()] + '）' + _pad2(d.getHours()) + ':' + _pad2(d.getMinutes());
+    }
+    function _fmtGap(ms) {
+        const min = Math.round(ms / 60000);
+        if (min < 60) return min + ' 分鐘';
+        const hr = Math.round(min / 60);
+        if (hr < 24) return hr + ' 小時';
+        const day = Math.round(hr / 24);
+        if (day < 30) return day + ' 天';
+        const mon = Math.round(day / 30);
+        return mon < 12 ? mon + ' 個月' : Math.round(mon / 12) + ' 年';
+    }
+    ClaudeTerminal.fmtWhen = _fmtWhen;
+    function _msgTs(m) { return Number((m && (m.ts || m.timestamp)) || 0); }
+
+    /** 這一間現在的開場說明書是哪一版：橋那份（留言板、打扮、工具規則、家規）＋房間這份 system＋穿法。橋沒回版本（舊橋）回空字串＝不比 */
+    function _rulesFp(ctx) {
+        const br = _bridgeRules[ctx.rid];
+        if (!br) return '';
+        const P = ctx.provider;
+        const sys = P === 'codex' ? CODEX_ROOM_SYSTEM_PROMPT : P === 'deepseek' ? DEEPSEEK_ROOM_SYSTEM_PROMPT : CLAUDE_ROOM_SYSTEM_PROMPT;
+        const r = ClaudeTerminal.getResident(ctx.rid) || {};
+        return br + '.' + _hashStr(sys + '|' + (r.daily ? 'daily' : '') + '|' + (r.chatOnly ? 'chat' : ''));
+    }
+    /** 同一位、同一頁，但不釘哪一串（改的不是開著那串時用：釘著別串的話，清單推上橋會把「開著哪串」報成它） */
+    function _ridCtx(ctx) { return Object.assign({}, ctx, { convId: null }); }
+    /** 改那一串的 meta，不動「最後動過」的時間（不然清單順序會亂跳） */
+    function _patchConv(convId, partial) {
+        const found = ClaudeTerminal.findConv(convId);
+        if (!found) return false;
+        const list = ClaudeTerminal.listConversations(found.tab);
+        Object.assign(list[found.idx], partial || {});
+        ClaudeTerminal._saveConvsList(found.tab, list);
+        return true;
+    }
+    /** 會話剛開出來（拿到新的 session id）：記下它出生時的說明書版本跟模型 */
+    function _markBorn(ctx, model) {
+        _inCtx(ctx, () => _patchConv(ctx.convId, { born: { fp: _rulesFp(ctx), model: String(model || ''), at: Date.now() } }));
+    }
+
+    /** 該不該換新會話：'full'（聊太長）／'model'（換了模型）／'rules'（說明書換版）／null。
+     *  usage：剛回完那一輪的用量（只有 Claude 有 context_tokens）。還沒開過會話（沒有 sid）不用換，下一句本來就是新的。
+     *  這個功能上線前開的會話沒記出生：橋報得出版本就當舊版、換一次（那些會話多半拿的是好幾版前的說明書，
+     *  這次上線也改了打扮的規則）；舊橋報不出版本就記成現在這樣、不換。 */
+    ClaudeTerminal.rollReason = function(ctx, usage) {
+        if (!ctx || !ctx.convId || ctx.provider === 'xiaoji') return null;
+        return _inCtx(ctx, () => {
+            const found = ClaudeTerminal.findConv(ctx.convId);
+            if (!found || !found.meta.sid) return null;
+            if (usage && Number(usage.context_tokens || 0) >= CTX_ROLL_AT) return 'full';
+            const cfg = ClaudeTerminal.getConfig() || {};
+            const fp = _rulesFp(ctx);
+            const born = found.meta.born;
+            if (!born) {
+                if (fp) return 'rules';
+                _patchConv(ctx.convId, { born: { fp: '', model: String(cfg.model || ''), at: 0 } });
+                return null;
+            }
+            if (cfg.model && born.model && cfg.model !== born.model) return 'model';
+            if (fp && born.fp && fp !== born.fp) return 'rules';
+            if (fp && !born.fp) _patchConv(ctx.convId, { born: Object.assign({}, born, { fp: fp }) });   // 舊橋時出生的，補上
+            return null;
+        });
+    };
+
+    const _WHY_SAY = {
+        rules: '丹改了房間的功能或規矩，新的說明要在新的會話才拿得到',
+        model: '她把你換成另一個模型了，新的會話會用新的模型',
+        full: '這段對話已經很長了',
+        manual: '她按了「新會話」',
+    };
+    ClaudeTerminal.rollWhyText = function(why) {
+        return { rules: '丹改了功能', model: '換了模型', full: '聊得太長了', manual: '妳按的' }[why] || '';
+    };
+    function _packText(why) {
+        return '（系統）這段對話要收起來了：' + (_WHY_SAY[why] || _WHY_SAY.manual) + '。她下一次說話，就會換成新的會話接著聊。\n'
+            + '新的你一開始會拿到你自己的記憶、留言板近況、最近醒來的紀錄，還有這段對話最後 ' + TAIL_N + ' 句原話；這段對話其他的部分都不會跟過去。\n'
+            + '這段對話裡如果還有之後用得到、但記憶裡還沒有的事，現在用你平常記東西的方式記下來。記好之後回一句「收好了」就可以，這句她看不到，也不會留在聊天裡。';
+    }
+    /** 舊那串收拾：用那串出生時的模型續接（Codex 換模型續接會出錯），不附板子近況、不推播 */
+    async function _packOld(ctx, cfg, meta, why) {
+        const P = ctx.provider;
+        const me = ClaudeTerminal.getResident(ctx.rid) || {};
+        const body = {
+            model: (meta.born && meta.born.model) || cfg.model,
+            messages: [{ role: 'user', content: _packText(why) }],
+            stream: true,
+            max_tokens: cfg.maxTokens,
+            session_id: meta.sid,
+            cc_quiet: true,
+        };
+        if (P === 'codex') body.cc_backend = 'codex';
+        if (P === 'deepseek') body.cc_backend = 'deepseek';
+        const home = _residentHome(ctx.rid);
+        if (home) { body.cc_cwd = home; if (P === 'codex') body.cc_sandbox = 'workspace-write'; }
+        if (me.chatOnly) { body.use_sdk = true; body.bare = true; }
+        if (me.daily) body.cc_opening = 'daily';
+        const r = await _ccBridgePost(cfg, body, null, null, null);
+        _inCtx(_ridCtx(ctx), () => _patchConv(ctx.convId, { packedAt: Date.now() }));
+        console.log('[ClaudeTerminal] ' + (me.name || ctx.rid) + ' 舊會話收好了：' + String(r.reply || '').slice(0, 80));
+        return r.reply;
+    }
+
+    /** 換新會話：開一串新的接在 ctx 那串後面、設成開著的那串，舊那串在背景收拾（有 sid 才收）。
+     *  opts.move：要搬過去的訊息（她放著還沒送的那幾則），呼叫端已經從舊那串拿掉、存好。
+     *  回新那一串的 ctx；舊那串找不到回 null */
+    ClaudeTerminal.rollSession = async function(ctx, why, opts) {
+        opts = opts || {};
+        if (!ctx || ctx.provider === 'xiaoji') return null;
+        const old = _inCtx(ctx, () => ClaudeTerminal.findConv(ctx.convId));
+        if (!old) return null;
+        const oldMeta = Object.assign({}, old.meta);
+        const cfg = _inCtx(ctx, () => ClaudeTerminal.getConfig());
+        // 🚨 建新那串不能釘著舊那串：清單推上橋時「開著哪串」是照釘的那串報的，會把橋上的 active 改回舊的
+        const newId = _inCtx(_ridCtx(ctx), () => ClaudeTerminal.createConversation(ctx.tab, { prev: ctx.convId, rollAt: Date.now(), rollWhy: why }));
+        const nctx = Object.assign({}, ctx, { convId: newId });
+        if (Array.isArray(opts.move) && opts.move.length) await ClaudeTerminal.saveHistory(opts.move, nctx);
+        if (oldMeta.sid && cfg && cfg.url && cfg.key && !_packing[ctx.rid]) {
+            const p = _packOld(ctx, cfg, oldMeta, why)
+                .catch(e => { console.warn('[ClaudeTerminal] 舊會話沒收拾成（新會話照樣帶最後幾句）：', e); return null; })
+                .finally(() => { if (_packing[ctx.rid] === p) delete _packing[ctx.rid]; });
+            _packing[ctx.rid] = p;
+        }
+        return nctx;
+    };
+    /** 這位的舊會話還在收拾嗎（房間送話前看這個，要等就顯示一行） */
+    ClaudeTerminal.packingOf = function(rid) { return _packing[rid] || null; };
+
+    /** 一串的訊息（橋上的為準，拿不到用本機那份）。ctx 決定哪一頁、哪位的本機快取 */
+    async function _convMsgs(ctx, convId) {
+        if (!convId) return [];
+        // 剛換會話時舊那串最後幾句可能還在去抖、沒推上橋：先推完再讀，不然帶過去的最後 10 句會少
+        if (await _readyToRead(convId)) try {
+            const res = await _api('/v1/room/history?conv=' + encodeURIComponent(convId));
+            if (res && Array.isArray(res.messages)) return res.messages;
+        } catch (_) {}
+        try {
+            const key = _inCtx(ctx, () => _idbPrefix()) + convId;
+            const m = (window.OS_DB && window.OS_DB.getStudioChat) ? await window.OS_DB.getStudioChat(key) : null;
+            return Array.isArray(m) ? m : [];
+        } catch (_) { return []; }
+    }
+    /** 某一串的上一串（換會話接起來的那串）：{ id, meta, messages }；沒有回 null。房間把它畫在上面 */
+    ClaudeTerminal.prevSegment = async function(convId, ctx) {
+        ctx = ctx || ClaudeTerminal.captureCtx();
+        const found = _inCtx(ctx, () => ClaudeTerminal.findConv(convId));
+        const prevId = found && found.meta && found.meta.prev;
+        if (!prevId) return null;
+        const pf = _inCtx(ctx, () => ClaudeTerminal.findConv(prevId));
+        if (!pf) return null;   // 上一串被她刪了
+        return { id: prevId, meta: pf.meta, messages: await _convMsgs(ctx, prevId) };
+    };
+
+    /** 帶過去的一句：純文字、一行、太長截掉 */
+    function _tailLine(m) {
+        let t = String(m.content || '');
+        if (m.role === 'assistant') t = ClaudeTerminal.stripBoardTags(t) || '';
+        t = t.replace(/<widget\b[\s\S]*?<\/widget>/gi, '［小面板］')
+            .replace(/!\[[^\]]*\]\([^)]*\)/g, '［圖］')
+            .replace(/<\/?voice\b[^>]*>/gi, '')
+            .replace(/\s+/g, ' ').trim();
+        if (!t && Array.isArray(m.attachments) && m.attachments.length) t = '［附件］';
+        return t.length > TAIL_CHARS ? t.slice(0, TAIL_CHARS) + '…' : t;
+    }
+    /** 新會話第一句前面那段：上一串最後 10 句原話，前面寫清楚停在幾點、不是她剛說的。回 { text, lastTs } */
+    function _tailNote(msgs) {
+        const lines = [];
+        let lastTs = 0;
+        for (let i = msgs.length - 1; i >= 0 && lines.length < TAIL_N; i--) {
+            const m = msgs[i];
+            if (!m || (m.role !== 'user' && m.role !== 'assistant') || typeof m.content !== 'string') continue;
+            if (m.role === 'user' && m.content.indexOf('（系統）') === 0) continue;
+            const t = _tailLine(m);
+            if (!t) continue;
+            const ts = _msgTs(m);
+            if (!lastTs && ts) lastTs = ts;
+            lines.unshift('- ' + (ts ? _fmtWhen(ts) + ' ' : '') + (m.role === 'user' ? 'Rae' : '你') + '：' + t);
+        }
+        if (!lines.length) return { text: '', lastTs: 0 };
+        return {
+            text: '【上一個會話的結尾】下面是換會話之前，你們最後 ' + lines.length + ' 句話的原文'
+                + (lastTs ? '，停在 ' + _fmtWhen(lastTs) : '') + '。這些是之前講的，不是她剛剛說的。\n' + lines.join('\n'),
+            lastTs: lastTs,
+        };
+    }
+    /** 每一輪開頭那行：現在幾點；離上一句超過一小時再寫隔了多久（群聊早就有，私聊以前沒有，他分不出她隔了幾天才回來） */
+    function _timeNote(prevTs) {
+        const now = Date.now();
+        return '（現在是 ' + _fmtWhen(now)
+            + (prevTs && now - prevTs >= GAP_NOTE_MS ? '，離上一句過了 ' + _fmtGap(now - prevTs) : '') + '）';
+    }
 
     // 🌙 住戶醒來時傳給她的訊息（10-08）：橋把那則補進他跟她最近用的那一串（wake:true、wid），
     //   房間開著時她回到畫面要看得到——只看一眼橋上現在開著那串，不回寫、不拉清單（拉清單會換掉 active）
@@ -1906,7 +2130,7 @@ ${withOthers}
     // bubble_use／bubble_reset：小機換自己房間的泡泡（room_bubbles.js，10-05）
     // board_meet：在板上開臨時群聊（橋 board_meet.py，11-04）
     const _BOARD_PAIR_RE = /[<＜]\s*(board_(?:post|comment|reply|like|proposal|bug|meet)|room_place|wear_put|look_set|memory_add|memory_edit|memory_update|memory_fix)\b[^>＞]*?(?:\/\s*[>＞]|[>＞][\s\S]*?[<＜]\s*\/\s*\1\s*[>＞])/gi;
-    const _BOARD_SINGLE_RE = /[<＜]\s*(?:board_like|room_(?:paint|move|remove)|wear_(?:color|move|remove|outfit|keep)|look_reset|memory_remove|bubble_(?:use|reset))\b[^>＞]*?\/?\s*[>＞]/gi;
+    const _BOARD_SINGLE_RE = /[<＜]\s*(?:board_like|room_(?:paint|move|remove)|wear_(?:color|move|remove|outfit|keep)|look_(?:reset|neck)|memory_remove|bubble_(?:use|reset))\b[^>＞]*?\/?\s*[>＞]/gi;
     const _BOARD_OPEN_RE = /[<＜]\s*(?:board_(?:post|comment|reply|proposal|bug|meet)|room_place|wear_put|look_set|memory_add|memory_edit|memory_update|memory_fix)\b[\s\S]*$/i;
     const _BOARD_BUG_RE = /[<＜]\s*board_bug\b[^>＞]*[>＞]([\s\S]*?)[<＜]\s*\/\s*board_bug\s*[>＞]/gi;
     const _BOARD_TAIL_RE = /[<＜]\s*\/?\s*(?:b(?:o(?:a(?:r(?:d(?:_[^>＞]*)?)?)?)?|u(?:b(?:b(?:l(?:e(?:_[^>＞]*)?)?)?)?)?)?|r(?:o(?:o(?:m(?:_[^>＞]*)?)?)?)?|w(?:e(?:a(?:r(?:_[^>＞]*)?)?)?)?|l(?:o(?:o(?:k(?:_[^>＞]*)?)?)?)?|m(?:e(?:m(?:o(?:r(?:y(?:_[^>＞]*)?)?)?)?)?)?)?$/i;
@@ -1974,7 +2198,19 @@ ${withOthers}
         // 她的發言重送一次。
         const carry = _takeGroupCarry(ctx.rid);
         const _ln = _turnNotes(ctx.rid);   // 🌐 外語／🎭 語氣標籤：附在這一輪後面，同樣不寫進 history
-        const apiUserText = (carry ? (carry + '\n\n' + userText) : userText) + (_ln ? '\n\n' + _ln : '');
+        // 🕰 無痛換會話接上來的新那串、第一句：附上一串最後 10 句原話（_tailNote）。舊的還在收拾就先等它記完（最多 3 分鐘）
+        let tail = { text: '', lastTs: 0 };
+        if (!incomingSid && !history.length) {
+            const prevId = _inCtx(ctx, () => { const f = ClaudeTerminal.findConv(ctx.convId); return f && f.meta && f.meta.prev; });
+            if (prevId) {
+                if (_packing[ctx.rid]) await Promise.race([_packing[ctx.rid], new Promise(r => setTimeout(r, PACK_WAIT_MS))]);
+                tail = _tailNote(await _convMsgs(ctx, prevId));
+            }
+        }
+        // 每一輪開頭標現在幾點（隔了一小時以上再寫隔多久）。上一句＝這一輪之前最後一則，這串是新的就看上一串的結尾
+        const prevTs = history.length ? _msgTs(history[history.length - 1]) : tail.lastTs;
+        const apiUserText = (tail.text ? tail.text + '\n\n' : '') + _timeNote(prevTs) + '\n'
+            + (carry ? (carry + '\n\n' + userText) : userText) + (_ln ? '\n\n' + _ln : '');
         // 新 session 把 Aurelia 房間 system prompt 注入第一條（含 ASK marker 規則）
         // resume 模式不重送 system（已在 session log 裡了，重送可能干擾續接）
         const sysPrompt = P === 'codex'    ? CODEX_ROOM_SYSTEM_PROMPT
@@ -2158,6 +2394,8 @@ ${withOthers}
 
         if (newSid) ClaudeTerminal.setSessionId(newSid, ctx);
         const sessionFallback = !!(incomingSid && newSid && incomingSid !== newSid);
+        // 這一句開出了新的會話：記下它出生時的說明書版本跟模型（之後不一樣了就換，rollReason）
+        if (newSid && (!incomingSid || sessionFallback)) _markBorn(ctx, cfg.model);
 
         const assistantMsg = { role: 'assistant', content: reply, timestamp: Date.now() };
         if (thinking) assistantMsg.thinking = thinking;
@@ -2167,7 +2405,7 @@ ${withOthers}
         await ClaudeTerminal.saveHistory([...updatedHistory, assistantMsg], ctx);
 
         // 他這輪動了房間、打扮或形象：橋收完回覆才在背景替他做，晚一下再重畫上半部那塊
-        if (/[<＜]\s*(?:room_(?:place|paint|move|remove)|wear_(?:put|color|move|remove)|look_(?:set|reset))\b/i.test(reply)
+        if (/[<＜]\s*(?:room_(?:place|paint|move|remove)|wear_(?:put|color|move|remove)|look_(?:set|reset|neck))\b/i.test(reply)
             && window.ChatWindow && typeof window.ChatWindow.refreshDecor === 'function') {
             setTimeout(() => window.ChatWindow.refreshDecor(), 1500);
         }
