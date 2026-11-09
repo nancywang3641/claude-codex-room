@@ -751,6 +751,10 @@
         const floors = Math.ceil(people.length / per);
         // 樓層自己捲；公共區不跟著捲，一直在窗的最底下（11-09 她：「公共區固定下面？　這樣我就不用滑下去」）
         h += '<div class="dorm-floors dorm-per' + per + '">';
+        // 頂樓上面的屋頂和天空（11-09 她截圖：「宿舍手機會空一塊，怎麼辦?」——住戶少、窗高的時候整棟樓坐在公共區上，
+        //   頂樓上面空出一大截深咖啡色）：空出來的那截是天空，屋頂貼在頂樓上；樓層多到要捲時只剩一條屋簷，不多佔位置
+        if (floors) h += '<div class="dorm-roof" aria-hidden="true"><span class="dorm-roof-sky"></span>'
+            + '<span class="dorm-roof-chimney"></span><span class="dorm-roof-tiles"><span class="dorm-roof-window"></span></span></div>';
         for (let f = 0; f < floors; f++) {
             const row = people.slice(f * per, f * per + per);
             h += '<div class="dorm-floor dorm-f' + per + '"><span class="dorm-floor-sign">' + (floors - f) + 'F</span>';

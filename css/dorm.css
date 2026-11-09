@@ -50,7 +50,68 @@
     flex-direction: column;
 }
 .dorm-floors > .dorm-floor:first-child { margin-top: auto; }
-/* 頂樓上面一根屋樑：窗比樓高、上面空出一截時，看起來是屋頂下面，不是樓蓋到一半。樓層塞滿時它在捲動區外面，看不到 */
+/* 屋頂和天空（11-09 她：「宿舍手機會空一塊，怎麼辦?」）：只吃掉頂樓上面剩下的高度（flex-grow、本身 0 高），
+   樓層剛好放得下或要捲的時候它就沒有高度，不會多擠出一截捲動；屋簷照舊是頂樓那根屋樑。
+   屋瓦高度 --roof-h 跟著這塊的高度走、最高 76px，多出來的都是天空。只用顏色畫，沒有圖檔 */
+.dorm-roof {
+    --roof-h: clamp(26px, calc(100% - 6px), 76px);
+    position: relative;
+    flex: 1 0 0;
+    min-height: 0;
+    overflow: hidden;
+    background: linear-gradient(180deg, #9fd0e8 0%, #c9e6f2 55%, #eaf4ee 100%);
+    pointer-events: none;
+}
+.dorm-roof-sky {
+    position: absolute;
+    inset: 0;
+    background:
+        radial-gradient(ellipse 46px 13px at 17% 32%, rgba(255, 255, 255, 0.92) 60%, transparent 63%),
+        radial-gradient(ellipse 28px 11px at 23% 26%, rgba(255, 255, 255, 0.92) 60%, transparent 63%),
+        radial-gradient(ellipse 58px 15px at 73% 22%, rgba(255, 255, 255, 0.85) 60%, transparent 63%),
+        radial-gradient(ellipse 32px 12px at 80% 16%, rgba(255, 255, 255, 0.85) 60%, transparent 63%);
+}
+/* 斜屋頂：梯形、一排排屋瓦，最上面一條屋脊，最下面一條屋簷 */
+.dorm-roof-tiles {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: var(--roof-h);
+    clip-path: polygon(8% 0, 92% 0, 100% 100%, 0 100%);
+    background:
+        linear-gradient(#5e2b19, #5e2b19) top / 100% 4px no-repeat,
+        linear-gradient(transparent calc(100% - 6px), #4e2414 calc(100% - 6px)),
+        repeating-linear-gradient(180deg, #9a4d2b 0 8px, #7c3a22 8px 10px);
+}
+/* 閣樓圓窗：屋瓦正中間，屋頂矮的時候跟著縮 */
+.dorm-roof-window {
+    position: absolute;
+    left: 50%;
+    top: 46%;
+    height: min(30px, 44%);
+    aspect-ratio: 1;
+    translate: -50% -50%;
+    border: 3px solid var(--dm-wood-dk);
+    border-radius: 50%;
+    background:
+        linear-gradient(var(--dm-wood-dk), var(--dm-wood-dk)) center / 2px 100% no-repeat,
+        linear-gradient(var(--dm-wood-dk), var(--dm-wood-dk)) center / 100% 2px no-repeat,
+        #fbe3a8;
+    box-sizing: border-box;
+}
+.dorm-roof-chimney {
+    position: absolute;
+    right: 17%;
+    bottom: calc(var(--roof-h) - 12px);
+    width: 16px;
+    height: 24px;
+    border-top: 4px solid #4e2414;
+    background: repeating-linear-gradient(180deg, #a85a3a 0 5px, #8a4429 5px 6px);
+    box-sizing: border-box;
+}
+/* 頂樓上面一根屋樑（屋簷底下那根）：窗比樓高、上面空出一截時，看起來是屋頂下面，不是樓蓋到一半 */
+.dorm-floors > .dorm-roof + .dorm-floor::before,
 .dorm-floors > .dorm-floor:first-child::before {
     content: '';
     position: absolute;
