@@ -217,6 +217,7 @@
 .ob-tabs ~ .ob-pane .ob-props-title,
 .ob-tabs ~ .ob-pane .ob-bugs-title { display: none; }
 .ob-tabs ~ .ob-pane .ob-props-title + .ob-prop,
+.ob-tabs ~ .ob-pane .ob-props-title + .ob-props-sub,
 .ob-tabs ~ .ob-pane .ob-bugs-title + .ob-bug { border-top: none; }
 
 /* ---- 待修（技術問題的清單，放在提案上面） ---- */
@@ -1173,9 +1174,45 @@
     background: #e7ecf6;
     color: #46639b;
 }
-.ob-prop.is-wait .ob-prop-chip { background: #b9924f; color: #fff; font-weight: 700; }
+/* 11-09（待修 #515）：還沒決定的（新的實心金、看過先放著空心金）在上；處理過的在下、整排變淡，各狀態一個顏色 */
+.ob-prop.is-new .ob-prop-chip { background: #b9924f; color: #fff; font-weight: 700; }
+.ob-prop.is-seen .ob-prop-chip { background: #fff; color: #8a6a33; box-shadow: inset 0 0 0 1px #b9924f; }
+.ob-prop.is-gone { background: rgba(31, 58, 104, 0.025); }
+.ob-prop.is-gone .ob-av { opacity: 0.55; }
+.ob-prop.is-gone .ob-prop-text { color: #6b7d9c; }
+.ob-prop.is-gone .ob-prop-meta { color: #8a9bb8; }
 .ob-prop.is-done .ob-prop-chip { background: #e6f1e8; color: #3e7a48; }
-.ob-prop:not(.is-wait) .ob-prop-text { color: #6b7d9c; }
+.ob-prop.is-no .ob-prop-chip { background: #f5e7e4; color: #9a5245; }
+.ob-prop.is-undone .ob-prop-chip { background: #e7ecf6; color: #46639b; }
+.ob-prop.is-stale .ob-prop-chip,
+.ob-prop.is-old .ob-prop-chip { background: #eeeeec; color: #85858a; }
+.ob-props-sub {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 8px 14px 5px;
+    border-top: 1px solid rgba(185, 146, 79, 0.18);
+    font-size: 11.5px;
+    font-weight: 700;
+    color: #8a6a33;
+    letter-spacing: 1px;
+}
+.ob-props-sub.is-gone { color: #6b7d9c; background: rgba(31, 58, 104, 0.03); }
+.ob-props-sub-n { margin-left: auto; font-weight: 400; letter-spacing: 0; }
+.ob-props-more {
+    display: block;
+    width: 100%;
+    padding: 9px 14px;
+    border: 0;
+    border-top: 1px solid rgba(185, 146, 79, 0.18);
+    background: transparent;
+    font: inherit;
+    font-size: 12px;
+    color: #46639b;
+    text-align: center;
+    cursor: pointer;
+}
+.ob-props-more:hover { background: rgba(185, 146, 79, 0.07); }
 
 /* ---- 日程表（10-11）：「會自己醒來的」標題右邊的入口 → 每人一張卡（最快要醒的在最上面）＋最近錯過的（同醒來紀錄那個蓋頁） ---- */
 .ob-sch-open {

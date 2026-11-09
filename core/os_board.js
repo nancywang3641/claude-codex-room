@@ -838,7 +838,24 @@
     //   點一張＝打開跟聊天 app 同一張單子（WX_TOOLS.openPropSheet），同意才寫、寫了能改回去。
     //   那一行的字交給 OS_AURELIA_EDIT.text（改預設的單子它轉給 OS_AURELIA_PRESET）。
     //   🚨 酒館與手機的世界書、預設是分開的：單子在哪邊提的就要在哪邊按（prop.where），另一邊只給看不給按。
-    const PP_CHIP = { wait: '點開看', no: '沒同意', done: '寫進去了', undone: '改回去了', stale: '作廢了' };
+    //   11-09（宿舍待修 #515，克語替她提的）：以前每張長得一樣——還沒看的、看過先放著的分不出來，拒絕過的混在新的裡面，
+    //   分頁上的區塊標題又被藏起來、看不到還有幾張。現在分兩段：「還沒決定」（新的／看過、先放著）在上、
+    //   「處理過的」在下變淡、只列最近 PROP_DONE_SHOW 張；每段標題寫張數。拒絕過的照舊點得開、按「還是同意」反悔。
+    //   「看過」記在單子上（prop.seen，點開那一刻整張寫回橋）＝酒館和手機看到的一樣。
+    const PP_CHIP = { new: '新的', seen: '看過、先放著', no: '沒同意', done: '寫進去了', undone: '改回去了', stale: '作廢了', old: '有新的一版' };
+    const PROP_DONE_SHOW = 10;
+    function _propEdit() { const w = window.parent || window; return w.OS_AURELIA_EDIT || window.OS_AURELIA_EDIT || null; }
+    // 一張單子在列表上算哪一種：new／seen 是還沒決定；其他是處理過的（有新一版的舊單子 old 也算）
+    function _propStage(x) {
+        if (x.state !== 'wait') return x.state;
+        const E = _propEdit();
+        try { if (E && E.superseded && E.superseded(x.prop)) return 'old'; } catch (_) {}
+        return (x.prop && x.prop.seen) ? 'seen' : 'new';
+    }
+    function _propOpenCount(props) {
+        const open = (props || []).filter(x => { const s = _propStage(x); return s === 'new' || s === 'seen'; });
+        return { open: open.length, fresh: open.filter(x => _propStage(x) === 'new').length };
+    }
     function _hereName() {
         try { const w = window.parent || window; return (w.OS_API && w.OS_API.isStandalone && w.OS_API.isStandalone()) ? '手機' : '酒館'; } catch (_) { return '酒館'; }
     }
@@ -849,22 +866,34 @@
         const p = x.prop || {};
         return (p.by || x.name || x.rid || '住戶') + ' 想改' + (p.mod === 'preset' ? '預設' : '世界書') + '「' + (p.title || '') + '」';
     }
-    function _propsHtml(props) {
+    function _propRow(x, stage, done) {
+        const where = (x.prop && x.prop.where) || '';
+        const t = done ? (x.updated || x.created) : x.created;
+        const ago = t ? _agoText(new Date(t * 1000).toISOString().slice(0, 19).replace('T', ' ')) : '';
+        return '<div class="ob-prop is-' + _esc(stage) + (done ? ' is-gone' : '') + '" data-ppid="' + _esc(x.id) + '">'
+            + _avatarHtml(x.name || (x.prop && x.prop.by) || '?')
+            + '<div class="ob-prop-main"><div class="ob-prop-text">' + _esc(_propText(x)) + '</div>'
+            + '<div class="ob-prop-meta">' + _esc([where ? '在' + where + '提的' : '', (done ? '處理於 ' : '') + ago].filter(Boolean).join(' · ')) + '</div></div>'
+            + '<span class="ob-prop-chip">' + _esc(PP_CHIP[stage] || stage) + '</span></div>';
+    }
+    function _propsHtml(props, showAll) {
         if (!props || !props.length) return '';
-        const order = { wait: 0, no: 1 };
-        const list = props.slice().sort((a, b) => ((order[a.state] ?? 2) - (order[b.state] ?? 2)) || (b.created - a.created));
-        const waiting = list.filter(x => x.state === 'wait').length;
+        const rows = props.map(x => ({ x, stage: _propStage(x) }));
+        const open = rows.filter(r => r.stage === 'new' || r.stage === 'seen')
+            .sort((a, b) => ((a.stage === 'new' ? 0 : 1) - (b.stage === 'new' ? 0 : 1)) || (b.x.created - a.x.created));
+        const done = rows.filter(r => r.stage !== 'new' && r.stage !== 'seen')
+            .sort((a, b) => ((b.x.updated || b.x.created) - (a.x.updated || a.x.created)));
+        const fresh = open.filter(r => r.stage === 'new').length;
+        const shown = showAll ? done : done.slice(0, PROP_DONE_SHOW);
         return '<section class="ob-props"><div class="ob-props-title"><i class="fa-solid fa-pen-to-square"></i> 等你同意的'
-            + '<span class="ob-props-count">' + (waiting ? waiting + ' 張等你看' : '都處理好了') + '</span></div>'
-            + list.map(x => {
-                const where = (x.prop && x.prop.where) || '';
-                const ago = x.created ? _agoText(new Date(x.created * 1000).toISOString().slice(0, 19).replace('T', ' ')) : '';
-                return '<div class="ob-prop is-' + _esc(x.state) + '" data-ppid="' + _esc(x.id) + '">'
-                    + _avatarHtml(x.name || (x.prop && x.prop.by) || '?')
-                    + '<div class="ob-prop-main"><div class="ob-prop-text">' + _esc(_propText(x)) + '</div>'
-                    + '<div class="ob-prop-meta">' + _esc([where ? '在' + where + '提的' : '', ago].filter(Boolean).join(' · ')) + '</div></div>'
-                    + '<span class="ob-prop-chip">' + _esc(PP_CHIP[x.state] || x.state) + '</span></div>';
-            }).join('')
+            + '<span class="ob-props-count">' + (open.length ? open.length + ' 張還沒決定' : '都處理好了') + '</span></div>'
+            + '<div class="ob-props-sub"><span>還沒決定</span><span class="ob-props-sub-n">'
+            + (open.length ? open.length + ' 張' + (fresh ? '（' + fresh + ' 張新的）' : '') : '沒有了') + '</span></div>'
+            + open.map(r => _propRow(r.x, r.stage, false)).join('')
+            + (done.length ? '<div class="ob-props-sub is-gone"><span>處理過的</span><span class="ob-props-sub-n">' + done.length + ' 張</span></div>'
+                + shown.map(r => _propRow(r.x, r.stage, true)).join('')
+                + (done.length > shown.length ? '<button type="button" class="ob-props-more">再看更早的 ' + (done.length - shown.length) + ' 張</button>' : '')
+                : '')
             + '</section>';
     }
 
@@ -896,10 +925,10 @@
     function _tabSave(k) { try { localStorage.setItem(TAB_KEY, k); } catch (_) {} }
     function _tabList(st, idx) {
         const props = st.props || [], bugs = st.bugs || [];
-        const waiting = props.filter(x => x.state === 'wait').length;
+        const pc = _propOpenCount(props);   // 還沒決定幾張；有新的才亮金色（看過先放著的只寫數字）
         return [
             { key: 'feed', label: '動態', n: 0 },
-            props.length ? { key: 'props', label: '等你同意的', n: waiting, hot: waiting > 0 } : null,
+            props.length ? { key: 'props', label: '等你同意的', n: pc.open, hot: pc.fresh > 0 } : null,
             bugs.length ? { key: 'bugs', label: '待修', n: bugs.filter(b => b.status === 'open').length } : null,
         ].filter(Boolean);
     }
@@ -969,7 +998,7 @@
                     ${L ? '<div class="ob-lg-card" hidden></div>' + _meetListHtml(all, idx) : ''}
                     ${_tabsHtml(tabs, cur)}
                     ${pane('feed', '<section class="ob-feed">' + feedHtml + '</section>')}
-                    ${pane('props', _propsHtml(st.props))}
+                    ${pane('props', _propsHtml(st.props, st.propsAll))}
                     ${pane('bugs', _bugsHtml(st.bugs))}
                 </div>
                 <div class="ob-bar" hidden>
@@ -1577,7 +1606,7 @@
         st.props = await _fetchProps();
         const root = container.querySelector('.ob-container');
         const sec = root && root.querySelector('.ob-props');
-        const html = _propsHtml(st.props);
+        const html = _propsHtml(st.props, st.propsAll);
         // 分頁要出現或消失（第一張／最後一張）就整板重畫；不然只換這一區和分頁上的數字，捲動位置不動
         if (!sec || !html) { _renderBoard(container, st.all, st.hb); return; }
         sec.outerHTML = html;
@@ -1594,6 +1623,12 @@
         if (!T || !T.openPropSheet || !E) { say('要在酒館或手機裡打開留言板才能按'); return; }
         const where = (x.prop && x.prop.where) || '';
         if (where && where !== _hereName()) { say('這張是在' + where + '提的，要在' + where + '的留言板按（兩邊的' + ((x.prop && x.prop.mod === 'preset') ? '預設' : '世界書') + '是分開的）'); return; }
+        // 第一次點開：記「看過」（整張寫回橋，酒館和手機看到的一樣），列表底下馬上換成「看過、先放著」。
+        // 寫不回去（橋斷了）就算了，下次點開再記；不擋她開單子
+        if (x.state === 'wait' && x.prop && !x.prop.seen) {
+            x.prop.seen = Date.now();
+            _api('/v1/aurelia/props/update', { id: x.id, prop: x.prop }).then(() => _propRefresh(container)).catch(() => {});
+        }
         T.openPropSheet(x.prop, container.querySelector('.ob-container'), async p => {
             await _api('/v1/aurelia/props/update', { id: x.id, prop: p });
             await _propRefresh(container);
@@ -1723,6 +1758,8 @@
             const meetRow = t.closest('.ob-meetrow');
             if (meetRow) { _meetGo(container, meetRow); return; }
 
+            // 等你同意的：處理過的只列最近幾張，按了全列
+            if (t.closest('.ob-props-more')) { st.propsAll = true; _propRefresh(container); return; }
             // 等你同意的：點一張打開單子
             const ppRow = t.closest('.ob-prop');
             if (ppRow) { _propOpen(container, ppRow.dataset.ppid, say); return; }
