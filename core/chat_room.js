@@ -108,9 +108,10 @@
     // 舊的都留著——既有存檔或鎖了模型的住戶（天天鎖 4.6）選的是它們，拿掉的話 label 會退成裸 id。
     const CLAUDE_MODELS = [
         { id: 'claude-opus-5-5',           label: 'Opus 5.5'      },
-        { id: 'claude-fable-5-1',          label: 'Fable 5.1 ⭐'  },
+        { id: 'claude-fable-5-2',          label: 'Fable 5.2 ⭐'  },   // 11-10 她：「fable5.2開了，順便給克語裝一下吧」
         { id: 'claude-sonnet-5',           label: 'Sonnet 5'      },
         { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5'     },
+        { id: 'claude-fable-5-1',          label: 'Fable 5.1(舊)' },   // 還在服務；沒挑過模型的住戶預設仍是它（_getProviderModel）
         { id: 'claude-opus-5',             label: 'Opus 5(舊)'    },
         { id: 'claude-fable-5',            label: 'Fable 5(舊)'   },
         { id: 'claude-opus-4-8',           label: 'Opus 4.8(舊)'  },
