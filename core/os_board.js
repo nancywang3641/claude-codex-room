@@ -722,7 +722,9 @@
         parts.push('<div class="ob-wl-meta">' + _esc(_wlDay(d.started_at) + ' ' + _wlClock(d.started_at)) + (_wlTook(d) ? '・' + _esc(_wlTook(d)) : '') + '</div>');
         if (!d.ok) parts.push('<div class="ob-wl-fail"><i class="fa-solid fa-triangle-exclamation"></i><div><b>沒醒成</b><div>' + _esc(d.error || '不知道為什麼') + '</div></div></div>');
         if (out.length) parts.push(sec('跑到外面做的', 'fa-arrow-up-right-from-square', out.map(toolRow).join(''), 'is-out'));
-        if (d.actions && d.actions.length) parts.push(sec('在留言板和房間做的', 'fa-house', d.actions.map(a => '<div class="ob-wl-act">' + _esc(a) + '</div>').join('')));
+        // 換模型那筆（橋 11-10 #533）：不是他做的事，是底下跑的模型換了
+        const isModel = d.kind_code === 'model';
+        if (d.actions && d.actions.length) parts.push(sec(isModel ? '換了哪顆模型' : '在留言板和房間做的', isModel ? 'fa-microchip' : 'fa-house', d.actions.map(a => '<div class="ob-wl-act">' + _esc(a) + '</div>').join('')));
         if (d.reply) parts.push(sec('他最後說的', 'fa-comment', '<div class="ob-wl-reply">' + _renderMd(d.reply) + '</div>'));
         if (d.tools && d.tools.length) parts.push(sec('用過的工具（' + d.tools.length + '）', 'fa-screwdriver-wrench', d.tools.map(toolRow).join('')));
         if (d.ok && !out.length && !(d.actions && d.actions.length) && !d.reply && !(d.tools && d.tools.length)) parts.push('<div class="ob-wl-empty">這次沒有留下任何動作。</div>');
@@ -1040,7 +1042,7 @@
         const name = c.name || rid;
         const { look, when } = _wakeLook(c);
         const items = (st.wakes && Array.isArray(st.wakes.items)) ? st.wakes.items : null;
-        const last = items ? items.find(w => w.rid === rid) : null;
+        const last = items ? items.find(w => w.rid === rid && w.kind_code !== 'model') : null;   // 換模型那筆不是醒來
         let line = '';
         if (last) {
             const sum = String(last.summary || '').trim();
