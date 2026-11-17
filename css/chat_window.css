@@ -736,10 +736,6 @@
     width: 110px;
 }
 
-#aurelia-chat-window .cw-set-field .cw-set-nick {
-    width: 150px;
-}
-
 /* 會話（多會話列表） */
 #aurelia-chat-window .cw-rec {
     padding: 12px;

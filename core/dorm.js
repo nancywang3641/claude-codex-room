@@ -356,9 +356,6 @@
 
     /** 頭像角標用的短碼：Opus 4.6(舊) → 4.6 */
     function _modelBadge(id) {
-        const cfg = _cfg();
-        const nick = cfg.modelNames && cfg.modelNames[id];
-        if (nick) return nick.slice(0, 4);
         const m = _models().find(x => x.id === id);
         const core = String((m ? m.label : id) || '').replace(/[(（].*$/, '').trim();
         const seg = core.split(/\s+/);

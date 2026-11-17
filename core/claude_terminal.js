@@ -488,12 +488,9 @@ ${withOthers}
         return out;
     };
 
-    /** model id → 顯示名。她在設置裡取過暱稱就用她取的，否則用模型清單的 label。 */
+    /** model id → 顯示名（模型清單的 label；11-18 拿掉「模型取名」後一律原名） */
     ClaudeTerminal.modelLabel = function(modelId) {
         if (!modelId) return '';
-        const cfg = _cfgRead();
-        const nick = cfg && cfg.modelNames && cfg.modelNames[modelId];
-        if (nick && String(nick).trim()) return String(nick).trim();
         const room = window.VoidClaudeRoom;
         const list = (room && Array.isArray(room.claudeModels)) ? room.claudeModels : [];
         const found = list.find(x => x.id === modelId);

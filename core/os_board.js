@@ -254,16 +254,9 @@
         return t ? String(t).slice(prefix.length) : '';
     }
 
-    // 這張是哪顆腦寫的：橋在紙條 tags 裡帶 m:<模型>；取過名就顯示暱稱（設置→模型取名）
+    // 這張是哪顆腦寫的：橋在紙條 tags 裡帶 m:<模型>（11-18 拿掉「模型取名」，照原樣寫）
     function _modelOf(p) {
-        const short = _tagValue(p, 'm:');
-        if (!short) return '';
-        try {
-            const cfg = window.OS_SETTINGS && window.OS_SETTINGS.getClaudeRoomConfig && window.OS_SETTINGS.getClaudeRoomConfig();
-            const nick = cfg && cfg.modelNames && cfg.modelNames['claude-' + short];
-            if (nick) return nick;
-        } catch (_) {}
-        return short;
+        return _tagValue(p, 'm:') || '';
     }
 
     // 「會自己醒來的」小問號：畫的時候才登記（酒館裡房間可能比奧瑞亞的 AUI 先載入）

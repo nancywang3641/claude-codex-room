@@ -166,16 +166,8 @@
         cfg.providerModels[prov] = modelId;
         if (prov === 'claude') cfg.inlineModel = modelId;  // 同步舊欄位,避免別處取值落差
     }
-    // helper:她在設置裡幫模型取的名字(cfg.modelNames = {modelId: 暱稱}),沒取就 null
-    function _modelNick(modelId) {
-        const cfg = _getClaudeRoomCfg();
-        const n = cfg && cfg.modelNames && cfg.modelNames[modelId];
-        return (n && String(n).trim()) || null;
-    }
-    // helper:把 model id 轉成顯示用 label(暱稱優先,找不到就回 id)
+    // helper:把 model id 轉成顯示用 label(找不到就回 id)。11-18 起不再有「模型取名」，一律原名
     function _modelLabel(modelId, prov) {
-        const nick = _modelNick(modelId);
-        if (nick) return nick;
         const list = _modelsForProvider(prov);
         const found = list.find(x => x.id === modelId);
         return found ? found.label.replace(' ⭐', '') : (modelId || list[0].label.replace(' ⭐', ''));
@@ -217,8 +209,6 @@
         }
     }
     function _shortModelLabel(modelId) {
-        const nick = _modelNick(modelId);
-        if (nick) return nick;
         const m = CLAUDE_MODELS.find(x => x.id === modelId);
         return m ? m.label.replace(' ⭐', '') : (modelId || 'Fable 5.1');
     }
@@ -282,11 +272,7 @@
         const popup = _el('claude-picker-popup');
         if (!popup) { console.warn('[claude-room] picker 打不開:浮窗裡找不到 #claude-picker-popup(chat_window 版本不合,清瀏覽器快取)'); return; }
         const prov        = _provider();
-        // 取過名的模型在清單裡顯示暱稱(取名在 設置 → 模型取名)
-        const models      = _modelsForProvider(prov).map(m => {
-            const nick = _modelNick(m.id);
-            return nick ? { id: m.id, label: nick } : m;
-        });
+        const models      = _modelsForProvider(prov);
         const curModel    = _residentPick() || _getProviderModel(cfg, prov);
         const curEffort   = cfg.inlineEffort  || '';
         const curPresetId = cfg.activePresetId || '';
@@ -2714,7 +2700,7 @@
     VoidClaudeRoom.getHistory        = _activeHistory;
     VoidClaudeRoom.applyRoomUi       = _applyClaudeRoomUi;
     VoidClaudeRoom.updatePortalBtn   = _updateClaudePortalBtn;
-    // 給設置頁的「模型取名」用:官方清單(去 ⭐)
+    // 官方清單(去 ⭐)：ClaudeTerminal.modelLabel、宿舍門卡查顯示名用
     VoidClaudeRoom.claudeModels = CLAUDE_MODELS.map(m => ({ id: m.id, label: m.label.replace(' ⭐', '') }));
     VoidClaudeRoom.updatePickerLabel = _updateClaudePickerLabel;
     VoidClaudeRoom.openPicker        = _openClaudePickerPopup;
