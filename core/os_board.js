@@ -1367,6 +1367,8 @@
             body: '有些服務會把整理好的消息每天寄到妳的信箱。填好這頁，橋會隔一段時間看一次信箱，看到寄件人是這裡填的信，就在留言板貼一則快報；住戶醒來看到有興趣的，會在底下留言。\n'
                 + '只會讀信，不會把信標成已讀，也不刪不搬；寄件人不是這裡填的信不會讀。整理成快報不用叫 AI。\n'
                 + '應用程式密碼不是信箱平常登入的密碼。Gmail 要先開兩步驟驗證，再到 Google 帳戶的「安全性」找「應用程式密碼」產生一組（16 個英文字母），整組貼上來。\n'
+                + '寄件人可以填好幾個，每個各自掛名字（沒取名的用「沒取名的寄件人掛這個名字」那格）。\n'
+                + '「要帶的標籤」填了的話，主旨或內文開頭沒有這個標籤的信就不貼（廣告、訂閱通知這類就進不來），貼的時候會把標籤拿掉。例如叫寄信的 AI 每封主旨開頭寫【奧瑞亞素材】，這格就填【奧瑞亞素材】。\n'
                 + '第一次打開時，信箱裡現有的只貼最新那一封。' } });
         return A0.helpBtn('board_news');
     }
@@ -1388,7 +1390,8 @@
             const every = (d.every_choices || [30, 60, 180, 360]).map(n => '<option value="' + n + '"' + (n === d.every_min ? ' selected' : '') + '>' + _esc(NEWS_EVERY[n] || n + ' 分鐘') + '</option>').join('');
             const last = d.last_at
                 ? '<div class="ob-news-last' + (d.last_error ? ' is-bad' : '') + '">上次看信 ' + _esc(_newsWhen(d.last_at)) + ' · '
-                    + _esc(d.last_error || (d.last_posted && d.last_posted.length ? '貼了 ' + d.last_posted.length + ' 則' : '沒有新的')) + '</div>'
+                    + _esc(d.last_error || (d.last_posted && d.last_posted.length ? '貼了 ' + d.last_posted.length + ' 則' : '沒有新的')
+                        + (!d.last_error && d.last_untagged ? '（' + d.last_untagged + ' 封沒帶標籤，沒貼）' : '')) + '</div>'
                 : '';
             body = '<div class="ob-news-page">'
                 + '<label class="ob-news-switch"><input type="checkbox" class="ob-news-on"' + (d.enabled ? ' checked' : '') + '><span>自動貼到留言板</span></label>'
@@ -1396,14 +1399,34 @@
                 + '<label class="ob-news-field"><span>應用程式密碼</span><input type="password" class="ob-news-input ob-news-pw" value="" autocomplete="new-password"'
                     + (d.has_password ? ' placeholder="已存（要換再填）"' : '') + '></label>'
                 + (d.has_password ? '<button type="button" class="ob-news-clear">清掉密碼</button>' : '')
-                + '<label class="ob-news-field"><span>寄件人</span><input type="text" class="ob-news-input ob-news-from" value="' + _esc((d.senders || []).join(', ')) + '" autocomplete="off"></label>'
-                + '<label class="ob-news-field"><span>帖子名字</span><input type="text" class="ob-news-input ob-news-title" maxlength="20" value="' + _esc(d.title || '') + '"></label>'
+                + '<div class="ob-news-field"><span>寄件人</span><div class="ob-news-slist">' + _newsSenderRows(d) + '</div>'
+                    + '<button type="button" class="ob-news-addsnd"><i class="fa-solid fa-plus"></i> 加一個寄件人</button></div>'
+                + '<label class="ob-news-field"><span>沒取名的寄件人掛這個名字</span><input type="text" class="ob-news-input ob-news-title" maxlength="20" value="' + _esc(d.title || '') + '"></label>'
                 + '<label class="ob-news-field"><span>多久看一次</span><select class="ob-news-input ob-news-every">' + every + '</select></label>'
                 + (s.error ? '<div class="ob-news-last is-bad">' + _esc(s.error) + '</div>' : '')
                 + '<div class="ob-news-btns"><button type="button" class="ob-news-save">儲存</button><button type="button" class="ob-news-check">現在看一次</button></div>'
                 + last + '</div>';
         }
         return head + '<div class="ob-wl-scroll">' + body + '</div>';
+    }
+    // 寄件人一個一張小卡：信箱、掛什麼名字、要帶什麼標籤（11-18）
+    //   她：「就像追隨者那樣XDDD 用戶可以改他的名」（Muse 用自己的號寄素材來，跟 Grok 的快報分開掛名）
+    //   「內容帶標籤格式，比如開頭必須帶上定好的標籤名，以後過濾掉一堆廣告信件」——填了標籤，主旨或內文開頭沒帶的就不貼。
+    //   舊版橋只認 senders：名字、標籤另外兩格送（sender_names／sender_tags），舊橋不認得就當沒有，寄件人照存。
+    function _newsSenderRow(addr, name, tag) {
+        return '<div class="ob-news-srow">'
+            + '<input type="text" class="ob-news-input ob-news-saddr" placeholder="寄件人信箱，例如 noreply@x.ai" value="' + _esc(addr || '') + '" autocomplete="off">'
+            + '<div class="ob-news-spair">'
+                + '<input type="text" class="ob-news-input ob-news-sname" maxlength="20" placeholder="掛什麼名字" value="' + _esc(name || '') + '" autocomplete="off">'
+                + '<input type="text" class="ob-news-input ob-news-stag" maxlength="20" placeholder="要帶的標籤（可空）" value="' + _esc(tag || '') + '" autocomplete="off">'
+            + '</div>'
+            + '<button type="button" class="ob-news-sdel" title="拿掉這個寄件人" aria-label="拿掉這個寄件人"><i class="fa-solid fa-xmark"></i></button>'
+            + '</div>';
+    }
+    function _newsSenderRows(d) {
+        const names = d.names || {}, tags = d.tags || {};
+        const list = (d.senders || []).map(a => _newsSenderRow(a, names[a], tags[a]));
+        return list.length ? list.join('') : _newsSenderRow('', '', '');
     }
     function _newsPaint(container) {
         const st = _state.get(container);
@@ -1428,10 +1451,20 @@
     }
     function _newsForm(pane) {
         const v = sel => { const el = pane.querySelector(sel); return el ? el.value : ''; };
+        const senders = [], sender_names = {}, sender_tags = {};
+        pane.querySelectorAll('.ob-news-srow').forEach(r => {
+            const a = ((r.querySelector('.ob-news-saddr') || {}).value || '').trim().replace(/^<|>$/g, '').toLowerCase();
+            if (!a || senders.indexOf(a) >= 0) return;
+            senders.push(a);
+            const n = ((r.querySelector('.ob-news-sname') || {}).value || '').trim();
+            const g = ((r.querySelector('.ob-news-stag') || {}).value || '').trim();
+            if (n) sender_names[a] = n;
+            if (g) sender_tags[a] = g;
+        });
         const body = {
             enabled: !!(pane.querySelector('.ob-news-on') || {}).checked,
             address: v('.ob-news-addr').trim(),
-            senders: v('.ob-news-from'),
+            senders, sender_names, sender_tags,
             title: v('.ob-news-title').trim(),
             every_min: Number(v('.ob-news-every')) || 60,
         };
@@ -1775,6 +1808,19 @@
             if (t.closest('.ob-news-save')) { _newsAct(container, 'save'); return; }
             if (t.closest('.ob-news-check')) { _newsAct(container, 'check'); return; }
             if (t.closest('.ob-news-clear')) { _newsAct(container, 'clear'); return; }
+            if (t.closest('.ob-news-addsnd')) {
+                const list = container.querySelector('.ob-news-slist');
+                if (list) { list.insertAdjacentHTML('beforeend', _newsSenderRow('', '', '')); const inp = list.lastElementChild.querySelector('.ob-news-saddr'); if (inp) inp.focus({ preventScroll: true }); }
+                return;
+            }
+            const sdel = t.closest('.ob-news-sdel');
+            if (sdel) {
+                const row = sdel.closest('.ob-news-srow'), list = row && row.parentElement;
+                if (!row || !list) return;
+                if (list.children.length > 1) row.remove();
+                else row.querySelectorAll('input').forEach(i => { i.value = ''; });   // 最後一張：清空就好，留一格給她填
+                return;
+            }
 
             // 日程表：入口、每天上限加減、取消一筆（要排在醒來紀錄那個「紀錄頁裡其他地方不往下走」前面）
             if (t.closest('.ob-sch-open')) { _schOpen(container); return; }

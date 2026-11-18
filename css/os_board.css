@@ -1541,6 +1541,45 @@
     font-family: inherit;
 }
 .ob-news-input:focus { outline: none; border-color: #2a4a80; }
+/* 寄件人一張一張小卡：信箱一整行，下面名字＋標籤兩格並排，右上角 × 拿掉（11-18） */
+.ob-news-slist { display: flex; flex-direction: column; gap: 8px; }
+.ob-news-srow {
+    position: relative;
+    padding: 8px 34px 8px 8px;
+    border: 1px solid rgba(42, 74, 128, 0.14);
+    border-radius: 10px;
+    background: rgba(42, 74, 128, 0.04);
+}
+.ob-news-spair {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 6px;
+    margin-top: 6px;
+}
+.ob-news-sdel {
+    position: absolute;
+    top: 8px;
+    right: 6px;
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: 6px;
+    background: none;
+    color: #8a9ab8;
+    cursor: pointer;
+}
+.ob-news-sdel:hover { color: #b5563f; background: rgba(181, 86, 63, 0.08); }
+.ob-news-addsnd {
+    margin-top: 8px;
+    border: 1px dashed rgba(42, 74, 128, 0.35);
+    border-radius: 8px;
+    padding: 6px 10px;
+    background: none;
+    color: #2a4a80;
+    font-size: 13px;
+    cursor: pointer;
+    font-family: inherit;
+}
 .ob-news-clear {
     margin: -4px 0 10px;
     border: none;
