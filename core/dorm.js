@@ -1,0 +1,1215 @@
+/**
+ * core/dorm.js — 宿舍面板
+ * ------------------------------------------------------------------
+ * 點 💬 開的不再是四行下拉選單，而是一排門卡：每位住戶一張，點門進房。
+ * 住戶名冊與會話隔離都在 claude_terminal.js（listResidents / saveResident /
+ * deleteResident / setActiveResident），本檔只負責畫面與點按。
+ * ------------------------------------------------------------------
+ */
+(function (DormPanel) {
+    'use strict';
+    const NAME_MAX = 20;
+
+    // 門卡「穿法」那排的小問號（待修 #287 加了「日常」）
+    const _AUI0 = window.AUI || (window.parent && window.parent.AUI);
+    if (_AUI0 && _AUI0.registerHelp) _AUI0.registerHelp({ dorm_outfit: { title: '穿法',
+        body: '也能動手：Claude 原本那一套，開場是「你是寫程式的助手」，工具全帶。\n日常：工具全留著，只把開場那段換成「住在宿舍的住戶」。能做的事不變，聊天少一點上班感。\n只聊天：不帶工具，純聊天（只有自己新增的住戶能選）。\n換了之後，要在他的房間開一個新會話才算：開場在一串對話開頭就定下來了。' } });
+
+    // ---- API 小機（provider xiaoji，引擎在奧瑞亞 OS_XIAOJI）：門卡副標、編輯列要讀它的存檔 ----
+    const _xj = {};
+    function _XJ() { return window.OS_XIAOJI || (window.parent && window.parent.OS_XIAOJI) || null; }
+    function _MEM() { return window.OS_XIAOJI_MEM || (window.parent && window.parent.OS_XIAOJI_MEM) || null; }
+    async function _xjLoad() {
+        const X = _XJ(), CT = _CT();
+        if (!X || !CT) return;
+        const list = (CT.listResidents() || []).filter(r => r && r.provider === 'xiaoji');
+        for (const r of list) { try { _xj[r.id] = await X.get(r.id); } catch (e) {} }
+    }
+    // 挑樣子：一排三顆，每顆是那隻的頭像＋名字（門卡編輯列、領養時的箱子共用）
+    function _xjBodyPicker(cur) {
+        const X = _XJ(), CP = window.ClawdPortrait;
+        if (!X || !X.BODIES) return '';
+        let h = '<div class="dorm-xj-bodies">';
+        X.BODIES.forEach(b => {
+            h += '<button type="button" class="dorm-xj-body' + (b.id === cur ? ' active' : '') + '" data-body="' + _esc(b.id) + '">'
+               + '<span class="dorm-xj-bface" data-xjpick="' + _esc(b.id) + '"></span><span>' + _esc(b.name) + '</span></button>';
+            if (CP && typeof CP.faceOf === 'function') {
+                CP.faceOf(b.id).then(url => {
+                    if (!url) return;
+                    document.querySelectorAll('[data-xjpick="' + b.id + '"]').forEach(el => { el.innerHTML = '<img src="' + url + '" alt="">'; });
+                });
+            }
+        });
+        return h + '</div>';
+    }
+    function _xjBindPicker(root) {
+        root.querySelectorAll('.dorm-xj-body').forEach(b => b.addEventListener('click', () => {
+            root.querySelectorAll('.dorm-xj-body').forEach(x => x.classList.toggle('active', x === b));
+        }));
+    }
+    DormPanel.xjBodyPicker = _xjBodyPicker;
+    DormPanel.xjBindPicker = _xjBindPicker;
+    function _xjSub(r) {
+        // 房間單獨載、沒有奧瑞亞：小機動不了，門卡別裝成跟平常一樣（以前要點進去送話才看到錯）
+        if (!_XJ()) return '小機・要在奧瑞亞裡才動得了';
+        const rec = _xj[r.id]; const n = rec ? Object.keys(rec.skills || {}).length : 0; return n ? '小機・學會 ' + n + ' 門' : '小機';
+    }
+    function _xjFormHtml(r) {
+        const X = _XJ();
+        if (!X) return '';
+        const rec = _xj[r.id] || {};
+        let h = '<label class="dorm-xj-lab">樣子</label>' + _xjBodyPicker(X.bodyOf(rec));
+        h += '<label class="dorm-xj-lab">說話走哪個接口</label><select class="dorm-input dorm-in-conn">';
+        X.connList().forEach(c => { h += '<option value="' + _esc(c.id) + '"' + (c.id === (rec.conn || 'route') ? ' selected' : '') + '>' + _esc(c.label) + '</option>'; });
+        h += '</select>';
+        // 做主題、泡泡、組件、特效那一通（考試也是）另外選；''＝跟說話同一條（10-05 加）
+        h += '<label class="dorm-xj-lab">做東西走哪個接口</label><select class="dorm-input dorm-in-makeconn">'
+           + '<option value=""' + (rec.makeConn ? '' : ' selected') + '>跟說話同一條</option>';
+        X.connList().forEach(c => { h += '<option value="' + _esc(c.id) + '"' + (c.id === rec.makeConn ? ' selected' : '') + '>' + _esc(c.label) + '</option>'; });
+        h += '</select>';
+        // 每多約 20 件事背景整理一次記憶那一通；''＝跟說話同一條（10-15 加的第三格，讓雜事能走便宜的模型）
+        h += '<label class="dorm-xj-lab">整理記憶走哪個接口</label><select class="dorm-input dorm-in-tidyconn">'
+           + '<option value=""' + (rec.tidyConn ? '' : ' selected') + '>跟說話同一條</option>';
+        X.connList().forEach(c => { h += '<option value="' + _esc(c.id) + '"' + (c.id === rec.tidyConn ? ' selected' : '') + '>' + _esc(c.label) + '</option>'; });
+        h += '</select>';
+        if (rec.skills && rec.skills.chain) {
+            h += '<label class="dorm-xj-lab">一句話最多叫幾次模型</label><select class="dorm-input dorm-in-cap">';
+            for (let n = X.LIMITS.CAP_MIN; n <= X.LIMITS.CAP_MAX; n++) h += '<option value="' + n + '"' + (n === rec.cap ? ' selected' : '') + '>' + n + ' 次</option>';
+            h += '</select>';
+        }
+        const th = rec.theater !== false;
+        h += '<div class="dorm-mode dorm-xj-theater">'
+           // 10-05 起考過不自動演：結業頁多一顆「看小劇場」，這裡決定那顆要不要出現（演過存起來的照樣能重看）
+           + '<button type="button" class="dorm-xj-th' + (th ? ' active' : '') + '" data-th="1">考過能看小劇場</button>'
+           + '<button type="button" class="dorm-xj-th' + (th ? '' : ' active') + '" data-th="0">不要小劇場</button></div>';
+        return h;
+    }
+
+    let _el = null;
+    let _perNow = 0;          // 現在畫的是一層幾間（窗拉寬拉窄跨過門檻才重畫）
+    let _ro = null, _roEl = null;
+    let _moreSync = null;     // 重算「往下還有」那顆（窗拉高拉矮時 ResizeObserver 叫）
+    // 一層幾間：寬窗三間、手機那種窄窗兩間。三間要每格至少約 128px（門 64＋兩旁壁燈、信箱、盆栽），
+    //   算上左右留白和門縫，宿舍頁寬 410 以上才排得下；量不到寬度（頁還沒顯示）先當兩間
+    function _perFloor() {
+        const w = _el ? _el.clientWidth : 0;
+        return w >= 410 ? 3 : 2;
+    }
+    // 門在一層裡的哪一格：左＝壁燈信箱盆栽放門左邊；右＝全放右邊；三間時中間那扇壁燈信箱放左、盆栽放右
+    function _sideOf(i, per) {
+        if (per === 3) return i === 0 ? 'l' : (i === 1 ? 'm' : 'r');
+        return i ? 'r' : 'l';
+    }
+    // 主窗可以拉大拉小：宿舍頁寬度跨過門檻就重畫成另一種排法。只盯一個元素，換了容器才換盯的
+    function _watchWidth() {
+        if (!_el || typeof ResizeObserver !== 'function' || _roEl === _el) return;
+        if (_ro) _ro.disconnect();
+        _roEl = _el;
+        _ro = new ResizeObserver(() => {
+            if (!_el || _el !== _roEl || !_el.clientWidth || !_el.isConnected) return;
+            if (_perNow && _perFloor() !== _perNow) _render();
+            else if (_moreSync) _moreSync();   // 窗拉高拉矮：「往下還有」那顆要不要出來重算
+        });
+        _ro.observe(_el);
+    }
+    let _editing = null;      // 展開編輯列的住戶 id；'__new__' = 底下那張新住戶卡
+    let _delArmed = null;     // 兩段確認：已經按過第一下的住戶 id
+    let _delTimer = null;
+    let _opening = false;     // 擋連點兩張門卡
+
+    // 心跳（會不會自己醒來）不存在住戶資料裡，狀態在橋的 board_kv。
+    // 為什麼做在橋而不是 Windows 排程器：瀏覽器叫不動 schtasks，那樣她就得去雙擊 .bat；
+    // 橋本來就常駐、本來就在收 HTTP，開關做在這裡才點得動。
+    let _hb = {};             // rid → { enabled, hours_since, ... }
+    // 奧瑞亞工具（09-30）：每位住戶勾哪幾組，存在橋上（/v1/aurelia/perm）。沒設過的＝三組全開（原本的樣子）。
+    //   三組跟聊天 app 勾工具的名字一樣；住戶的工具服務只列他勾了的，三組都不勾就整個不掛。
+    let _perm = {};           // rid → { look, wb, preset }
+    const PERM_GROUPS = [
+        { g: 'look', label: '翻資料', tip: '看她的故事、世界書、手機裡的東西' },
+        { g: 'wb', label: '改世界書', tip: '提改世界書的單子，你按同意才寫進去' },
+        { g: 'preset', label: '改預設', tip: '提改預設的單子，你按同意才寫進去' },
+        { g: 'vn', label: '改組件', tip: '提改 VN 組件的單子（附預覽），你按同意才寫進去' },
+        { g: 'theme', label: '改主題', tip: '提改劇情／手機／聊天 app 主題的單子（附樣子），你按同意才換' },
+        { g: 'fx', label: '改特效', tip: '提改畫面特效的單子（可以試播），你按同意才存' },
+        { g: 'rule', label: '改指令', tip: '提改 BGM／音效清單、內建格式開關、BGM 主題的單子，你按同意才改（VN 指令內容不給改）' },
+        { g: 'bubble', label: '改泡泡', tip: '提改聊天 app 泡泡的單子（附樣子），你按同意才換' },
+    ];
+
+    function _CT() { return window.ClaudeTerminal || null; }
+
+    /** 橋的位址與金鑰（跟房間聊天共用同一組設定） */
+    function _bridge() {
+        const OS = window.OS_SETTINGS;
+        const p = (OS && typeof OS.getActiveClaudePreset === 'function') ? OS.getActiveClaudePreset() : null;
+        if (!p || !p.url || !p.key) return null;
+        // 設定裡存的是 /v1/chat/completions，剝到根再接心跳那條
+        const base = String(p.url).replace(/\/v1\/chat\/completions\/?$/, '').replace(/\/+$/, '');
+        return { base: base, key: p.key };
+    }
+
+    // =====================================================================
+    // 🔴 住戶醒來傳訊息給她（<room_message>，橋的 _deliver_wake_message）：門卡、宿舍入口、房間的「‹」亮紅點，進他房間就熄。
+    //   以前聊天室沒有未讀標記，錯過手機提醒就不會發覺，所以加紅點。
+    //   橋不用改：醒來紀錄 GET /v1/wakes 每筆的 summary 用「、」切開，有一段正好是「傳訊息給妳」就是傳了
+    //   （「想傳訊息給妳，但你們還沒有聊天室…」那段不算：沒有聊天室可看）。看過哪一筆記在這台裝置（紀錄的 id 只會變大）。
+    //   🚨 summary 最多六段，傳訊息那段排在跑到外面的工具後面：一趟用了六樣以上對外的工具會被擠掉（只會少亮，不會亂亮）。
+    // =====================================================================
+    const WAKE_SEEN_KEY = 'ccr_wake_seen';   // { 住戶 id: 看過的最大醒來紀錄 id }
+    let _wmMemo = { at: 0, p: null };
+
+    /** 每位住戶最新一則「醒來傳給妳的」是哪一筆醒來紀錄：{ rid: id }。拿不到回 null（跟「沒人傳」分開） */
+    function _wakePeek(force) {
+        const b = _bridge();
+        if (!b) return Promise.resolve(null);
+        if (!force && _wmMemo.p && Date.now() - _wmMemo.at < 20000) return _wmMemo.p;   // 宿舍一打開會連畫好幾次
+        const p = fetch(b.base + '/v1/wakes?limit=30', { headers: { 'Authorization': 'Bearer ' + b.key } })
+            .then(r => (r.ok ? r.json() : null))
+            .then(j => {
+                if (!j || !Array.isArray(j.items)) return null;
+                const out = {};
+                j.items.forEach(it => {
+                    if (!it || !it.ok || !it.rid) return;
+                    const bits = String(it.summary || '').replace(/…$/, '').split('、');
+                    if (bits.indexOf('傳訊息給妳') < 0) return;
+                    const id = Number(it.id) || 0;
+                    if (id > (out[it.rid] || 0)) out[it.rid] = id;
+                });
+                return out;
+            })
+            .catch(() => null);
+        _wmMemo = { at: Date.now(), p: p };
+        return p;
+    }
+    function _wakeSeen() {
+        try { const v = JSON.parse(localStorage.getItem(WAKE_SEEN_KEY) || 'null'); return (v && typeof v === 'object') ? v : null; }
+        catch (e) { return null; }
+    }
+    function _saveWakeSeen(seen) {
+        try { localStorage.setItem(WAKE_SEEN_KEY, JSON.stringify(seen)); } catch (e) {}
+    }
+    /** 現在正開著、看著的那間房的住戶（看著就不必亮）；沒開房間回 '' */
+    function _wakeViewing() {
+        const CW = window.ChatWindow, CT = _CT();
+        if (!CW || !CT || typeof CW.isOpen !== 'function' || !CW.isOpen()) return '';
+        if (typeof CW.getView !== 'function' || CW.getView() !== 'room' || typeof CW.getProvider !== 'function') return '';
+        const prov = CW.getProvider();
+        if (!prov || prov === 'group' || typeof CT.getActiveResidentId !== 'function') return '';
+        return CT.getActiveResidentId(prov) || '';
+    }
+    /** 拿到最新的之後：記看過、算誰還沒看、畫三個地方的點。latest 是 null（橋拿不到）就什麼都不動 */
+    function _wakeApply(latest, readRid) {
+        if (!latest) return [];
+        let seen = _wakeSeen();
+        let dirty = false;
+        if (!seen) { seen = Object.assign({}, latest); dirty = true; }   // 第一次：以前傳過的都當看過，只亮之後新傳的
+        [readRid, _wakeViewing()].forEach(rid => {
+            if (rid && latest[rid] && latest[rid] > (Number(seen[rid]) || 0)) { seen[rid] = latest[rid]; dirty = true; }
+        });
+        if (dirty) _saveWakeSeen(seen);
+        const CT = _CT();
+        const live = (CT && typeof CT.listResidents === 'function')
+            ? CT.listResidents().filter(r => r && r.provider !== 'group').map(r => String(r.id)) : Object.keys(latest);
+        const unread = live.filter(rid => latest[rid] && latest[rid] > (Number(seen[rid]) || 0));
+        _paintWakeEntry(unread.length > 0);
+        const viewing = _wakeViewing();
+        const back = document.querySelector('#aurelia-chat-window #cw-back');
+        if (back) back.classList.toggle('cw-back-msg', unread.some(rid => rid !== viewing));
+        if (_el && document.contains(_el)) {
+            _el.querySelectorAll('.dorm-card[data-id]').forEach(card => {
+                card.classList.toggle('wake-msg-new', unread.indexOf(card.dataset.id) >= 0);
+            });
+        }
+        return unread;
+    }
+    /** 宿舍入口那顆：奧瑞亞在場畫在大廳的鈕上（各自標自己的 DOM），沒有宿主就畫在房間的浮球上 */
+    function _paintWakeEntry(on) {
+        if (window.__CCR_NO_LAUNCHER__) {
+            const VT = window.VoidTerminal;
+            try {
+                if (on) { if (VT && typeof VT.markAiNews === 'function') VT.markAiNews('msg'); }
+                else if (VT && typeof VT.clearAiNews === 'function') VT.clearAiNews('msg');
+            } catch (e) {}
+            return;
+        }
+        const btn = document.getElementById('ccr-launcher');
+        if (!btn) return;
+        btn.classList.toggle('ccr-news-msg', !!on);
+        if (on) btn.title = '有住戶傳訊息給妳';
+        else if (btn.title === '有住戶傳訊息給妳') btn.title = '宿舍';
+    }
+
+    async function _hbLoad() {
+        const b = _bridge();
+        if (!b) { _hb = {}; return; }
+        try {
+            const r = await fetch(b.base + '/v1/heartbeat', { headers: { 'Authorization': 'Bearer ' + b.key } });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const j = await r.json();
+            _hb = (j && j.residents) || {};
+            // 以前開的心跳沒帶模型（醒來一律走橋的預設那顆），開宿舍時順手對齊房間那顆
+            const CT = _CT();
+            if (CT && typeof CT.syncWakeModels === 'function') CT.syncWakeModels();
+        } catch (e) {
+            // 舊版橋沒有這條端點 → 當作沒人開著。不在這裡猜也不報錯：
+            // 宿舍的主要功能跟心跳無關，不能因為它掛掉就打不開。
+            _hb = {};
+        }
+    }
+
+    async function _permLoad() {
+        const b = _bridge();
+        if (!b) { _perm = {}; return; }
+        try {
+            const r = await fetch(b.base + '/v1/aurelia/perm', { headers: { 'Authorization': 'Bearer ' + b.key } });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const j = await r.json();
+            _perm = (j && j.perm) || {};
+        } catch (e) {
+            _perm = {};   // 舊的橋沒有這條：照全開畫，按了會跳「橋還沒重啟」
+        }
+    }
+    function _permOf(id) {
+        const p = _perm[id] || {};
+        const out = {};
+        PERM_GROUPS.forEach(x => { out[x.g] = p[x.g] !== false; });
+        return out;
+    }
+    async function _permSet(id, perm) {
+        const b = _bridge();
+        if (!b) return { ok: false, msg: '還沒設好連線（⚙️ 裡的網址與密鑰）' };
+        try {
+            const res = await fetch(b.base + '/v1/aurelia/perm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + b.key },
+                body: JSON.stringify(Object.assign({ rid: id }, perm)),
+            });
+            if (!res.ok) return { ok: false, msg: res.status === 404 ? '橋還沒重啟，重啟之後才改得了' : '橋回了 HTTP ' + res.status };
+            const j = await res.json();
+            _perm[id] = (j && j.perm) || perm;
+            return { ok: true };
+        } catch (e) {
+            return { ok: false, msg: '連不上橋' };
+        }
+    }
+
+    /** 開關某位住戶的心跳。住戶身分一起送，橋不必知道名冊（那在瀏覽器裡）。 */
+    async function _hbSet(r, enabled) {
+        const b = _bridge();
+        if (!b) return { ok: false, msg: '還沒設好連線（⚙️ 裡的網址與密鑰）' };
+        const CT = _CT();
+        const home = (CT && typeof CT.residentHome === 'function') ? CT.residentHome(r.id) : '';
+        try {
+            const res = await fetch(b.base + '/v1/heartbeat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + b.key },
+                body: JSON.stringify({
+                    resident_id: r.id,
+                    enabled: !!enabled,
+                    name: r.name,
+                    backend: r.provider,
+                    cwd: home || null,
+                    // 醒來跟他在房間聊天用同一顆
+                    model: (CT && typeof CT.residentModelId === 'function') ? CT.residentModelId(r.id) : '',
+                }),
+            });
+            if (!res.ok) return { ok: false, msg: '橋回了 HTTP ' + res.status + '（可能還沒重啟）' };
+            return { ok: true };
+        } catch (e) {
+            return { ok: false, msg: '連不到橋：' + ((e && e.message) || e) };
+        }
+    }
+
+    /** 「上次醒來」說成人話 */
+    function _hbWhen(info) {
+        if (!info || info.hours_since == null) return '還沒醒過';
+        const h = info.hours_since;
+        if (h < 1) return Math.max(1, Math.round(h * 60)) + ' 分鐘前醒過';
+        if (h < 24) return Math.round(h) + ' 小時前醒過';
+        return Math.round(h / 24) + ' 天前醒過';
+    }
+
+    function _cfg() {
+        const OS = window.OS_SETTINGS;
+        if (!OS || typeof OS.getClaudeRoomConfig !== 'function') return {};
+        try { return OS.getClaudeRoomConfig() || {}; } catch (_) { return {}; }
+    }
+
+    function _models() {
+        const room = window.VoidClaudeRoom;
+        return (room && Array.isArray(room.claudeModels)) ? room.claudeModels : [];
+    }
+
+    function _esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    /** 模型的顯示名（共用資料層那支，別在這裡再養一份） */
+    function _modelLabel(id) {
+        const CT = _CT();
+        if (CT && typeof CT.modelLabel === 'function') return CT.modelLabel(id);
+        if (!id) return '';
+        const m = _models().find(x => x.id === id);
+        return m ? m.label : id;
+    }
+
+    /** 頭像角標用的短碼：Opus 4.6(舊) → 4.6 */
+    function _modelBadge(id) {
+        const m = _models().find(x => x.id === id);
+        const core = String((m ? m.label : id) || '').replace(/[(（].*$/, '').trim();
+        const seg = core.split(/\s+/);
+        return seg[seg.length - 1] || core;
+    }
+
+    /** 門卡上名字底下那行小字 */
+    function _subtitle(r, all) {
+        if (r.provider === 'xiaoji') return _xjSub(r);
+        if (r.provider === 'codex')    return 'Codex';
+        if (r.provider === 'deepseek') return 'DeepSeek';
+        if (r.provider === 'group') {
+            const CT = _CT();
+            const seats = (CT && typeof CT.listGroupSeats === 'function') ? CT.listGroupSeats() : [];
+            return seats.length ? seats.map(x => x.name).join('、') : '還沒有人上桌';
+        }
+        if (r.modelId) return _modelLabel(r.modelId) + (r.chatOnly ? ' · 只聊天' : '');
+        const cfg = _cfg();
+        // 沒鎖模型的住戶自己在房裡挑過就顯示那顆（丹、克語各記各的）
+        const own = cfg.residentModels && cfg.residentModels[r.id];
+        if (own) return _modelLabel(own);
+        const cur = (cfg.providerModels && cfg.providerModels.claude) || cfg.inlineModel || cfg.model || '';
+        return cur ? _modelLabel(cur) : '想用哪顆都行';
+    }
+
+    // ---- 頭像跟著打扮走（09-30）----
+    //   以前換了打扮頭像不會跟著變（留言板也一樣）。以前門卡、留言板、群成員格一律是預設那張小螃蟹
+    //   （阿洛是 Codex 機器人）。現在跟房間裡那隻同一份打扮：橋 /v1/decor 的 wear，ClawdPortrait.renderStill 畫一格定格，
+    //   裁掉四周的空白（影子不算）存成小圖。拿到之前先放原本那張，拿到了把畫面上同一位的頭像（[data-look]）都換掉。
+    //   五分鐘內不重拿；房間裡他換了打扮（ChatWindow.refreshDecor）就重拿。Claude 那幾位沒打扮過照舊預設那張；
+    //   阿洛一律畫他自己的洛德（沒打扮過也是）。拿不到（舊的橋、沒連線、畫布讀不出來）就照舊，不報錯。
+    const LOOK_TTL = 5 * 60 * 1000;
+    const _looks = {};          // rid → 小圖（data URL）；'' ＝沒打扮，用預設那張
+    let _looksAt = 0, _looksJob = null;
+    // 裁空白那段搬到 ClawdPortrait.crop（小機的頭像也用同一支）
+    function _cropLook(cv) { return window.ClawdPortrait.crop(cv); }
+    // 他現在穿什麼（橋 /v1/decor 的 wear）。fresh＝不看快取（門卡重拿、房間裡剛換裝）；
+    //   沒連線、舊的橋、讀不到都回 null。奧瑞亞 SN 32 樓白板也拿這個畫值班的人（DormPanel.wearOf）。
+    const _wears = {};          // rid → { wear, at }
+    async function _wearOf(rid, fresh) {
+        const c = _wears[rid];
+        if (!fresh && c && Date.now() - c.at < LOOK_TTL) return c.wear;
+        const b = _bridge();
+        if (!b) return null;
+        const res = await fetch(b.base + '/v1/decor?rid=' + encodeURIComponent(rid), { headers: { 'Authorization': 'Bearer ' + b.key } });
+        if (!res.ok) return null;
+        const st = await res.json();
+        const wear = (st && st.wear) || null;
+        _wears[rid] = { wear, at: Date.now() };
+        _setOwnRug(rid, st && st.rug);
+        return wear;
+    }
+    async function _lookFor(r) {
+        const CP = window.ClawdPortrait;
+        if (!CP || typeof CP.renderStill !== 'function' || !_bridge()) return '';
+        const wear = await _wearOf(r.id, true);
+        const base = r.provider === 'codex' ? 'lorde' : 'crab';
+        if (base === 'crab' && !(wear && wear.own)) return '';
+        const cv = document.createElement('canvas');
+        await CP.renderStill(cv, wear, 'idle', 0, base);
+        return _cropLook(cv);
+    }
+    function _paintLook(rid, url) {
+        document.querySelectorAll('[data-look="' + (window.CSS && CSS.escape ? CSS.escape(rid) : rid) + '"]').forEach(el => {
+            const badge = el.querySelector('.dorm-badge');
+            el.classList.remove('dorm-face-codex', 'cw-mem-face-codex', 'cw-mem-icon');
+            if (el.classList.contains('dorm-face')) el.classList.add('dorm-face-img');
+            el.innerHTML = '<img class="ccr-look" src="' + url + '" alt="">' + (badge ? badge.outerHTML : '');
+        });
+    }
+    function _loadLooks(force) {
+        if (_looksJob) return _looksJob;
+        if (!force && _looksAt && Date.now() - _looksAt < LOOK_TTL) return Promise.resolve();
+        const CT = _CT();
+        const list = ((CT && typeof CT.listResidents === 'function') ? CT.listResidents() : [])
+            .filter(r => r && r.id && (r.provider === 'claude' || r.provider === 'codex'));
+        _looksAt = Date.now();
+        _looksJob = (async () => {
+            for (const r of list) {
+                let url = '';
+                try { url = await _lookFor(r); } catch (_) { url = ''; }
+                const had = _looks[r.id];
+                _looks[r.id] = url;
+                if (url && url !== had) _paintLook(r.id, url);
+            }
+        })().finally(() => { _looksJob = null; });
+        return _looksJob;
+    }
+    // 門卡、留言板、群成員格要畫頭像時問這裡：有打扮過的小圖就回它（沒拿過或過期了順便去拿）
+    function _lookSrc(r) {
+        if (!_looksAt || Date.now() - _looksAt > LOOK_TTL) setTimeout(() => { _loadLooks(); }, 0);
+        return (r && _looks[r.id]) || '';
+    }
+
+    // 小機的頭像＝領養時挑的那隻（ClawdPortrait.faceOf 每種畫一次）。存檔還沒讀到、或奧瑞亞沒載入時先放晶片
+    const _xjFaces = {};      // body → 小圖
+    const _xjDressed = {};    // rid → { key: 那一身, url }：它自己打扮過的（RoomWear 管 rec.wear）畫它那一身，同一身只畫一次
+    function _xjFaceHtml(r) {
+        const X = _XJ(), CP = window.ClawdPortrait, rec = _xj[r.id], RW = window.RoomWear;
+        const body = (X && rec) ? X.bodyOf(rec) : '';
+        if (body && rec && RW && !RW.plain(rec) && CP && typeof CP.renderStill === 'function') {
+            const key = body + '|' + JSON.stringify(rec.wear);
+            const hit = _xjDressed[r.id];
+            if (hit && hit.key === key && hit.url) return '<span class="dorm-face dorm-face-img"><img class="ccr-look" src="' + hit.url + '" alt=""></span>';
+            if (!hit || hit.key !== key) {
+                const job = _xjDressed[r.id] = { key, url: '' };
+                (async () => {
+                    const cv = document.createElement('canvas');
+                    await CP.renderStill(cv, RW.client(rec.wear), 'idle', 1, body);
+                    return CP.crop(cv);
+                })().then(url => {
+                    if (!url || _xjDressed[r.id] !== job) return;
+                    job.url = url;
+                    document.querySelectorAll('[data-xjrid="' + (window.CSS && CSS.escape ? CSS.escape(r.id) : r.id) + '"]').forEach(el => {
+                        el.classList.remove('dorm-face-icon', 'dorm-face-xj');
+                        el.classList.add('dorm-face-img');
+                        el.innerHTML = '<img class="ccr-look" src="' + url + '" alt="">';
+                    });
+                }).catch(() => {});
+            }
+            return '<span class="dorm-face dorm-face-icon dorm-face-xj" data-xjrid="' + _esc(r.id) + '"><i class="fa-solid fa-microchip"></i></span>';
+        }
+        if (body && _xjFaces[body]) return '<span class="dorm-face dorm-face-img"><img class="ccr-look" src="' + _xjFaces[body] + '" alt=""></span>';
+        if (body && CP && typeof CP.faceOf === 'function') {
+            CP.faceOf(body).then(url => {
+                if (!url) return;
+                _xjFaces[body] = url;
+                document.querySelectorAll('[data-xjbody="' + body + '"]').forEach(el => {
+                    el.classList.remove('dorm-face-icon', 'dorm-face-xj');
+                    el.classList.add('dorm-face-img');
+                    el.innerHTML = '<img class="ccr-look" src="' + url + '" alt="">';
+                });
+            });
+        }
+        return '<span class="dorm-face dorm-face-icon dorm-face-xj"' + (body ? ' data-xjbody="' + body + '"' : '') + '><i class="fa-solid fa-microchip"></i></span>';
+    }
+
+    // 沒打扮、也不去橋上問的預設樣子（蘇景明＝鯨魚）：ClawdPortrait.faceOf 每種只畫一次，畫好之前先放一個小圖示，
+    //   畫好了把畫面上同一種的（[data-baseface]）都換成小圖。群成員格（chat_window.js）也來問這裡（DormPanel.baseFaceSrc）
+    const _baseFaces = {};      // base → 小圖；'' ＝畫好之前／畫不出來
+    function _baseFaceSrc(base) {
+        if (_baseFaces[base]) return _baseFaces[base];
+        const CP = window.ClawdPortrait;
+        if (_baseFaces[base] === undefined && CP && typeof CP.faceOf === 'function') {
+            _baseFaces[base] = '';
+            CP.faceOf(base).then(url => {
+                if (!url) return;
+                _baseFaces[base] = url;
+                document.querySelectorAll('[data-baseface="' + base + '"]').forEach(el => {
+                    el.classList.remove('dorm-face-icon', 'cw-mem-icon');
+                    if (el.classList.contains('dorm-face')) el.classList.add('dorm-face-img');
+                    const badge = el.querySelector('.dorm-badge');
+                    el.innerHTML = '<img class="ccr-look" src="' + url + '" alt="">' + (badge ? badge.outerHTML : '');
+                });
+            }).catch(() => {});
+        }
+        return '';
+    }
+    DormPanel.baseFaceSrc = _baseFaceSrc;
+
+    function _faceHtml(r) {
+        if (r.provider === 'xiaoji') return _xjFaceHtml(r);
+        const look = (r.provider === 'claude' || r.provider === 'codex') ? _lookSrc(r) : '';
+        const badge = r.modelId
+            ? '<span class="dorm-badge">' + _esc(_modelBadge(r.modelId)) + '</span>'
+            : '';
+        if (look) return '<span class="dorm-face dorm-face-img" data-look="' + _esc(r.id) + '"><img class="ccr-look" src="' + look + '" alt="">' + badge + '</span>';
+        if (r.provider === 'codex') {
+            return '<span class="dorm-face dorm-face-codex" data-look="' + _esc(r.id) + '"></span>';
+        }
+        // 蘇景明：藍鯨魚（11-06 起；以前是一個灰色的西裝人小圖示）
+        if (r.provider === 'deepseek') {
+            const whale = _baseFaceSrc('whale');
+            if (whale) return '<span class="dorm-face dorm-face-img" data-look="' + _esc(r.id) + '" data-baseface="whale"><img class="ccr-look" src="' + whale + '" alt="">' + badge + '</span>';
+            return '<span class="dorm-face dorm-face-icon" data-look="' + _esc(r.id) + '" data-baseface="whale"><i class="fa-solid fa-fish"></i>' + badge + '</span>';
+        }
+        if (r.provider === 'group') {
+            return '<span class="dorm-face dorm-face-icon"><i class="fa-solid fa-users"></i></span>';
+        }
+        const CT = _CT() || {};
+        const src = (CT.ASSETS && (CT.ASSETS.idle || CT.ASSETS.mini)) || '';
+        const onerr = CT.imgOnError || '';
+        return '<span class="dorm-face dorm-face-img" data-look="' + _esc(r.id) + '">'
+            + '<img src="' + _esc(src) + '" alt="" onerror="' + _esc(onerr) + '">'
+            + badge + '</span>';
+    }
+
+    /** 就地編輯列：r 為 null 代表底下那張「新住戶」 */
+    function _formHtml(r) {
+        const isNew = !r;
+        const withModel = isNew || (!r.builtin && r.provider === 'claude');
+        let h = '<div class="dorm-form">';
+        h += '<input type="text" class="dorm-input dorm-in-name" maxlength="' + NAME_MAX
+           + '" placeholder="名字" value="' + (r ? _esc(r.name) : '') + '">';
+        if (r && r.provider === 'xiaoji') h += _xjFormHtml(r);
+        if (withModel) {
+            h += '<select class="dorm-input dorm-in-model">';
+            _models().forEach(m => {
+                const sel = (r && r.modelId === m.id) ? ' selected' : '';
+                h += '<option value="' + _esc(m.id) + '"' + sel + '>' + _esc(_modelLabel(m.id)) + '</option>';
+            });
+            h += '</select>';
+        }
+        // 穿法（Claude 住戶）：也能動手＝Claude Code 原本那套（開場是「軟體工程助手」）；日常＝工具全留、只換開場；
+        // 只聊天＝不帶工具與系統指令（省三萬多 token 的 context，只有自訂分身能設——內建的要留著工具幹活）。
+        // 預設「也能動手」—— 那是既有行為，不改變任何人的預期。換了要開新會話才算（開場在一串對話開頭就定了，說明在小問號）
+        if (isNew || (r && r.provider === 'claude')) {
+            const chatOn = !!(r && r.chatOnly), dailyOn = !chatOn && !!(r && r.daily);
+            const A = window.AUI || (window.parent && window.parent.AUI);
+            h += '<div class="dorm-mode">'
+               + '<button type="button" class="dorm-mode-btn' + (chatOn || dailyOn ? '' : ' active') + '" data-mode="work">也能動手</button>'
+               + '<button type="button" class="dorm-mode-btn' + (dailyOn ? ' active' : '') + '" data-mode="daily">日常</button>'
+               + (isNew || !r.builtin ? '<button type="button" class="dorm-mode-btn' + (chatOn ? ' active' : '') + '" data-mode="chat">只聊天</button>' : '')
+               + (A && A.helpBtn ? A.helpBtn('dorm_outfit') : '')
+               + '</div>';
+        }
+        // 奧瑞亞工具：只有會掛工具的（Claude、Codex 住戶）才有這排；按了當場存到橋上，不用等「改好了」
+        if (r && (r.provider === 'claude' || r.provider === 'codex')) {
+            const pm = _permOf(r.id);
+            h += '<div class="dorm-perm"><span class="dorm-perm-lab">奧瑞亞工具</span><div class="dorm-mode dorm-perm-set">';
+            PERM_GROUPS.forEach(x => {
+                h += '<button type="button" class="dorm-perm-btn' + (pm[x.g] ? ' active' : '') + '" data-g="' + x.g + '" title="' + _esc(x.tip) + '">'
+                   + _esc(x.label) + '</button>';
+            });
+            h += '</div></div>';
+        }
+        // 心跳的開關不放這裡 —— 這一列要按鉛筆才展得開，等於把狀態摺起來。
+        // 它跟入席一樣是「一眼要看得到」的狀態，所以做成門卡上的常駐鈕（見 _wakeBtnHtml）。
+        h += '<div class="dorm-form-act">';
+        h += '<button type="button" class="dorm-btn dorm-save">' + (isNew ? '住進來' : '改好了') + '</button>';
+        if (r && !r.builtin) {
+            h += '<button type="button" class="dorm-btn dorm-del"><i class="fa-solid fa-box-archive"></i> 請他搬走</button>';
+        }
+        h += '</div><div class="dorm-hint"></div></div>';
+        return h;
+    }
+
+    /** 「自己醒來」的開關＝門旁那盞壁燈（11-06 起）：燈亮著＝他會自己醒來，點燈就開／關。
+     *  以前是門卡上一顆心跳鈕；狀態一眼要看得到，所以做成一直亮著／暗著的燈，不藏在編輯裡。
+     *  群聊區沒有 —— 那是桌子不是人；小機不會自己醒，門旁只掛一盞不能按的燈。 */
+    function _wakeBtnHtml(r) {
+        if (r.provider === 'group' || r.provider === 'xiaoji') return '';
+        const info = _hb[r.id];
+        const on = !!(info && info.enabled);
+        const when = on ? ('，' + _hbWhen(info)) : '';
+        const tip = on ? '燈亮著：他會自己醒來' + when + '。點一下關燈，改成等妳開口' : '燈暗著：只有妳開口他才在。點一下開燈，讓他自己醒來';
+        return '<button type="button" class="dorm-wake dorm-lamp' + (on ? ' waking' : '') + '" title="' + tip + '" aria-label="' + tip + '"></button>';
+    }
+
+    // ---- 11-06 宿舍改成一棟樓：一層兩間房門，最底下是公共區（照阿洛畫的圖，取代原本的聊天列表）----
+    //   每位住戶一扇門：門牌寫名字、門上的圓窗是他的頭像（跟著打扮換，跟以前門卡同一顆）、門墊底下一行是模型。
+    //   門旁的壁燈＝他會不會自己醒來（亮著＝會；開關還是那顆心跳鈕）；信箱塞了信＝他醒來傳訊息給妳、還沒去看。
+    //   走廊那排搬到一樓公共區：留言板是軟木板、遊戲室是一扇小門、新住戶是一個紙箱，額度／帶小機回來／舊群聊是底下的小木牌。
+    //   門的顏色：內建那幾位照圖固定（丹深棕、天天紫、克語藍、阿洛深藍、蘇景明綠），其他人照名冊順序拿還沒人用的顏色（第一位是黃）。
+    const DOOR_COLORS = 10;
+    const DOOR_FIXED = { dan: 0, tiantian: 1, keyu: 2, aluo: 3, sujingming: 4 };
+    function _doorColors(list) {
+        const out = {}, used = {};
+        list.forEach(r => { if (Object.prototype.hasOwnProperty.call(DOOR_FIXED, r.id)) { out[r.id] = DOOR_FIXED[r.id]; used[out[r.id]] = 1; } });
+        list.forEach(r => {
+            if (out[r.id] != null) return;
+            // 從 5 號往後找第一個還沒人用的（全滿了才重複）
+            let c = 5;
+            for (let k = 0; k < DOOR_COLORS && used[c]; k++) c = (c + 1) % DOOR_COLORS;
+            out[r.id] = c; used[c] = 1;
+        });
+        return out;
+    }
+
+    // ---- 門前的地毯：照他用的模型挑花樣（11-06）----
+    //   同一個模型家族的人花樣一樣，換了模型地毯跟著換；模型名字織在地毯中間。只用顏色、紋樣分，不放任何公司的標誌。
+    function _claudeModelId(r) {
+        if (r.modelId) return r.modelId;
+        const cfg = _cfg();
+        const own = cfg.residentModels && cfg.residentModels[r.id];
+        if (own) return own;
+        return (cfg.providerModels && cfg.providerModels.claude) || cfg.inlineModel || cfg.model || '';
+    }
+    function _rugKind(r) {
+        if (r.provider === 'codex') return 'codex';
+        if (r.provider === 'deepseek') return 'deepseek';
+        if (r.provider === 'xiaoji') return 'xiaoji';
+        const id = String(_claudeModelId(r) || '').toLowerCase();
+        const fam = ['fable', 'opus', 'sonnet', 'haiku'].find(f => id.indexOf(f) >= 0);
+        return fam || 'plain';
+    }
+    // ---- 住戶自己的地毯（11-06：先有預設，之後住戶可以自己設計樣式）----
+    //   現在只先接好「有就用他的、沒有就用模型的預設」；住戶自己設計那件還沒做（待辦「住戶自己設計地毯」，做法未定）。
+    //   放哪：宿舍住戶在橋 /v1/decor 那份裡的 rug（跟衣服同一通，不多打）；小機在它自己的存檔（OS_XIAOJI 的 rec.rug）。
+    //   長相：{ base: 借哪一款預設的邊框和字色, img: 花樣圖, logo: 他自己畫的小標誌 }。圖只收 data:image 的 png／webp／jpeg／svg
+    //   （放在 <img> 裡，svg 裡的程式不會跑），顏色不收字串（不開 inline style 的口子），要換色就挑 base。
+    const RUG_KINDS = ['fable', 'opus', 'sonnet', 'haiku', 'codex', 'deepseek', 'xiaoji', 'plain'];
+    const RUG_IMG = /^data:image\/(png|webp|jpeg|svg\+xml);base64,[A-Za-z0-9+/=]+$/;
+    const _ownRugs = {};        // rid → 洗過的那份；沒有＝undefined／null
+    function _cleanRug(x) {
+        if (!x || typeof x !== 'object') return null;
+        const out = {};
+        if (RUG_KINDS.indexOf(x.base) >= 0) out.base = x.base;
+        if (typeof x.img === 'string' && x.img.length <= 400000 && RUG_IMG.test(x.img)) out.img = x.img;
+        if (typeof x.logo === 'string' && x.logo.length <= 200000 && RUG_IMG.test(x.logo)) out.logo = x.logo;
+        return Object.keys(out).length ? out : null;
+    }
+    function _ownRugOf(r) {
+        if (r.provider === 'xiaoji') { const rec = _xj[r.id]; return _cleanRug(rec && rec.rug); }
+        return _ownRugs[r.id] || null;
+    }
+    /** 橋拿回來他自己的地毯：跟畫面上的不一樣才就地換那一塊（不整頁重畫，開著的登記抽屜不受影響） */
+    function _setOwnRug(rid, raw) {
+        const rug = _cleanRug(raw);
+        if (JSON.stringify(rug) === JSON.stringify(_ownRugs[rid] || null)) return;
+        _ownRugs[rid] = rug;
+        const CT = _CT();
+        if (!_el || !CT || typeof CT.getResident !== 'function') return;
+        const r = CT.getResident(rid);
+        const zone = r && _el.querySelector('.dorm-card[data-id="' + (window.CSS && CSS.escape ? CSS.escape(rid) : rid) + '"] .dorm-floorzone');
+        if (zone) zone.outerHTML = _rugHtml(r, typeof CT.listResidents === 'function' ? CT.listResidents() : []);
+    }
+    function _rugHtml(r, all) {
+        const own = _ownRugOf(r);
+        const kind = (own && own.base) || _rugKind(r);
+        return '<span class="dorm-floorzone"><span class="dorm-rug dorm-rug-' + kind + (own ? ' dorm-rug-own' : '') + '">'
+            + '<span class="dorm-rug-weave" aria-hidden="true">' + (own && own.img ? '<img class="dorm-rug-img" src="' + _esc(own.img) + '" alt="">' : '') + '</span>'
+            + '<span class="dorm-sub">' + (own && own.logo ? '<img class="dorm-rug-logo" src="' + _esc(own.logo) + '" alt="">' : '') + _esc(_subtitle(r, all)) + '</span>'
+            + '</span></span>';
+    }
+
+    // 門牌：點了打開底下往上的「房門登記」抽屜改他（11-06 起，取代原本的鉛筆鈕）。
+    //   門裡留一塊看不見的同款門牌撐出一樣的高度，真的門牌（.dorm-pen）蓋在它上面、在門的按鈕外面，點門牌不會進房。
+    function _plateInner(name) {
+        return '<span class="dorm-name">' + _esc(name) + '</span><i class="fa-solid fa-pen dorm-plate-pen" aria-hidden="true"></i>';
+    }
+
+    function _cardHtml(r, all, side, color) {
+        const open = _editing === r.id ? ' dorm-editing' : '';
+        const lamp = (r.provider === 'xiaoji' || r.provider === 'group') ? '<span class="dorm-lamp" aria-hidden="true"></span>' : '';
+        return '<div class="dorm-card dorm-side-' + side + ' dorm-c' + color + open + '" data-id="' + _esc(r.id) + '">'
+            + '<div class="dorm-room">'
+            + '<button type="button" class="dorm-door">'
+            + lamp
+            + '<span class="dorm-plate dorm-ghost" aria-hidden="true">' + _plateInner(r.name).replace('dorm-name', 'dorm-ghost-name') + '</span>'
+            + '<span class="dorm-leaf"><span class="dorm-arch">' + _faceHtml(r) + '</span><span class="dorm-knob"></span></span>'
+            // 門底就是地板線：門下面直接接地板，護牆板畫在地板線上面（分開的話門看起來不在牆上）
+            + _rugHtml(r, all)
+            + '<span class="dorm-mail" aria-hidden="true"><i class="fa-solid fa-envelope"></i></span>'
+            + '<span class="dorm-plant" aria-hidden="true"><i class="fa-solid ' + (side === 'l' ? 'fa-seedling' : 'fa-spa') + '"></i></span>'
+            + '</button>'
+            + (r.provider === 'xiaoji' ? (_XJ() ? '<button type="button" class="dorm-train" title="培養室"><i class="fa-solid fa-graduation-cap"></i></button>' : '') : _wakeBtnHtml(r))
+            + '<button type="button" class="dorm-pen dorm-plate" title="改這位住戶">' + _plateInner(r.name) + '</button>'
+            + '</div>'
+            + '</div>';
+    }
+
+    // ---- 房門登記抽屜：從底下往上拉出來，做成木板夾＋紙＋一支筆，像訪客登記表----
+    //   裡面就是原本的編輯列（_formHtml），按鈕、存法一樣。抽屜掛在宿舍頁最外層、記著是誰的（data-for），點灰底或右上 ✕ 收回去。
+    let _drawerFresh = false;   // 剛打開那一次才播往上滑；開著時重畫（心跳拉回來之類）不再滑一次
+    function _drawerHtml(r) {
+        const id = r ? r.id : '__new__';
+        const title = r ? '房門登記 · ' + _esc(r.name) : '新住戶登記';
+        const fresh = _drawerFresh ? ' is-fresh' : '';
+        _drawerFresh = false;
+        return '<div class="dorm-drawer' + fresh + '" data-for="' + _esc(id) + '">'
+            + '<div class="dorm-drawer-shade"></div>'
+            + '<div class="dorm-clip" role="dialog" aria-label="' + title + '">'
+            + '<span class="dorm-clip-clamp" aria-hidden="true"></span>'
+            + '<span class="dorm-clip-pen" aria-hidden="true"></span>'
+            + '<div class="dorm-clip-paper">'
+            + '<div class="dorm-clip-head"><span class="dorm-clip-title">' + title + '</span>'
+            + '<button type="button" class="dorm-clip-close" title="收起來"><i class="fa-solid fa-xmark"></i></button></div>'
+            + _formHtml(r)
+            + '</div></div></div>';
+    }
+
+    function _render() {
+        if (!_el) return;
+        const CT = _CT();
+        const all = (CT && typeof CT.listResidents === 'function') ? CT.listResidents() : [];
+        const newOpen = _editing === '__new__' ? ' dorm-editing' : '';
+        let h = '<div class="dorm-list">';
+        let boxOpened = false;
+        try { boxOpened = localStorage.getItem('xiaoji_box_opened') === '1'; } catch (e) {}
+        // 群聊 11-04 收掉了（留言板直接當群聊用）：
+        //   門卡不畫；要緊的事住戶在留言板開臨時群聊。舊的聊天紀錄留在走廊「舊群聊」，只能看。
+        const oldGroup = all.find(r => r && r.provider === 'group');
+        const people = all.filter(r => r && r.provider !== 'group');
+        const colors = _doorColors(people);
+        // 一層幾間看窗多寬：電腦那種寬窗三間、手機窄窗兩間（11-09；
+        //   手機寬度塞三扇門，門和門牌會小到看不清楚）。名冊前面的住頂樓（圖上丹在最上面），樓層號由下往上數
+        const per = _perFloor();
+        _perNow = per;
+        const floors = Math.ceil(people.length / per);
+        // 樓層自己捲；公共區不跟著捲，一直在窗的最底下（11-09：不用捲到底才看得到公共區）
+        h += '<div class="dorm-floors dorm-per' + per + '">';
+        // 頂樓上面的屋頂和天空（11-09：手機上宿舍會空一塊——住戶少、窗高的時候整棟樓坐在公共區上，
+        //   頂樓上面空出一大截深咖啡色）：空出來的那截是天空，屋頂貼在頂樓上；樓層多到要捲時只剩一條屋簷，不多佔位置
+        if (floors) h += '<div class="dorm-roof" aria-hidden="true"><span class="dorm-roof-sky"></span>'
+            + '<span class="dorm-roof-chimney"></span><span class="dorm-roof-tiles"><span class="dorm-roof-window"></span></span></div>';
+        for (let f = 0; f < floors; f++) {
+            const row = people.slice(f * per, f * per + per);
+            h += '<div class="dorm-floor dorm-f' + per + '"><span class="dorm-floor-sign">' + (floors - f) + 'F</span>';
+            row.forEach((r, i) => { h += _cardHtml(r, all, _sideOf(i, per), colors[r.id]); });
+            // 住不滿的那層空著的格子：放一扇窗，不讓房間孤零零撐滿整層
+            //   跟隔壁同一副骨架（看不見的門牌和門撐出一樣的高度），地板線才會跟隔壁接成一條
+            for (let k = row.length; k < per; k++) h += '<div class="dorm-room dorm-room-empty" aria-hidden="true"><div class="dorm-wall">'
+                + '<span class="dorm-plate dorm-ghost"><span>　</span></span><span class="dorm-leaf dorm-ghost"></span><span class="dorm-floorzone"></span>'
+                + '<span class="dorm-window"></span><span class="dorm-plant"><i class="fa-solid fa-seedling"></i></span></div></div>';
+            h += '</div>';
+        }
+        // 樓層捲不完（手機上常見）：底邊一顆往下的小木牌，點了捲到最底。剛好切在樓板上時整層藏起來，看起來像沒有那層
+        if (floors) h += '<button type="button" class="dorm-more" title="往下還有"><i class="fa-solid fa-chevron-down"></i></button>';
+        h += '</div>';
+        // 一樓公共區：留言板、遊戲室、新住戶（紙箱）＋底下一排小木牌（原本走廊那排，一顆都沒少）
+        h += '<div class="dorm-floor dorm-common"><span class="dorm-floor-sign">公共區</span>'
+            + '<button type="button" class="dorm-hall-btn dorm-hall-board" data-panel="board">'
+            +   '<span class="dorm-plate"><span>留言板</span></span>'
+            +   '<span class="dorm-cork"><i></i><i></i><i></i></span></button>'
+            // 遊戲室：住戶醒來自己約棋、輪到誰走一步（GameRoom，橋 /v1/games）
+            + '<button type="button" class="dorm-hall-btn dorm-hall-games" data-panel="games">'
+            +   '<span class="dorm-plate"><span>遊戲室</span></span>'
+            +   '<span class="dorm-leaf dorm-leaf-games"><i class="fa-solid fa-gamepad"></i><span class="dorm-knob"></span></span></button>'
+            + '<div class="dorm-card dorm-new' + newOpen + '" data-id="__new__">'
+            +   '<div class="dorm-room"><button type="button" class="dorm-door dorm-door-new">'
+            +   '<span class="dorm-crate" title="再請一位進來住"><span class="dorm-name">新住戶</span></span>'
+            +   '</button></div>'
+            + '</div>'
+            // 公共區的地板：留言板掛牆上，遊戲室的門和紙箱站在這條地板線上，小木牌擺在地板上
+            + '<div class="dorm-common-floor" aria-hidden="true"></div>'
+            + '<div class="dorm-signs">'
+            + '<button type="button" class="dorm-hall-btn dorm-sign" data-panel="spend"><i class="fa-solid fa-coins"></i><span>額度</span></button>'
+            // 帶小機回來：羽毛筆那本匯出的檔（換電腦、從酒館搬到手機版）。要奧瑞亞新版才有（OS_XIAOJI_MEM）
+            + (_XJ() && _MEM() ? '<button type="button" class="dorm-hall-btn dorm-sign" data-act="xj-import"><i class="fa-solid fa-file-import"></i><span>帶小機回來</span></button>' : '')
+            + (oldGroup ? '<button type="button" class="dorm-hall-btn dorm-sign" data-act="old-group" data-id="' + _esc(oldGroup.id) + '"><i class="fa-solid fa-box-archive"></i><span>舊群聊</span></button>' : '')
+            + '</div>';
+        // 404 寄來的箱子（還沒領養過小機才有）：擺在公共區最底下、會晃的包裹
+        if (_XJ() && !boxOpened && !all.some(r => r && r.provider === 'xiaoji')) {
+            h += '<div class="dorm-card dorm-box" data-id="__box__"><button type="button" class="dorm-door dorm-door-box">'
+               + '<span class="dorm-face dorm-face-icon dorm-face-box"><i class="fa-solid fa-box"></i></span>'
+               + '<span class="dorm-who"><span class="dorm-name">404 寄來的箱子</span><span class="dorm-sub">裡面有東西在動</span></span>'
+               + '<i class="fa-solid fa-chevron-right dorm-go"></i></button></div>';
+        }
+        h += '</div></div>';
+        if (_editing) {
+            const er = _editing === '__new__' ? null : all.find(x => x && x.id === _editing);
+            if (_editing === '__new__' || er) h += _drawerHtml(er);
+        }
+        // 重畫前記住樓層捲到哪（心跳拉回來、改完住戶都會整頁重畫，不要一畫就跳回最上面）
+        const oldFloors = _el.querySelector('.dorm-floors');
+        const keepTop = oldFloors ? oldFloors.scrollTop : 0;
+        _el.innerHTML = h;
+        const nf = _el.querySelector('.dorm-floors');
+        if (nf) {
+            if (keepTop) nf.scrollTop = keepTop;
+            const more = nf.querySelector('.dorm-more');
+            const sync = () => nf.classList.toggle('has-more', nf.scrollTop + nf.clientHeight < nf.scrollHeight - 4);
+            nf.addEventListener('scroll', sync, { passive: true });
+            if (more) more.addEventListener('click', () => nf.scrollTo({ top: nf.scrollHeight, behavior: 'smooth' }));
+            sync();
+            requestAnimationFrame(sync);   // 頭像圖載進來、字型換好之後高度會變，下一格再量一次
+            _moreSync = sync;
+        }
+        _watchWidth();
+        _bind();
+        // 誰有沒看過的「想跟妳說的」：門卡上點一顆（在他房間的紀錄裡）
+        if (window.RoomNotebook && typeof window.RoomNotebook.markDoors === 'function') window.RoomNotebook.markDoors(_el);
+        // 誰醒來傳了訊息、妳還沒進他房間：頭像旁一顆紅點（20 秒內重畫不重打橋）
+        _wakePeek(false).then(latest => _wakeApply(latest));
+    }
+
+    function _disarmDelete() {
+        if (_delTimer) { clearTimeout(_delTimer); _delTimer = null; }
+        _delArmed = null;
+    }
+
+    /** 帶小機回來：選羽毛筆那本匯出的檔 → 奧瑞亞寫回記憶、對話、存檔 → 這裡寫回名冊與對話清單。
+     *  已經住著同一隻：先問要不要整隻蓋掉；不要的話，問要不要當成另一隻（換新的編號，兩隻都在） */
+    function _xjImport() {
+        const f = document.createElement('input');
+        f.type = 'file';
+        f.accept = 'application/json,.json';
+        f.addEventListener('change', async () => {
+            const file = f.files && f.files[0];
+            if (!file) return;
+            const M = _MEM(), CT = _CT(), A = window.AUI || (window.parent && window.parent.AUI);
+            const say = (t, type) => { if (A && A.toast) A.toast(t, { type: type || 'info' }); };
+            try {
+                const data = JSON.parse(await file.text());
+                if (!data || data.kind !== 'aurelia-xiaoji' || !data.resident) throw new Error('這不是小機的檔案');
+                const name = data.resident.name || '小機';
+                const exists = CT.listResidents().some(r => r.id === data.resident.id);
+                let asNew = false;
+                if (exists) {
+                    const over = A && A.confirm ? await A.confirm('「' + name + '」已經住在宿舍了。要用檔案裡的整隻蓋掉現在這隻嗎？', { okText: '蓋掉', cancelText: '不要', danger: true }) : false;
+                    if (!over) {
+                        asNew = A && A.confirm ? await A.confirm('那要把檔案裡的「' + name + '」當成另一隻帶回來嗎？（兩隻都會在）', { okText: '帶回來', cancelText: '算了' }) : false;
+                        if (!asNew) return;
+                    }
+                }
+                // 整隻蓋掉：原本那隻的會話編號一起給，那幾串的舊聊天摘要奧瑞亞那邊會清（10-19 以前留孤兒）
+                const oldConvs = exists && !asNew && CT.xiaojiConvList ? CT.xiaojiConvList(data.resident.id).map(c => c.id) : [];
+                const r = await M.importOne(data, { asNew, oldConvs });
+                if (!CT.restoreXiaoji(Object.assign({}, r, { replace: exists && !asNew }))) throw new Error('名冊寫不進去');
+                say('「' + name + '」回來了', 'success');
+                _render();
+            } catch (e) {
+                // 壞掉的檔（不是 JSON）以前把瀏覽器的原文（SyntaxError: Unexpected token…）直接秀出來
+                say('沒帶回來：' + (e && e.name === 'SyntaxError' ? '這個檔讀不出來，不是完整的小機檔' : ((e && e.message) || e)), 'error');
+            }
+        });
+        f.click();
+    }
+
+    function _bind() {
+        const x = _el.querySelector('.dorm-x');   // 嵌進主窗之後就沒有這顆了
+        if (x) x.addEventListener('click', DormPanel.close);
+        const imp = _el.querySelector('[data-act="xj-import"]');
+        if (imp) imp.addEventListener('click', _xjImport);
+        const og = _el.querySelector('[data-act="old-group"]');
+        if (og) og.addEventListener('click', () => _enter(og.dataset.id));
+
+        _el.querySelectorAll('.dorm-card').forEach(card => {
+            const id = card.dataset.id;
+            const door = card.querySelector('.dorm-door');
+            const pen = card.querySelector('.dorm-pen');
+            const wake = card.querySelector('.dorm-wake');
+            if (id === '__box__') {
+                door.addEventListener('click', () => {
+                    if (window.XiaojiTrain) window.XiaojiTrain.mode = 'box';
+                    const CW = window.ChatWindow;
+                    if (CW && CW.openSubPanel) CW.openSubPanel('xiaoji_box');
+                });
+                return;
+            }
+            const train = card.querySelector('.dorm-train');
+            if (train) train.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (window.XiaojiTrain) window.XiaojiTrain.target = id;
+                const CW = window.ChatWindow;
+                if (CW && CW.openSubPanel) CW.openSubPanel('xiaoji_train');
+            });
+
+            if (wake) {
+                wake.addEventListener('click', async (e) => {
+                    e.stopPropagation();   // 別讓點擊冒到門上把房間開起來
+                    const CT = _CT();
+                    const r = CT && typeof CT.getResident === 'function' ? CT.getResident(id) : null;
+                    if (!r || wake.dataset.busy) return;
+                    const want = !wake.classList.contains('waking');
+                    // 先反應再送：她點下去要當場看到變化，不然會以為沒吃到。
+                    // 失敗再撥回來 —— 撥回去比一直轉圈更誠實。
+                    wake.dataset.busy = '1';
+                    wake.classList.toggle('waking', want);
+                    const res = await _hbSet(r, want);
+                    delete wake.dataset.busy;
+                    if (!res.ok) {
+                        wake.classList.toggle('waking', !want);
+                        wake.title = res.msg || '沒設定成';
+                        return;
+                    }
+                    await _hbLoad();
+                    _render();   // 重畫拿到「上次醒來多久前」
+                });
+            }
+
+            if (id === '__new__') {
+                door.addEventListener('click', () => { _toggleEdit('__new__'); });
+            } else {
+                door.addEventListener('click', () => { _enter(id); });
+                if (pen) pen.addEventListener('click', (e) => { e.stopPropagation(); _toggleEdit(id); });
+            }
+
+            const form = (_editing === id) ? _el.querySelector('.dorm-drawer[data-for="' + id + '"] .dorm-form') : null;
+            if (!form) return;
+            const nameIn = form.querySelector('.dorm-in-name');
+            const modelIn = form.querySelector('.dorm-in-model');
+            const hint = form.querySelector('.dorm-hint');
+            const save = form.querySelector('.dorm-save');
+            const del = form.querySelector('.dorm-del');
+
+            form.addEventListener('click', (e) => e.stopPropagation());
+            form.querySelectorAll('.dorm-mode-btn').forEach(b => {
+                b.addEventListener('click', () => {
+                    form.querySelectorAll('.dorm-mode-btn').forEach(x => x.classList.remove('active'));
+                    b.classList.add('active');
+                });
+            });
+            form.querySelectorAll('.dorm-xj-th').forEach(b => b.addEventListener('click', () => {
+                form.querySelectorAll('.dorm-xj-th').forEach(x => x.classList.remove('active'));
+                b.classList.add('active');
+            }));
+            _xjBindPicker(form);
+            form.querySelectorAll('.dorm-perm-btn').forEach(b => {
+                b.addEventListener('click', async () => {
+                    if (b.dataset.busy) return;
+                    // 先反應再送，失敗撥回來（跟心跳鈕同一招）
+                    const want = !b.classList.contains('active');
+                    b.dataset.busy = '1';
+                    b.classList.toggle('active', want);
+                    const perm = {};
+                    form.querySelectorAll('.dorm-perm-btn').forEach(x => { perm[x.dataset.g] = x.classList.contains('active'); });
+                    const res = await _permSet(id, perm);
+                    delete b.dataset.busy;
+                    if (!res.ok) {
+                        b.classList.toggle('active', !want);
+                        hint.textContent = res.msg || '沒改成';
+                        return;
+                    }
+                    hint.textContent = Object.values(perm).some(Boolean) ? '' : '全都沒勾：他用不到奧瑞亞的工具';
+                });
+            });
+            nameIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') save.click(); });
+            nameIn.addEventListener('input', () => {
+                nameIn.classList.remove('dorm-warn');
+                hint.textContent = '';
+            });
+
+            save.addEventListener('click', () => {
+                const CT = _CT();
+                if (!CT) return;
+                const name = nameIn.value.trim();
+                if (!name) {
+                    nameIn.classList.add('dorm-warn');
+                    hint.textContent = '先給他一個名字';
+                    nameIn.focus();
+                    return;
+                }
+                const modeBtn = form.querySelector('.dorm-mode-btn.active');
+                const chatOnly = !!(modeBtn && modeBtn.dataset.mode === 'chat');
+                const daily = !!(modeBtn && modeBtn.dataset.mode === 'daily');
+                if (id === '__new__') {
+                    CT.saveResident({ name: name, provider: 'claude',
+                                      modelId: modelIn ? modelIn.value : '', chatOnly: chatOnly, daily: daily });
+                } else {
+                    const before = CT.getResident(id);
+                    const oldName = before ? before.name : '';
+                    CT.saveResident({ id: id, name: name,
+                                      modelId: modelIn ? modelIn.value : undefined,
+                                      chatOnly: modeBtn ? chatOnly : undefined,
+                                      daily: modeBtn ? daily : undefined });
+                    // 在席的人改了名，桌上其他人要知道 —— 不然逐字稿的講者前綴會無聲換人
+                    if (oldName && oldName !== name && CT.isGroupSeated(id)
+                        && window.ChatGroup && typeof window.ChatGroup.announceRename === 'function') {
+                        window.ChatGroup.announceRename(oldName, name, true);   // 她改的
+                    }
+                    if (before && before.provider === 'xiaoji' && _XJ()) {
+                        const conn = form.querySelector('.dorm-in-conn'), mk = form.querySelector('.dorm-in-makeconn'), tc = form.querySelector('.dorm-in-tidyconn'), cap = form.querySelector('.dorm-in-cap'), th = form.querySelector('.dorm-xj-th.active');
+                        const body = form.querySelector('.dorm-xj-body.active');
+                        const patch = {};
+                        if (conn) patch.conn = conn.value;
+                        if (mk) patch.makeConn = mk.value;
+                        if (tc) patch.tidyConn = tc.value;
+                        if (cap) patch.cap = parseInt(cap.value, 10);
+                        if (th) patch.theater = th.dataset.th === '1';
+                        if (body) patch.body = body.dataset.body;
+                        // 換了樣子：開著的那間房間跟著換
+                        _XJ().save(id, patch).then(_xjLoad).then(_render).then(() => {
+                            if (window.ChatWindow && typeof window.ChatWindow.refreshDecor === 'function') window.ChatWindow.refreshDecor();
+                        }).catch(e => {
+                            // 存不進去（空間滿之類）：以前吞掉、編輯列照樣收起來，看起來像存好了
+                            const A = window.AUI || (window.parent && window.parent.AUI);
+                            if (A && A.toast) A.toast('小機的設定沒存成：' + ((e && e.message) || e), { type: 'error' });
+                        });
+                    }
+                    _syncOpenRoom(id);
+                }
+                _editing = null;
+                _disarmDelete();
+                _render();
+            });
+
+            if (del) {
+                del.addEventListener('click', () => {
+                    const CT = _CT();
+                    if (!CT) return;
+                    // 原生確認框會被瀏覽器擋掉，改成按兩下：三秒沒動作就當她反悔
+                    if (_delArmed !== id) {
+                        _disarmDelete();
+                        _delArmed = id;
+                        del.classList.add('dorm-armed');
+                        del.innerHTML = '<i class="fa-solid fa-box-archive"></i> 真的？再按一次';
+                        _delTimer = setTimeout(() => {
+                            _disarmDelete();
+                            del.classList.remove('dorm-armed');
+                            del.innerHTML = '<i class="fa-solid fa-box-archive"></i> 請他搬走';
+                        }, 3000);
+                        return;
+                    }
+                    _disarmDelete();
+                    // 名字跟在席狀態要在刪之前抓 —— 刪完就查不到了
+                    const gone = CT.getResident(id);
+                    const wasSeated = typeof CT.isGroupSeated === 'function' && CT.isGroupSeated(id);
+                    const removed = CT.deleteResident(id);
+                    // 小機搬走：存檔、它的會話（本機與橋上）、每串的舊聊天摘要一起收掉（以前只刪存檔，對話留成沒人開得到的孤兒）
+                    if (removed && gone && gone.provider === 'xiaoji') {
+                        (async () => {
+                            let convs = [];
+                            try { if (typeof CT.dropResidentConvs === 'function') convs = await CT.dropResidentConvs(id, 'xiaoji'); } catch (_) {}
+                            try { if (_XJ()) await _XJ().remove(id, convs); } catch (_) {}
+                        })();
+                    }
+                    if (removed && window.ChatGroup
+                        && typeof window.ChatGroup.noteResidentRemoved === 'function') {
+                        window.ChatGroup.noteResidentRemoved(id, gone ? gone.name : '', wasSeated);
+                    }
+                    _editing = null;
+                    _render();
+                });
+            }
+            setTimeout(() => { try { nameIn.focus({ preventScroll: true }); } catch (_) {} }, 260);
+        });
+
+        _el.querySelectorAll('.dorm-hall-btn').forEach(b => {
+            b.addEventListener('click', () => _enterHall(b.dataset.panel));
+        });
+
+        // 房門登記抽屜：點灰底、右上 ✕ 收回去
+        const dr = _el.querySelector('.dorm-drawer');
+        if (dr) {
+            const shut = () => _closeDrawer(dr);
+            dr.querySelector('.dorm-drawer-shade').addEventListener('click', shut);
+            dr.querySelector('.dorm-clip-close').addEventListener('click', shut);
+        }
+    }
+
+    function _toggleEdit(id) {
+        _editing = (_editing === id) ? null : id;
+        _drawerFresh = !!_editing;
+        _disarmDelete();
+        _render();
+    }
+
+    /** 收抽屜：先往下滑（約 0.18 秒），滑完才重畫。存好、搬走那兩條照舊當場收（不播） */
+    function _closeDrawer(dr) {
+        if (!dr || dr.classList.contains('is-closing')) return;
+        dr.classList.add('is-closing');
+        setTimeout(() => {
+            if (!_editing || !dr.isConnected) return;
+            _editing = null;
+            _disarmDelete();
+            _render();
+        }, 180);
+    }
+
+    /** 改名字的時候房間正開著，順手把標題列換掉 */
+    function _syncOpenRoom(id) {
+        const CT = _CT();
+        const CW = window.ChatWindow;
+        if (!CT || !CW || typeof CW.refreshIdentity !== 'function') return;
+        const r = CT.getResident(id);
+        if (r && typeof CT.getActiveResidentId === 'function' && CT.getActiveResidentId(r.provider) === id) {
+            CW.refreshIdentity();
+        }
+    }
+
+    /** 防連點只鎖一下下，不跟房間載得快不快綁在一起——
+     *  群聊房載入要等網路，鎖在那邊等於整個面板從此點不動。 */
+    function _armOpening() {
+        _opening = true;
+        setTimeout(() => { _opening = false; }, 600);
+    }
+
+    function _enter(id) {
+        const CT = _CT();
+        const CW = window.ChatWindow;
+        if (!CT || !CW || _opening) return;
+        const r = CT.getResident(id);
+        if (!r) return;
+        _armOpening();
+        CT.setActiveResident(r.id);
+        // 就地換頁 —— 以前這裡是關掉宿舍浮層、再開一個房間浮窗，
+        // 兩個窗各自定位，畫面上就成了兩塊各飄各的東西。
+        Promise.resolve(CW.showRoom(r.provider)).catch(e => console.warn('[DormPanel] 進房失敗', e));
+    }
+
+    function _enterHall(panel) {
+        const CW = window.ChatWindow;
+        if (!CW || _opening) return;
+        _armOpening();
+        // 走廊那兩個（留言板／額度）是主窗的子面板，窗已經開著，直接疊上去就好。
+        // 不必先把房間讀起來 —— 那會多等好幾秒（進過群聊之後特別慢），而且看完子面板
+        // 按「‹ 返回」本來就該回到宿舍，不是掉進某個房間。
+        if (typeof CW.openSubPanel === 'function') CW.openSubPanel(panel);
+    }
+
+    /**
+     * 把門卡畫進主窗的宿舍頁。以前 DormPanel 自己造一個 #ccr-dorm 浮層、自己算座標、
+     * 自己處理「點外面關掉」—— 那套整組拿掉了，現在它只負責內容。
+     */
+    // 留言板（朋友圈樣）的頭像跟門卡同一套，不另外養一份
+    DormPanel.faceHtml = _faceHtml;
+    // 群成員格也用同一份打扮小圖；房間裡他換了打扮就叫 forgetLooks 重拿
+    DormPanel.lookSrc = _lookSrc;
+    DormPanel.forgetLooks = function () { _looksAt = 0; return _loadLooks(true); };
+    // 奧瑞亞 SN 32 樓白板：值班的人要畫成他現在的打扮（站場景那張還要描框，所以給衣服、不給裁好的小圖）
+    DormPanel.wearOf = function (rid) { return _wearOf(String(rid || '')).catch(() => null); };
+
+    DormPanel.renderInto = function (container) {
+        if (!container) return;
+        _el = container;
+        _editing = null;
+        _disarmDelete();
+        _render();
+        // 心跳狀態在橋那邊，拉回來之後再畫一次。先畫是刻意的：宿舍不能等網路，
+        // 拉不到就維持「全部關著」的樣子，而不是卡在空白。
+        Promise.all([_hbLoad(), _permLoad(), _xjLoad()]).then(function () { if (_el === container) _render(); });
+    };
+
+    // 以下三支保留原本的名字（輸入列那顆鈕、手機浮球、斜線命令都在叫它們），
+    // 但實作全部轉給主窗 —— 宿舍已經是主窗的一頁，不是獨立的東西。
+    DormPanel.open = function () {
+        const CW = window.ChatWindow;
+        if (CW && typeof CW.openDorm === 'function') CW.openDorm();
+    };
+
+    DormPanel.toggle = function () {
+        const CW = window.ChatWindow;
+        if (!CW) return;
+        // 已經開著而且正停在宿舍頁 → 收起來；其他情況一律帶她回宿舍
+        if (typeof CW.isOpen === 'function' && CW.isOpen()
+            && typeof CW.getView === 'function' && CW.getView() === 'dorm') {
+            CW.close();
+        } else if (typeof CW.openDorm === 'function') {
+            CW.openDorm();
+        }
+    };
+
+    DormPanel.close = function () {
+        const CW = window.ChatWindow;
+        if (CW && typeof CW.close === 'function') CW.close();
+    };
+
+    DormPanel.isOpen = function () {
+        const CW = window.ChatWindow;
+        return !!(CW && typeof CW.isOpen === 'function' && CW.isOpen()
+                  && typeof CW.getView === 'function' && CW.getView() === 'dorm');
+    };
+
+    /** 住戶名字改了、正停在宿舍頁就重畫 */
+    DormPanel.refresh = function () {
+        if (DormPanel.isOpen() && _el) _render();
+    };
+
+    /** 小機學了新的課、剛領養：重讀它的存檔再畫 */
+    DormPanel.refreshXiaoji = function () { return _xjLoad().then(() => DormPanel.refresh()); };
+
+    /** 🔴 有沒有住戶醒來傳訊息、她還沒看：開頁後、開著時每幾分鐘、回到畫面時叫（index.js）。回還沒看的住戶 id */
+    DormPanel.checkWakeMessages = function (force) {
+        return _wakePeek(!!force).then(latest => _wakeApply(latest));
+    };
+    /** 進他房間就算看過（chat_window 的 _loadRoom，所有進房的路都走那裡）：重問一次橋，免得拿 20 秒前那份記 */
+    DormPanel.markWakeSeen = function (rid) {
+        rid = String(rid || '');
+        if (!rid) return Promise.resolve([]);
+        return _wakePeek(true).then(latest => _wakeApply(latest, rid));
+    };
+
+    console.log('[DormPanel] 宿舍面板已載入');
+
+})(window.DormPanel = window.DormPanel || {});

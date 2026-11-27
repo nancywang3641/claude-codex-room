@@ -1,0 +1,536 @@
+/* ============================================================
+ * css/xiaoji_memory.css — 小機「它記得的事」（core/xiaoji_memory.js，子面板 xiaoji_memory）
+ * 最上面一張「它是什麼樣的」卡，再來一張橫線紙（它記得的事，一行一條），下面「更早的聊天」一節一張卡。配色跟「紀錄」記事本同一套。
+ * class 一律 xjm- 開頭、掛在 #aurelia-chat-window 底下（別用菜市場名，酒館全域樣式會蓋過來）。
+ * ============================================================ */
+#aurelia-chat-window .xjm-wrap {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    background: #f4f6fb;
+    color: #1f3a68;
+}
+#aurelia-chat-window .xjm-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 12px 12px 18px;
+}
+#aurelia-chat-window .xjm-msg {
+    padding: 40px 0;
+    text-align: center;
+    color: #6a7fa6;
+    font-size: 13px;
+}
+
+/* ---- 最上面：它是什麼樣的（她領養時寫的那段，點筆改） ---- */
+#aurelia-chat-window .xjm-about {
+    margin: 0 0 12px;
+    padding: 10px 12px;
+    border: 1px solid rgba(42, 74, 128, 0.14);
+    border-radius: 12px;
+    background: #ffffff;
+    box-shadow: 0 1px 5px rgba(31, 58, 104, 0.07);
+}
+#aurelia-chat-window .xjm-about.is-edit {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+#aurelia-chat-window .xjm-about-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 22px;
+}
+#aurelia-chat-window .xjm-about-head .xjm-ic { margin: -4px -6px -4px 0; }
+#aurelia-chat-window .xjm-about-ttl {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: #2a4a80;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+#aurelia-chat-window .xjm-about-ttl > i { color: #6a7fa6; margin-right: 2px; }
+#aurelia-chat-window .xjm-about-txt {
+    margin-top: 4px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #2a3f66;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+#aurelia-chat-window .xjm-about-txt.is-empty { color: #9aaacb; }
+#aurelia-chat-window .xjm-about .xjm-flash { margin-top: 0; }
+
+/* ---- 橫線紙：它記得的事 ---- */
+#aurelia-chat-window .xjm-paper {
+    position: relative;
+    padding: 12px 12px 10px 18px;
+    border: 1px solid rgba(185, 146, 79, 0.35);
+    border-radius: 12px;
+    background: #fffdf7;
+    box-shadow: 0 1px 5px rgba(31, 58, 104, 0.07);
+}
+/* 左邊一條紅色邊線，像筆記本的裝訂線 */
+#aurelia-chat-window .xjm-paper::before {
+    content: '';
+    position: absolute;
+    left: 10px;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: rgba(214, 120, 120, 0.35);
+    pointer-events: none;
+}
+#aurelia-chat-window .xjm-paper-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 0 0 8px 6px;
+    border-bottom: 1px solid rgba(185, 146, 79, 0.3);
+}
+#aurelia-chat-window .xjm-paper-ttl {
+    flex: 1;
+    min-width: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #2a4a80;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+#aurelia-chat-window .xjm-paper-ttl > i { color: #b9924f; margin-right: 2px; }
+#aurelia-chat-window .xjm-count {
+    flex-shrink: 0;
+    font-size: 11.5px;
+    color: #8a9bbd;
+}
+#aurelia-chat-window .xjm-lines { padding: 2px 0 0; }
+#aurelia-chat-window .xjm-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 7px 0 7px 6px;
+    border-bottom: 1px dashed rgba(42, 74, 128, 0.14);
+}
+#aurelia-chat-window .xjm-dot {
+    flex-shrink: 0;
+    width: 6px;
+    height: 6px;
+    margin-top: 7px;
+    border-radius: 50%;
+    background: #b9924f;
+}
+#aurelia-chat-window .xjm-txt {
+    flex: 1;
+    min-width: 0;
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: #1f3a68;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+#aurelia-chat-window .xjm-when {
+    flex-shrink: 0;
+    margin-top: 2px;
+    font-size: 11px;
+    color: #9aaacb;
+}
+#aurelia-chat-window .xjm-ic {
+    flex-shrink: 0;
+    min-width: 30px;
+    height: 30px;
+    margin-top: -4px;
+    padding: 0 6px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: #8a9bbd;
+    font: inherit;
+    font-size: 12.5px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+#aurelia-chat-window .xjm-ic:hover { background: rgba(42, 74, 128, 0.07); color: #2a4a80; }
+#aurelia-chat-window .xjm-ic.is-armed {
+    background: #fbeaea;
+    color: #b23b3b;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+/* 改字／新的一條：同一行展開成打字框，不換頁 */
+#aurelia-chat-window .xjm-note.is-edit {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+}
+#aurelia-chat-window .xjm-input {
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 56px;
+    padding: 8px 10px;
+    border: 1px solid rgba(185, 146, 79, 0.55);
+    border-radius: 8px;
+    background: #ffffff !important;
+    color: #1f3a68 !important;
+    font: inherit;
+    font-size: 13.5px;
+    line-height: 1.5;
+    resize: vertical;
+    outline: none;
+    box-shadow: none;
+}
+#aurelia-chat-window .xjm-input:focus { border-color: #b9924f; }
+#aurelia-chat-window .xjm-edit-acts {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+#aurelia-chat-window .xjm-btn {
+    height: 32px;
+    padding: 0 14px;
+    border: 1px solid rgba(42, 74, 128, 0.22);
+    border-radius: 16px;
+    background: #ffffff;
+    color: #2a4a80;
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+}
+#aurelia-chat-window .xjm-btn.is-main {
+    border-color: #2a4a80;
+    background: #2a4a80;
+    color: #ffffff;
+}
+#aurelia-chat-window .xjm-add {
+    width: 100%;
+    height: 38px;
+    margin-top: 10px;
+    border: 1px dashed rgba(185, 146, 79, 0.6);
+    border-radius: 10px;
+    background: transparent;
+    color: #8a6a2f;
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+}
+#aurelia-chat-window .xjm-add:hover { background: rgba(185, 146, 79, 0.08); }
+#aurelia-chat-window .xjm-add:disabled { color: #a9b4cc; border-color: rgba(42, 74, 128, 0.18); cursor: default; background: transparent; }
+#aurelia-chat-window .xjm-flash {
+    margin-top: 8px;
+    font-size: 12px;
+    color: #b23b3b;
+}
+
+/* 空的時候 */
+#aurelia-chat-window .xjm-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 22px 8px 14px;
+    text-align: center;
+    color: #8a9bbd;
+    font-size: 13px;
+    line-height: 1.55;
+}
+#aurelia-chat-window .xjm-empty > i { font-size: 22px; color: #c9b083; }
+#aurelia-chat-window .xjm-empty.is-soft {
+    padding: 10px 4px;
+    font-size: 12.5px;
+}
+
+/* ---- 更早的聊天：一節一張卡 ---- */
+#aurelia-chat-window .xjm-sec-head {
+    margin: 18px 2px 8px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #46639b;
+}
+#aurelia-chat-window .xjm-sec-head > i { margin-right: 4px; color: #6a7fa6; }
+#aurelia-chat-window .xjm-node {
+    margin: 0 0 8px;
+    padding: 10px 12px 6px;
+    border: 1px solid rgba(42, 74, 128, 0.12);
+    border-left: 3px solid rgba(185, 146, 79, 0.7);
+    border-radius: 10px;
+    background: #ffffff;
+}
+#aurelia-chat-window .xjm-node-txt {
+    font-size: 13px;
+    line-height: 1.6;
+    color: #2a3f66;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+#aurelia-chat-window .xjm-node-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 4px;
+    font-size: 11px;
+    color: #9aaacb;
+}
+
+/* 房間圖右下：衣櫃左邊那顆（只有小機） */
+#aurelia-chat-window .cw-room-memo {
+    position: absolute;
+    right: 54px;
+    bottom: 10px;
+    z-index: 5;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid rgba(42, 74, 128, 0.3);
+    background: rgba(251, 252, 254, 0.88);
+    color: #1f3a68;
+    font-size: 15px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+#aurelia-chat-window .cw-room-memo[hidden] { display: none; }
+#aurelia-chat-window .cw-room-memo:hover { background: #ffffff; }
+
+/* ============================================================
+ * 10-06 三頁（記得的事／變成這樣／經歷簿）＋最上面那行狀態（記憶在奧瑞亞 OS_XIAOJI_MEM）
+ * ============================================================ */
+#aurelia-chat-window .xjm-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px 6px;
+    border-bottom: 1px solid rgba(42, 74, 128, 0.1);
+    background: #f4f6fb;
+}
+#aurelia-chat-window .xjm-tabs { flex: 1; min-width: 0; display: flex; gap: 6px; }
+#aurelia-chat-window .xjm-tab {
+    flex: 1;
+    min-width: 0;
+    height: 32px;
+    padding: 0 6px;
+    border: 1px solid rgba(42, 74, 128, 0.18);
+    border-radius: 16px;
+    background: #ffffff;
+    color: #46639b;
+    font: inherit;
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+}
+#aurelia-chat-window .xjm-tab.is-on { background: #2a4a80; border-color: #2a4a80; color: #ffffff; font-weight: 600; }
+#aurelia-chat-window .xjm-top-r { flex-shrink: 0; display: inline-flex; align-items: center; gap: 2px; }
+#aurelia-chat-window .xjm-top-r .xjm-ic { margin-top: 0; }
+
+/* 狀態那行 */
+#aurelia-chat-window .xjm-status:empty { display: none; }
+#aurelia-chat-window .xjm-status { padding: 6px 12px 4px; background: #f4f6fb; }
+#aurelia-chat-window .xjm-st-line {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: #46639b;
+    padding: 2px 0;
+}
+#aurelia-chat-window .xjm-st-line > i { color: #b9924f; width: 14px; text-align: center; }
+#aurelia-chat-window .xjm-st-line.is-soft { color: #7d8fb3; }
+#aurelia-chat-window .xjm-st-line.is-bad { color: #b23b3b; }
+#aurelia-chat-window .xjm-st-line.is-bad > i { color: #b23b3b; }
+#aurelia-chat-window .xjm-st-txt { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+#aurelia-chat-window .xjm-st-btn {
+    flex-shrink: 0;
+    height: 26px;
+    padding: 0 10px;
+    border: 1px solid rgba(42, 74, 128, 0.22);
+    border-radius: 13px;
+    background: #ffffff;
+    color: #2a4a80;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+#aurelia-chat-window .xjm-st-btn.is-armed { background: #fbeaea; border-color: #e3b3b3; color: #b23b3b; font-weight: 600; }
+#aurelia-chat-window .xjm-st-btn.is-on { background: #2a4a80; border-color: #2a4a80; color: #ffffff; }
+#aurelia-chat-window .xjm-st-list { margin: 2px 0 4px 20px; padding: 0; font-size: 12px; line-height: 1.6; color: #2a3f66; }
+#aurelia-chat-window .xjm-st-list li { overflow-wrap: anywhere; }
+#aurelia-chat-window .xjm-prog { display: block; width: 100%; height: 4px; margin: 2px 0 4px; accent-color: #b9924f; }
+
+/* 一條記憶：內容＋小字一行（種類・關於誰・日期、原話、改過幾次）＋右邊三顆 */
+#aurelia-chat-window .xjm-nbody { flex: 1; min-width: 0; }
+#aurelia-chat-window .xjm-acts { flex-shrink: 0; display: flex; gap: 0; }
+#aurelia-chat-window .xjm-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    margin-top: 2px;
+    font-size: 11.5px;
+    color: #8a9bbd;
+}
+#aurelia-chat-window .xjm-link {
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: #b9924f;
+    font: inherit;
+    font-size: 11.5px;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+}
+#aurelia-chat-window .xjm-chip {
+    padding: 0 6px;
+    border-radius: 8px;
+    background: rgba(185, 146, 79, 0.14);
+    color: #8a6a2f;
+    font-size: 11px;
+    line-height: 18px;
+}
+#aurelia-chat-window .xjm-chip.is-off { background: rgba(42, 74, 128, 0.08); color: #6a7fa6; }
+#aurelia-chat-window .xjm-src, #aurelia-chat-window .xjm-vers {
+    margin: 6px 0 2px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    background: rgba(185, 146, 79, 0.08);
+    font-size: 12px;
+    line-height: 1.6;
+    color: #4a5a78;
+}
+#aurelia-chat-window .xjm-vers { padding-left: 26px; }
+#aurelia-chat-window .xjm-src-line { overflow-wrap: anywhere; }
+#aurelia-chat-window .xjm-src-d { margin-right: 6px; color: #9aaacb; font-size: 11px; }
+#aurelia-chat-window .xjm-dot.is-promise { background: #2a4a80; }
+#aurelia-chat-window .xjm-note.is-off .xjm-txt { color: #8a9bbd; }
+#aurelia-chat-window .xjm-txt.is-struck { color: #8a9bbd; text-decoration: line-through; }
+#aurelia-chat-window .xjm-hint { font-size: 11.5px; color: #8a9bbd; }
+#aurelia-chat-window .xjm-paper.is-second { margin-top: 12px; }
+#aurelia-chat-window .xjm-paper.is-second .xjm-paper-ttl > i { color: #6a7fa6; }
+#aurelia-chat-window .xjm-paper.is-off { background: #f8f9fc; border-color: rgba(42, 74, 128, 0.12); }
+#aurelia-chat-window .xjm-paper.is-off::before { display: none; }
+#aurelia-chat-window .xjm-pick { display: flex; flex-wrap: wrap; gap: 6px; }
+#aurelia-chat-window .xjm-pick-b {
+    height: 28px;
+    padding: 0 10px;
+    border: 1px solid rgba(185, 146, 79, 0.5);
+    border-radius: 14px;
+    background: #ffffff;
+    color: #8a6a2f;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+#aurelia-chat-window .xjm-pick-b.is-on { background: #b9924f; border-color: #b9924f; color: #ffffff; }
+#aurelia-chat-window .xjm-btn.is-danger { border-color: #b23b3b; background: #b23b3b; color: #ffffff; }
+#aurelia-chat-window .xjm-btn:disabled { opacity: 0.45; cursor: default; }
+
+/* 變成這樣：四欄 */
+#aurelia-chat-window .xjm-tsec { margin: 0 0 12px; }
+#aurelia-chat-window .xjm-tsec-head { margin: 4px 2px 6px; font-size: 13px; font-weight: 600; color: #2a4a80; }
+#aurelia-chat-window .xjm-tsec-head > i { margin-right: 4px; color: #b9924f; }
+#aurelia-chat-window .xjm-tnone { padding: 2px 4px 4px; font-size: 12px; color: #a9b4cc; }
+#aurelia-chat-window .xjm-trait {
+    margin: 0 0 8px;
+    padding: 10px 12px 6px;
+    border: 1px solid rgba(42, 74, 128, 0.12);
+    border-left: 3px solid #b9924f;
+    border-radius: 10px;
+    background: #ffffff;
+}
+#aurelia-chat-window .xjm-trait-txt { font-size: 13.5px; line-height: 1.55; color: #1f3a68; overflow-wrap: anywhere; }
+#aurelia-chat-window .xjm-trait-x { margin: 0 0 0 auto; height: 26px; min-width: 26px; }
+#aurelia-chat-window .xjm-gone { padding: 4px 4px 0; }
+#aurelia-chat-window .xjm-gone-line { display: flex; align-items: baseline; gap: 6px; padding: 3px 0; font-size: 12px; color: #8a9bbd; overflow-wrap: anywhere; }
+
+/* 經歷簿 */
+#aurelia-chat-window .xjm-life-head { display: flex; align-items: center; justify-content: space-between; margin: 0 2px 6px; }
+#aurelia-chat-window .xjm-day {
+    position: sticky;
+    top: -12px;
+    z-index: 1;
+    margin: 10px -12px 4px;
+    padding: 6px 14px;
+    background: #f4f6fb;
+    font-size: 12px;
+    font-weight: 600;
+    color: #46639b;
+}
+#aurelia-chat-window .xjm-ev {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 7px 4px;
+    border-bottom: 1px dashed rgba(42, 74, 128, 0.12);
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: #2a3f66;
+}
+#aurelia-chat-window .xjm-ev[data-act] { cursor: pointer; }
+#aurelia-chat-window .xjm-ev.is-sel { background: rgba(178, 59, 59, 0.06); }
+#aurelia-chat-window .xjm-ev.is-void .xjm-ev-body { color: #a9b4cc; }
+#aurelia-chat-window .xjm-ev-t { flex-shrink: 0; width: 38px; font-size: 11px; color: #9aaacb; padding-top: 1px; }
+#aurelia-chat-window .xjm-ev-ic { flex-shrink: 0; width: 14px; margin-top: 3px; font-size: 11.5px; color: #b9924f; text-align: center; }
+#aurelia-chat-window .xjm-ev-body { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+#aurelia-chat-window .xjm-ev-say > b { margin-right: 6px; font-weight: 600; color: #46639b; }
+#aurelia-chat-window .xjm-void { color: #a9b4cc; font-style: italic; }
+#aurelia-chat-window .xjm-check {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    margin-top: 1px;
+    border: 1.5px solid rgba(42, 74, 128, 0.35);
+    border-radius: 5px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: transparent;
+    font-size: 10px;
+}
+#aurelia-chat-window .xjm-check.is-on { background: #b23b3b; border-color: #b23b3b; color: #ffffff; }
+#aurelia-chat-window .xjm-check.is-na { visibility: hidden; }
+
+/* 經歷簿選了幾行：底下一條／確認 */
+#aurelia-chat-window .xjm-bar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid rgba(42, 74, 128, 0.14);
+    background: #ffffff;
+}
+#aurelia-chat-window .xjm-bar[hidden] { display: none; }
+#aurelia-chat-window .xjm-bar-txt { flex: 1; font-size: 13px; color: #46639b; }
+#aurelia-chat-window .xjm-confirm { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow-x: hidden; overflow-y: auto; }
+#aurelia-chat-window .xjm-confirm-ttl { font-size: 13px; font-weight: 600; color: #b23b3b; }
+#aurelia-chat-window .xjm-confirm-sub { font-size: 12px; color: #6a7fa6; }
+#aurelia-chat-window .xjm-confirm-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 6px 8px;
+    border: 1px solid rgba(42, 74, 128, 0.12);
+    border-radius: 8px;
+    background: #f8f9fc;
+    color: #2a3f66;
+    font: inherit;
+    font-size: 12.5px;
+    text-align: left;
+    cursor: pointer;
+    overflow-wrap: anywhere;
+}

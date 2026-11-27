@@ -1,0 +1,658 @@
+/* ============================================================
+ * css/notebook.css — 紀錄（core/notebook.js，子面板「紀錄」）
+ * 上面找字＋兩個分頁（記事本／相簿）；記事本是兩欄卡片牆（像 LINE 記事本），相簿是三格方塊、按月份分。
+ * 點開的單頁蓋在清單上，自己帶返回。長按對話那顆小窗、跳回去那則亮一下、收好了的小提示也在這裡。
+ * class 一律 nb- 開頭、掛在 #aurelia-chat-window 底下（別用菜市場名，酒館全域樣式會蓋過來）。
+ * ============================================================ */
+#aurelia-chat-window .nb-wrap {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    background: #f4f6fb;
+    color: #1f3a68;
+}
+
+/* ---- 上面：找字＋分頁 ---- */
+#aurelia-chat-window .nb-top {
+    flex-shrink: 0;
+    padding: 10px 12px 8px;
+    background: #fdfdfc;
+    border-bottom: 1px solid rgba(42, 74, 128, 0.1);
+}
+#aurelia-chat-window .nb-find {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 34px;
+    padding: 0 12px;
+    border-radius: 10px;
+    background: #eef2f9;
+    color: #6a7fa6;
+    font-size: 13px;
+    cursor: text;
+}
+#aurelia-chat-window .nb-q {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: #1f3a68;
+    font: inherit;
+    font-size: 13.5px;
+    padding: 0;
+    margin: 0;
+    box-shadow: none;
+}
+#aurelia-chat-window .nb-tabrow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+}
+#aurelia-chat-window .nb-tabrow[hidden] { display: none; }
+#aurelia-chat-window .nb-tabs {
+    flex: 1;
+    display: flex;
+    gap: 6px;
+}
+#aurelia-chat-window .nb-tab {
+    flex: 1;
+    padding: 7px 10px;
+    border: 1px solid rgba(42, 74, 128, 0.18);
+    border-radius: 8px;
+    background: #fff;
+    color: #2a4a80;
+    font: inherit;
+    font-size: 12.5px;
+    cursor: pointer;
+}
+#aurelia-chat-window .nb-tab.is-on { background: #e9eef7; border-color: #2a4a80; font-weight: 700; }
+#aurelia-chat-window .nb-help { flex-shrink: 0; }
+
+/* ---- 清單 ---- */
+#aurelia-chat-window .nb-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 12px 12px 84px;
+}
+#aurelia-chat-window .nb-msg {
+    padding: 40px 20px;
+    text-align: center;
+    font-size: 13px;
+    color: #46639b;
+}
+#aurelia-chat-window .nb-msg-s { padding: 14px 10px; font-size: 12.5px; }
+#aurelia-chat-window .nb-err {
+    margin-bottom: 10px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    background: #fbeee9;
+    color: #b5563f;
+    font-size: 12.5px;
+}
+#aurelia-chat-window .nb-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 56px 20px;
+    color: #46639b;
+    text-align: center;
+}
+#aurelia-chat-window .nb-empty > i { font-size: 30px; color: #b8c3d8; margin-bottom: 4px; }
+#aurelia-chat-window .nb-empty-t { font-size: 14px; font-weight: 700; color: #1f3a68; }
+#aurelia-chat-window .nb-empty-s { font-size: 12px; }
+
+/* 卡片牆：兩欄、高低交錯 */
+#aurelia-chat-window .nb-cards {
+    column-count: 2;
+    column-gap: 10px;
+}
+#aurelia-chat-window .nb-card {
+    display: inline-block;
+    width: 100%;
+    margin: 0 0 10px;
+    padding: 10px 11px;
+    break-inside: avoid;
+    border: 1px solid rgba(42, 74, 128, 0.14);
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 1px 4px rgba(31, 58, 104, 0.06);
+    color: #1f3a68;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+#aurelia-chat-window .nb-card:hover { border-color: rgba(42, 74, 128, 0.32); }
+#aurelia-chat-window .nb-card-prop {
+    background: #fbf8f1;
+    border-color: rgba(185, 146, 79, 0.42);
+}
+#aurelia-chat-window .nb-card-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    font-size: 11.5px;
+    color: #46639b;
+}
+#aurelia-chat-window .nb-card-head > i { font-size: 11px; color: #6a7fa6; }
+#aurelia-chat-window .nb-card-head-saved > i { color: #b9924f; }
+#aurelia-chat-window .nb-card-who {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 700;
+}
+#aurelia-chat-window .nb-card-who em {
+    margin-left: 4px;
+    font-style: normal;
+    font-weight: 400;
+    color: #8a6a33;
+}
+#aurelia-chat-window .nb-new {
+    flex-shrink: 0;
+    margin-left: auto;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: #b9924f;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+}
+#aurelia-chat-window .nb-card-pic {
+    position: relative;
+    margin-top: 8px;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #e3e8f2;
+}
+#aurelia-chat-window .nb-card-img {
+    display: block;
+    width: 100%;
+    max-height: 200px;
+    min-height: 60px;
+    object-fit: cover;
+}
+#aurelia-chat-window .nb-card-more {
+    position: absolute;
+    right: 6px;
+    bottom: 6px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: rgba(20, 32, 54, 0.7);
+    color: #fff;
+    font-size: 11px;
+}
+#aurelia-chat-window .nb-card-text {
+    margin-top: 6px;
+    font-size: 13px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-word;
+    display: -webkit-box;
+    -webkit-line-clamp: 7;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+#aurelia-chat-window .nb-card-foot {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+    font-size: 10.5px;
+    color: #8a99b6;
+}
+#aurelia-chat-window .nb-card-n { display: inline-flex; align-items: center; gap: 3px; }
+
+#aurelia-chat-window .nb-fab {
+    position: absolute;
+    right: 16px;
+    bottom: 16px;
+    z-index: 2;
+    width: 46px;
+    height: 46px;
+    border: none;
+    border-radius: 50%;
+    background: #2a4a80;
+    color: #fff;
+    font-size: 18px;
+    box-shadow: 0 4px 14px rgba(31, 58, 104, 0.35);
+    cursor: pointer;
+}
+#aurelia-chat-window .nb-fab[hidden] { display: none; }
+
+/* 圖：經橋拿的那種先墊一塊底色 */
+#aurelia-chat-window .nb-img-wait { background: #e3e8f2; min-height: 60px; }
+#aurelia-chat-window .nb-img-gone { opacity: 0.25; }
+
+/* ---- 相簿 ---- */
+#aurelia-chat-window .nb-mon {
+    margin: 4px 2px 8px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #46639b;
+    letter-spacing: 1px;
+}
+#aurelia-chat-window .nb-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+    margin-bottom: 14px;
+}
+#aurelia-chat-window .nb-tile {
+    display: block;
+    aspect-ratio: 1 / 1;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #e3e8f2;
+    cursor: pointer;
+}
+#aurelia-chat-window .nb-tile-img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+#aurelia-chat-window .nb-more {
+    display: block;
+    width: 100%;
+    padding: 9px;
+    border: 1px solid rgba(42, 74, 128, 0.2);
+    border-radius: 10px;
+    background: #fff;
+    color: #2a4a80;
+    font: inherit;
+    font-size: 12.5px;
+    cursor: pointer;
+}
+
+/* ---- 找字 ---- */
+#aurelia-chat-window .nb-sec {
+    margin: 4px 2px 8px;
+    font-size: 11.5px;
+    font-weight: 700;
+    color: #46639b;
+    letter-spacing: 1px;
+}
+#aurelia-chat-window .nb-sec span { font-weight: 400; letter-spacing: 0; }
+#aurelia-chat-window .nb-rows {
+    margin-bottom: 16px;
+    border-radius: 12px;
+    background: #fff;
+    border: 1px solid rgba(42, 74, 128, 0.12);
+    overflow: hidden;
+}
+#aurelia-chat-window .nb-row {
+    display: block;
+    width: 100%;
+    padding: 10px 12px;
+    border: none;
+    border-bottom: 1px solid rgba(42, 74, 128, 0.08);
+    background: transparent;
+    color: #1f3a68;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+#aurelia-chat-window .nb-row:last-child { border-bottom: none; }
+#aurelia-chat-window .nb-row:hover { background: #f6f8fc; }
+#aurelia-chat-window .nb-row-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+}
+#aurelia-chat-window .nb-row-who { font-size: 12.5px; font-weight: 700; white-space: nowrap; }
+#aurelia-chat-window .nb-row-when {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+    color: #8a99b6;
+}
+#aurelia-chat-window .nb-row-text {
+    margin-top: 3px;
+    font-size: 13px;
+    line-height: 1.5;
+    word-break: break-word;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+#aurelia-chat-window mark.nb-hit {
+    padding: 0 1px;
+    border-radius: 3px;
+    background: #f3e2b8;
+    color: inherit;
+}
+
+/* ---- 單頁 ---- */
+#aurelia-chat-window .nb-page {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    display: flex;
+    flex-direction: column;
+    background: #f4f6fb;
+}
+#aurelia-chat-window .nb-page[hidden] { display: none; }
+#aurelia-chat-window .nb-page-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 14px 14px 20px;
+}
+#aurelia-chat-window .nb-page-foot {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+    background: #fdfdfc;
+    border-top: 1px solid rgba(42, 74, 128, 0.1);
+}
+#aurelia-chat-window .nb-grow { flex: 1; }
+#aurelia-chat-window .nb-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border: 1px solid rgba(42, 74, 128, 0.25);
+    border-radius: 10px;
+    background: #fff;
+    color: #2a4a80;
+    font: inherit;
+    font-size: 13px;
+    white-space: nowrap;
+    cursor: pointer;
+}
+#aurelia-chat-window .nb-btn:disabled { opacity: 0.5; cursor: default; }
+#aurelia-chat-window .nb-btn-main {
+    margin-left: auto;
+    border-color: #2a4a80;
+    background: #2a4a80;
+    color: #fff;
+}
+#aurelia-chat-window .nb-del { color: #b5563f; border-color: rgba(181, 86, 63, 0.35); }
+#aurelia-chat-window .nb-del.is-armed { background: #b5563f; border-color: #b5563f; color: #fff; }
+
+#aurelia-chat-window .nb-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+#aurelia-chat-window .nb-meta-t { min-width: 0; }
+#aurelia-chat-window .nb-meta-name { font-size: 14px; font-weight: 700; }
+#aurelia-chat-window .nb-meta-sub {
+    margin-top: 2px;
+    font-size: 11.5px;
+    color: #6a7fa6;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+#aurelia-chat-window .nb-av {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    background: #e3e8f2;
+    font-size: 11px;
+    font-weight: 700;
+    color: #2a4a80;
+}
+#aurelia-chat-window .nb-meta .nb-av { width: 40px; height: 40px; border-radius: 10px; font-size: 16px; }
+#aurelia-chat-window .nb-av-face .dorm-face { width: 100%; height: 100%; border-radius: inherit; }
+#aurelia-chat-window .nb-av-face .dorm-badge { display: none; }
+#aurelia-chat-window .nb-av-me { background: linear-gradient(135deg, #b9924f, #dcc28f); color: #fff; }
+
+#aurelia-chat-window .nb-rich {
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: #fff;
+    border: 1px solid rgba(42, 74, 128, 0.1);
+    font-size: 14px;
+    line-height: 1.65;
+    word-break: break-word;
+    color: #1f3a68;
+}
+#aurelia-chat-window .nb-plain { white-space: pre-wrap; }
+#aurelia-chat-window .nb-rich img { max-width: 100%; border-radius: 8px; }
+#aurelia-chat-window .nb-rich p { margin: 0 0 8px; }
+#aurelia-chat-window .nb-rich p:last-child { margin-bottom: 0; }
+
+#aurelia-chat-window .nb-gal {
+    display: grid;
+    gap: 4px;
+    margin-bottom: 10px;
+}
+#aurelia-chat-window .nb-gal-1 { grid-template-columns: 1fr; }
+#aurelia-chat-window .nb-gal-2 { grid-template-columns: repeat(2, 1fr); }
+#aurelia-chat-window .nb-gal-3 { grid-template-columns: repeat(3, 1fr); }
+#aurelia-chat-window .nb-gal-img {
+    display: block;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+    border-radius: 8px;
+    cursor: zoom-in;
+}
+#aurelia-chat-window .nb-gal-1 .nb-gal-img { aspect-ratio: auto; max-height: 360px; object-fit: contain; background: #e3e8f2; }
+
+#aurelia-chat-window .nb-social {
+    margin-top: 10px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    background: #eef2f9;
+    font-size: 12.5px;
+    line-height: 1.55;
+}
+#aurelia-chat-window .nb-likes { color: #8a6a33; }
+#aurelia-chat-window .nb-likes i { margin-right: 5px; }
+#aurelia-chat-window .nb-likes + .nb-cmt { margin-top: 4px; padding-top: 4px; border-top: 1px solid rgba(42, 74, 128, 0.1); }
+#aurelia-chat-window .nb-cmt { word-break: break-word; }
+#aurelia-chat-window .nb-cmt b { margin-right: 6px; color: #2a4a80; }
+
+#aurelia-chat-window .nb-page-foot-reply { align-items: flex-end; }
+#aurelia-chat-window .nb-reply {
+    flex: 1;
+    min-width: 0;
+    min-height: 36px;
+    max-height: 120px;
+    padding: 8px 12px;
+    border: 1px solid rgba(42, 74, 128, 0.22);
+    border-radius: 18px;
+    background: #fff;
+    color: #1f3a68;
+    font: inherit;
+    font-size: 13.5px;
+    line-height: 1.4;
+    resize: none;
+    outline: none;
+    box-sizing: border-box;
+}
+#aurelia-chat-window .nb-send { width: 38px; height: 38px; padding: 0; border-radius: 50%; }
+
+/* 自己寫的 */
+#aurelia-chat-window .nb-ed-text {
+    display: block;
+    width: 100%;
+    min-height: 140px;
+    padding: 12px 14px;
+    border: 1px solid rgba(42, 74, 128, 0.12);
+    border-radius: 12px;
+    background: #fff;
+    color: #1f3a68;
+    font: inherit;
+    font-size: 14.5px;
+    line-height: 1.6;
+    resize: none;
+    outline: none;
+    box-sizing: border-box;
+}
+#aurelia-chat-window .nb-ed-photos {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    margin-top: 10px;
+}
+#aurelia-chat-window .nb-ed-ph { position: relative; aspect-ratio: 1 / 1; }
+#aurelia-chat-window .nb-ed-img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 8px;
+}
+#aurelia-chat-window .nb-ed-x {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: rgba(20, 32, 54, 0.6);
+    color: #fff;
+    font-size: 11px;
+    cursor: pointer;
+}
+#aurelia-chat-window .nb-ed-add {
+    aspect-ratio: 1 / 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    border: 1.5px dashed rgba(42, 74, 128, 0.3);
+    border-radius: 8px;
+    background: transparent;
+    color: #46639b;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+#aurelia-chat-window .nb-ed-add i { font-size: 18px; }
+
+/* 一張照片 */
+#aurelia-chat-window .nb-photo { text-align: center; }
+#aurelia-chat-window .nb-photo-big {
+    max-width: 100%;
+    max-height: 62vh;
+    border-radius: 10px;
+    cursor: zoom-in;
+}
+#aurelia-chat-window .nb-photo-big.nb-img-wait { width: 100%; height: 240px; }
+#aurelia-chat-window .nb-photo-cap {
+    margin-top: 10px;
+    text-align: center;
+    font-size: 12px;
+    color: #6a7fa6;
+}
+
+/* ---- 長按那則的小窗 ---- */
+#aurelia-chat-window .nb-menu {
+    position: absolute;
+    z-index: 40;
+    display: flex;
+    gap: 2px;
+    padding: 4px;
+    border-radius: 10px;
+    background: #1e2a40;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+}
+#aurelia-chat-window .nb-menu button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    min-width: 64px;
+    padding: 7px 10px;
+    border: none;
+    border-radius: 7px;
+    background: transparent;
+    color: #f4efe3;
+    font: inherit;
+    font-size: 11.5px;
+    cursor: pointer;
+}
+#aurelia-chat-window .nb-menu button i { font-size: 15px; }
+#aurelia-chat-window .nb-menu button:hover { background: rgba(255, 255, 255, 0.1); }
+#aurelia-chat-window .nb-picked .claude-bubble,
+#aurelia-chat-window .nb-picked .cg-bubble { filter: brightness(0.92); }
+
+/* 手機上長按是叫小窗，不是選字（要字就按「複製」） */
+@media (pointer: coarse) {
+    #aurelia-chat-window .claude-bubble-wrap,
+    #aurelia-chat-window .cg-bubble-wrap {
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+    }
+}
+
+/* 跳回那一則：泡泡外框閃一圈金色 */
+@keyframes nb-flash {
+    0%, 55% { box-shadow: 0 0 0 3px rgba(216, 165, 72, 0.95), 0 0 14px rgba(216, 165, 72, 0.6); }
+    100% { box-shadow: 0 0 0 3px rgba(216, 165, 72, 0), 0 0 14px rgba(216, 165, 72, 0); }
+}
+#aurelia-chat-window .nb-flash .claude-bubble,
+#aurelia-chat-window .nb-flash .cg-bubble {
+    animation: nb-flash 2.2s ease-out;
+}
+
+/* 收好了／找不到那則 */
+#aurelia-chat-window .nb-toast {
+    position: absolute;
+    left: 50%;
+    bottom: 96px;
+    z-index: 50;
+    transform: translateX(-50%);
+    max-width: 80%;
+    padding: 8px 16px;
+    border-radius: 999px;
+    background: rgba(20, 32, 54, 0.88);
+    color: #fff;
+    font-size: 13px;
+    text-align: center;
+    pointer-events: none;
+    transition: opacity 0.4s ease;
+}
+#aurelia-chat-window .nb-toast-out { opacity: 0; }
+.nb-copy-tmp { position: fixed; left: -9999px; top: 0; opacity: 0; }
+
+/* 有沒看過的「想跟妳說的」：房間標題列那顆、宿舍門卡上點一顆 */
+#aurelia-chat-window .cw-tool-btn[data-panel="notebook"] { position: relative; }
+#aurelia-chat-window .cw-tool-btn.nb-has-new::after,
+#aurelia-chat-window .dorm-card.nb-door-new .dorm-door::after {
+    content: '';
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #d8a548;
+    box-shadow: 0 0 0 2px rgba(30, 53, 84, 0.9);
+}
+#aurelia-chat-window .dorm-card.nb-door-new .dorm-door { position: relative; }
+#aurelia-chat-window .dorm-card.nb-door-new .dorm-door::after { top: 8px; right: 8px; box-shadow: 0 0 0 2px #fff; }

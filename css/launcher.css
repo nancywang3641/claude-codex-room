@@ -1,0 +1,95 @@
+/* Claude / Codex 房間 — 獨立版右下角常駐浮球 */
+#ccr-launcher {
+    position: fixed;
+    right: 18px;
+    bottom: 18px;
+    z-index: 9998;            /* 比浮窗(#aurelia-chat-window)低一點，浮窗開了不被擋 */
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    cursor: pointer;
+    user-select: none;
+    background: linear-gradient(145deg, #2c4a7e, #1e3554);
+    color: #f4efe3;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+#ccr-launcher:hover {
+    transform: translateY(-2px) scale(1.05);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+#ccr-launcher:active {
+    transform: translateY(0) scale(0.97);
+}
+
+/* 行動端：稍微縮小、避開系統手勢列 */
+@media (max-width: 600px) {
+    #ccr-launcher {
+        right: 12px;
+        bottom: 14px;
+        width: 44px;
+        height: 44px;
+        font-size: 22px;
+    }
+}
+
+/* 桌機：塞進輸入框左邊（#leftSendForm）時脫掉浮球外觀，跟 🏰 同一排 */
+#ccr-launcher.ccr-inline {
+    /* 小點(::after)要一個定位錨,所以留 relative 不能用 static;
+       但基底 #ccr-launcher 是浮球那套、帶著 right:18px/bottom:18px,
+       relative 會把它們當偏移量吃下去 —— 元素會從輸入列裡往左上各挪 18px,
+       正好壓在隔壁的 🏰 上面。position 換了就得把配套的位移一起清掉。 */
+    position: relative;
+    right: auto;
+    bottom: auto;
+    width: 30px;
+    height: 30px;
+    border-radius: 5px;
+    margin: 0 4px 0 2px;
+    font-size: 18px;
+    flex-shrink: 0;
+    box-shadow: none;
+    transform: none;
+    background: none;
+    border: none;
+    color: inherit;
+}
+#ccr-launcher.ccr-inline:hover { transform: none; box-shadow: none; opacity: 0.75; }
+
+/* 板子動靜:丹留了新東西,入口鈕亮一顆小點。日常紙條琥珀、提案酒紅。 */
+#ccr-launcher.ccr-news::after,
+#ccr-launcher.ccr-news-prop::after,
+#ccr-launcher.ccr-news-msg::after {
+    content: '';
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #b9924f;
+    border: 2px solid #fdfdfc;
+    box-shadow: 0 0 6px rgba(42, 74, 128, 0.51);
+}
+#ccr-launcher.ccr-news-prop::after {
+    background: #2a4a80;
+    box-shadow: 0 0 6px rgba(42, 74, 128, 0.85);
+}
+/* 住戶醒來傳訊息給妳（dorm.js 的 _paintWakeEntry）：紅點，蓋過上面兩種 */
+#ccr-launcher.ccr-news-msg::after {
+    background: #e0453a;
+    box-shadow: 0 0 6px rgba(224, 69, 58, 0.75);
+}
+#ccr-launcher.ccr-inline.ccr-news::after,
+#ccr-launcher.ccr-inline.ccr-news-prop::after,
+#ccr-launcher.ccr-inline.ccr-news-msg::after {
+    top: -1px;
+    right: -1px;
+    width: 8px;
+    height: 8px;
+}

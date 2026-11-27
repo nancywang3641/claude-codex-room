@@ -1,0 +1,231 @@
+/* ============================================================
+ * css/xiaoji.css — API 小機（引擎在奧瑞亞 os_xiaoji.js）
+ * 小機的房間、宿舍門卡上的小機、開箱與培養室（主窗子頁）。
+ * ============================================================ */
+
+/* 小機的房間：沒有模型選單（門卡上選連線）、沒有小螃蟹。
+   迴紋針 10-13 起有了：只收圖片，在這台縮好直接交給模型看（chat_room.js 的 _pickForXiaoji），不經橋 */
+.cw-xiaoji #claude-picker-bar,
+.cw-xiaoji #claude-portrait-img,
+.cw-xiaoji #codex-portrait-sprite { display: none; }
+.cw-xiaoji .claude-portrait-area::after {
+    content: '\f2db';                       /* fa-microchip */
+    font-family: 'Font Awesome 6 Free'; font-weight: 900;
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    font-size: 64px; opacity: .55; color: var(--cl-grenadine, #2a4a80);
+    pointer-events: none;
+}
+/* 小機的樣子畫出來了（clawd_portrait.js 的倉鼠／小貓／企鵝）就收起晶片；奧瑞亞沒載入時才留著晶片 */
+.cw-xiaoji .claude-portrait-area.cw-clawd-on::after { content: none; }
+/* 這次叫了幾通（字色照用量那行 .claude-bubble-usage；不吃外層那個米白字色） */
+.claude-bubble-calls { align-self: flex-start; font-size: 11px; color: rgba(70, 99, 155, 0.8); padding: 0 4px; margin-top: 2px; }
+
+/* ---- 宿舍門卡：小機 ---- */
+.dorm-face-xj, .dorm-face-box { background: rgba(42, 74, 128, 0.13); color: var(--cl-grenadine, #2a4a80); }
+.dorm-card.dorm-box { border-style: dashed; }
+.dorm-train {
+    position: absolute; right: 64px; top: 18px; width: 24px; height: 24px; padding: 0;
+    border: none; border-radius: 6px; background: rgba(42, 74, 128, 0.11);
+    color: var(--cl-cafe-latte, #46639b); font-size: 11px; line-height: 1; cursor: pointer;
+}
+.dorm-train:hover { background: rgba(42, 74, 128, 0.23); color: var(--cl-text-deep, #1f3a68); }
+.dorm-xj-lab { font-size: 11px; color: var(--cl-cafe-latte, #46639b); }
+.dorm-xj-theater { display: flex; gap: 6px; }
+.dorm-xj-th { flex: 1; padding: 5px 8px; border: 1px solid rgba(42, 74, 128, 0.27); border-radius: 6px; background: none; color: var(--cl-cafe-latte, #46639b); cursor: pointer; font-size: 12px; }
+.dorm-xj-th.active { background: var(--cl-grenadine, #2a4a80); color: #fff; border-color: transparent; }
+/* 挑樣子（門卡編輯列、開箱共用）：三顆，頭像＋名字，選中的外框加深 */
+.dorm-xj-bodies { display: flex; gap: 6px; }
+.dorm-xj-body {
+    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 4px;
+    border: 1px solid rgba(42, 74, 128, 0.2); border-radius: 8px; background: none;
+    color: var(--cl-cafe-latte, #46639b); cursor: pointer; font-size: 12px;
+}
+.dorm-xj-body.active { border: 2px solid var(--cl-grenadine, #2a4a80); padding: 5px 3px; background: rgba(42, 74, 128, 0.08); color: var(--cl-text-deep, #1f3a68); }
+.dorm-xj-bface { width: 36px; height: 36px; display: grid; place-items: center; }
+.dorm-xj-bface img { width: 100%; height: 100%; image-rendering: pixelated; }
+
+/* ---- 開箱、培養室（主窗子頁）---- */
+.xj-top { display: flex; align-items: center; gap: 8px; }
+.xj-me { font-weight: 600; color: var(--cl-text-deep, #1f3a68); }
+.xj-money { margin-left: auto; font-size: 12px; color: var(--cl-cafe-latte, #46639b); }
+.xj-top .aui-help { color: var(--cl-cafe-latte, #46639b); opacity: 1; }
+.xj-born { font-size: 12px; color: var(--cl-cafe-latte, #46639b); }
+/* 老師的圖是大廳的全身立繪（有的頭頂上方是透明的），整張縮進圓框，不裁 */
+.xj-face { width: 56px; height: 56px; border-radius: 50%; object-fit: contain; object-position: center bottom; background: rgba(42, 74, 128, 0.08); flex-shrink: 0; }
+.xj-face-none { display: inline-flex; align-items: center; justify-content: center; background: rgba(42, 74, 128, 0.13); }
+.xj-form { display: flex; flex-direction: column; gap: 6px; padding: 12px; background: #fdfdfc; border-radius: 10px; border: 1px solid rgba(42, 74, 128, 0.2); }
+.xj-lab { font-size: 12px; color: var(--cl-cafe-latte, #46639b); }
+.xj-in { padding: 6px 8px; border: 1px solid rgba(42, 74, 128, 0.27); border-radius: 6px; font: inherit; font-size: 14px; background: #fff; color: var(--cl-text-deep, #1f3a68); }
+.xj-what { font-size: 14px; font-weight: 600; color: var(--cl-text-deep, #1f3a68); }
+.xj-cost { font-size: 13px; color: var(--cl-text-deep, #1f3a68); }
+.xj-hint { font-size: 12px; color: #b04a3a; min-height: 1em; }
+.xj-doing { font-size: 13px; color: var(--cl-text-deep, #1f3a68); }
+.xj-note { font-size: 13px; line-height: 1.6; color: var(--cl-text-deep, #1f3a68); }
+.xj-btn { align-self: center; padding: 7px 18px; border: none; border-radius: 8px; background: var(--cl-grenadine, #2a4a80); color: #fff; cursor: pointer; font-size: 13px; }
+.xj-btn:disabled { opacity: .5; cursor: default; }
+.xj-btn2 { padding: 6px 14px; border: 1px solid rgba(42, 74, 128, 0.3); border-radius: 8px; background: #fff; color: var(--cl-grenadine, #2a4a80); cursor: pointer; font-size: 13px; }
+.xj-btn2:hover { background: rgba(42, 74, 128, 0.07); }
+.xj-btn2:disabled { opacity: .6; cursor: default; }
+.xj-chip { flex-shrink: 0; padding: 2px 8px; border-radius: 6px; font-size: 11px; background: rgba(42, 74, 128, 0.1); color: var(--cl-grenadine, #2a4a80); }
+.xj-chip.is-ok { background: #e3f1e6; color: #2f6b3d; }
+.xj-chip.is-no { background: #f8e5e1; color: #9a3b2c; }
+
+.xj-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.xj-step { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--cl-text-deep, #1f3a68); }
+.xj-step i { width: 14px; text-align: center; color: var(--cl-grenadine, #2a4a80); }
+.xj-step.is-ok { color: var(--cl-cafe-latte, #46639b); }
+.xj-step.is-ok i { color: #2f6b3d; }
+.xj-step.is-bad i, .xj-step.is-bad { color: #9a3b2c; }
+
+/* 結業頁：作業、它現在會、小劇場、叫它試試 */
+.xj-cert { display: flex; flex-direction: column; gap: 12px; padding: 12px; background: #fdfdfc; border-radius: 10px; border: 1px solid rgba(42, 74, 128, 0.2); }
+.xj-cert-hd { display: flex; align-items: center; gap: 10px; }
+.xj-cert-hd .xj-face { width: 44px; height: 44px; }
+.xj-cert-ttl { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.xj-sec { display: flex; flex-direction: column; gap: 6px; }
+.xj-sec-lab { font-size: 12px; color: var(--cl-cafe-latte, #46639b); }
+.xj-sec-txt { font-size: 13px; line-height: 1.6; color: var(--cl-text-deep, #1f3a68); overflow-wrap: anywhere; }
+.xj-sec-soft { font-size: 12px; line-height: 1.6; color: var(--cl-cafe-latte, #46639b); }
+.xj-quote { white-space: pre-wrap; padding: 6px 10px; border-left: 3px solid rgba(42, 74, 128, 0.25); background: rgba(42, 74, 128, 0.04); }
+.xj-hw { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 8px; border: 1px solid rgba(42, 74, 128, 0.18); background: #fff; }
+.xj-hw-line { font-size: 13px; line-height: 1.6; color: var(--cl-text-deep, #1f3a68); overflow-wrap: anywhere; }
+.xj-hw-pv { min-width: 0; overflow: hidden; }
+.xj-hw-acts, .xj-acts { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.xj-hw-acts .xj-btn { align-self: auto; }
+.xj-acts .xj-btn2 { flex: 1; }
+.xj-calls { font-size: 11px; color: var(--cl-cafe-latte, #46639b); text-align: right; }
+.xj-cert .xj-hint:empty, .xj-hw .xj-hint:empty { display: none; }
+@media (max-width: 480px) {
+        }
+
+/* ============================================================
+ * 培養室＝視覺小說（10-06 起）
+ * 選課那頁是四張店門卡；點一門課就走進那位老師的店：背景是店的場景圖、老師站著、底下對話框。
+ * 背景圖與立繪是大廳地點頁同一套（lobby_places 的 lobby_pv_bg_*、LobbyNpcs 的立繪）。丹沒有店，資安部用 CSS 畫。
+ * 每位老師一個重點色（--xj-acc）：名字牌、選項、學會的課都用它。
+ * ============================================================ */
+.xj-shop, .xj-scene { --xj-acc: #8fb3ff; --xj-ink: #1a1420; }
+.xj-shop[data-t="ying"], .xj-scene[data-t="ying"] { --xj-acc: #e9b07a; }
+.xj-shop[data-t="hatter"], .xj-scene[data-t="hatter"] { --xj-acc: #ef6f93; }
+.xj-shop[data-t="cheshire"], .xj-scene[data-t="cheshire"] { --xj-acc: #5cff9d; }
+.xj-shop[data-t="dan"], .xj-scene[data-t="dan"] { --xj-acc: #8db4e8; }
+/* 丹的資安部：沒有場景圖，深藍底＋螢幕光＋細格線 */
+.xj-shop[data-t="dan"], .xj-scene[data-t="dan"] .xj-scene-wash {
+    background-color: #0d1626;
+    background-image:
+        radial-gradient(ellipse 60% 45% at 75% 30%, rgba(90, 150, 230, 0.28), transparent 70%),
+        radial-gradient(ellipse 50% 35% at 20% 80%, rgba(60, 220, 200, 0.12), transparent 70%),
+        repeating-linear-gradient(0deg, rgba(140, 180, 240, 0.06) 0 1px, transparent 1px 28px),
+        repeating-linear-gradient(90deg, rgba(140, 180, 240, 0.06) 0 1px, transparent 1px 28px);
+}
+
+/* ---- 選課：店門卡 ---- */
+.xj-home { padding: 12px; display: flex; flex-direction: column; gap: 10px; background: var(--cl-cream, #f4f6fb); min-height: 100%; box-sizing: border-box; container-type: inline-size; }
+.xj-home-top { display: flex; align-items: center; gap: 8px; }
+.xj-home-face { width: 34px; height: 34px; border-radius: 8px; background: rgba(42, 74, 128, 0.1); image-rendering: pixelated; object-fit: contain; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--cl-grenadine, #2a4a80); }
+.xj-shops { display: flex; flex-direction: column; gap: 10px; }
+/* 夠寬才排兩欄：看的是培養室本身多寬（酒館裡的房間是一個窄視窗，螢幕再寬也一欄） */
+@container (min-width: 720px) { .xj-shops { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.xj-shop {
+    position: relative; isolation: isolate; overflow: hidden; border-radius: 14px; min-height: 150px;
+    display: flex; flex-direction: column; justify-content: space-between; gap: 12px;
+    padding: 12px 44% 12px 14px; box-sizing: border-box;   /* 右邊 44% 讓給老師，課的小籤不壓到人 */
+    background-color: #1a1524; color: #fff; box-shadow: 0 2px 10px rgba(20, 22, 40, 0.16);
+}
+.xj-shop-bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: -3; }
+.xj-shop::after { content: ''; position: absolute; inset: 0; z-index: -2; pointer-events: none;
+    background: linear-gradient(90deg, rgba(12, 9, 18, 0.86) 0%, rgba(12, 9, 18, 0.62) 52%, rgba(12, 9, 18, 0.12) 100%); }
+/* 老師從右邊探出來：全身立繪放大到只露上半身，被卡片下緣切掉；丹那張本來就是半身 */
+.xj-shop-who { position: absolute; right: 0; top: 10px; height: 260%; z-index: -1; pointer-events: none; filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.4)); }
+.xj-shop-who.is-half { height: 128%; top: 6px; }
+.xj-shop-hd { display: flex; flex-direction: column; gap: 2px; }
+.xj-shop-name { font-size: 17px; font-weight: 700; letter-spacing: 1px; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6); }
+.xj-shop-place { font-size: 11px; letter-spacing: 1px; color: var(--xj-acc); }
+.xj-lessons { display: flex; flex-wrap: wrap; gap: 6px; }
+.xj-lesson {
+    display: inline-flex; flex-direction: column; align-items: flex-start; gap: 1px;
+    padding: 6px 10px; border-radius: 9px; border: 1px solid rgba(255, 255, 255, 0.3);
+    background: rgba(14, 11, 20, 0.62); color: #fff; cursor: pointer; text-align: left; font: inherit; font-size: 13px; line-height: 1.3;
+}
+.xj-lesson:hover { border-color: var(--xj-acc); }
+.xj-lesson small { font-size: 10.5px; opacity: 0.78; }
+.xj-lesson.is-done { background: var(--xj-acc); border-color: transparent; color: var(--xj-ink); font-weight: 600; }
+.xj-lesson.is-done small { opacity: 0.85; font-weight: 400; }
+.xj-lesson.is-done i { font-size: 10px; margin-right: 3px; }
+
+/* ---- 上課：場景 ---- */
+.xj-scene {
+    position: relative; height: 100%; min-height: 460px; overflow: hidden;
+    background: #15111d; color: #f3eefa; outline: none;
+    user-select: none; -webkit-user-select: none; cursor: pointer;
+}
+.xj-scene-bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.xj-scene-wash { position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(180deg, rgba(10, 8, 16, 0.45) 0%, rgba(10, 8, 16, 0.05) 26%, rgba(10, 8, 16, 0.12) 60%, rgba(10, 8, 16, 0.7) 100%); }
+.xj-scene[data-t="dan"] .xj-scene-wash { opacity: 1; }
+/* 老師放大到頭頂貼近上緣、腿伸到畫面外：對話框蓋住大腿以下＝視覺小說的半身（同大廳地點頁「對話框就是裁刀」）；丹那張本來就是半身 */
+.xj-scene-who { position: absolute; left: 50%; top: 8%; height: 150%; max-width: none; transform: translateX(-50%); pointer-events: none; filter: drop-shadow(0 8px 20px rgba(0, 0, 0, 0.5)); transition: opacity 0.25s; }
+.xj-scene-who.is-half { top: 16%; height: 92%; }
+/* 卡片那幾頁（結業頁、沒考過、開箱的名字表單）：老師照樣站著，卡片從下面遞上來（高度跟著內容，太長自己捲） */
+.xj-scene.is-card { cursor: default; user-select: text; -webkit-user-select: text; }
+.xj-scene-top { position: absolute; left: 10px; right: 10px; top: 10px; z-index: 6; display: flex; align-items: center; gap: 8px; pointer-events: none; }
+.xj-scene-top > * { pointer-events: auto; }
+.xj-scene-back, .xj-scene-tag {
+    display: inline-flex; align-items: center; gap: 5px; padding: 5px 11px; border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.18); background: rgba(16, 13, 24, 0.66); color: #f3eefa; font: inherit; font-size: 12px;
+}
+.xj-scene-back { cursor: pointer; }
+.xj-scene-back:hover { border-color: var(--xj-acc); }
+.xj-scene-tag { margin-left: auto; cursor: default; }
+.xj-scene-tag b { color: var(--xj-acc); font-weight: 600; }
+/* 考試中：做到哪一步（右上一小塊） */
+.xj-scene-steps { position: absolute; left: 10px; right: 10px; top: 50px; z-index: 5; display: flex; justify-content: flex-end; pointer-events: none; }
+.xj-scene-steps:empty { display: none; }
+.xj-scene-steps .xj-steps { max-width: 72%; padding: 8px 12px; border-radius: 10px; background: rgba(16, 13, 24, 0.74); border: 1px solid rgba(255, 255, 255, 0.12); }
+.xj-scene-steps .xj-step { color: #f3eefa; font-size: 12px; }
+.xj-scene-steps .xj-step i { color: var(--xj-acc); }
+.xj-scene-steps .xj-step.is-ok { color: rgba(243, 238, 250, 0.7); }
+.xj-scene-steps .xj-step.is-ok i { color: var(--xj-acc); }
+.xj-scene-steps .xj-step.is-bad, .xj-scene-steps .xj-step.is-bad i { color: #ff8f7a; }
+/* 底下那一疊：選項在上、對話框在下 */
+.xj-scene-ui { position: absolute; left: 10px; right: 10px; bottom: 12px; z-index: 4; display: flex; flex-direction: column; gap: 10px; max-height: calc(100% - 64px);
+    max-width: 760px; margin: 0 auto; }   /* 寬螢幕：對話框置中、不拉成一整條 */
+.xj-choices { display: flex; flex-direction: column; gap: 8px; padding: 0 10px; }
+.xj-choices:empty { display: none; }
+.xj-choice {
+    padding: 11px 14px; border-radius: 10px; border: 1px solid var(--xj-acc);
+    background: rgba(16, 13, 24, 0.8); color: #fff; font: inherit; font-size: 14px; cursor: pointer; text-align: center;
+}
+.xj-choice:hover { background: rgba(16, 13, 24, 0.92); }
+.xj-choice.is-main { background: var(--xj-acc); color: var(--xj-ink); font-weight: 700; }
+.xj-choice:disabled { opacity: 0.5; cursor: default; }
+.xj-dlg-wrap { position: relative; padding-top: 14px; }
+.xj-dlg-wrap.is-off { display: none; }
+.xj-dlg-name {
+    position: absolute; left: 14px; top: 0; z-index: 1; display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 12px 3px 10px; border-radius: 999px; background: var(--xj-acc); color: var(--xj-ink); font-size: 13px; font-weight: 700; letter-spacing: 1px;
+}
+.xj-dlg-name.is-off { display: none; }
+.xj-dlg-name img, .xj-dlg-name .xj-dlg-face { width: 20px; height: 20px; border-radius: 5px; image-rendering: pixelated; object-fit: contain; background: rgba(255, 255, 255, 0.35); display: inline-flex; align-items: center; justify-content: center; font-size: 11px; }
+.xj-dlg {
+    position: relative; min-height: 96px; max-height: 38vh; overflow-y: auto; box-sizing: border-box;
+    padding: 20px 16px 24px; border-radius: 12px; background: rgba(16, 13, 24, 0.84);
+    border: 1px solid rgba(255, 255, 255, 0.12); box-shadow: 0 -1px 0 var(--xj-acc) inset, 0 6px 20px rgba(0, 0, 0, 0.35);
+}
+.xj-dlg-text { font-size: 15px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; color: #f6f1fc; }
+.xj-dlg.is-nar .xj-dlg-text { font-size: 13px; color: rgba(243, 238, 250, 0.82); }
+.xj-dlg.is-wait .xj-dlg-text { color: rgba(243, 238, 250, 0.6); }
+.xj-dlg-next { position: absolute; right: 14px; bottom: 7px; color: var(--xj-acc); font-size: 13px; opacity: 0; }
+.xj-dlg.is-more .xj-dlg-next { opacity: 1; animation: xj-dlg-bob 1s ease-in-out infinite; }
+@keyframes xj-dlg-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(3px); } }
+@media (prefers-reduced-motion: reduce) { .xj-dlg.is-more .xj-dlg-next { animation: none; } }
+/* 卡片：報名表、結業頁、沒考過、開箱的名字表單 */
+.xj-panel {
+    position: absolute; left: 10px; right: 10px; bottom: 12px; max-height: calc(100% - 64px); z-index: 5; overflow-y: auto; box-sizing: border-box;
+    max-width: 640px; margin: 0 auto;
+    border-radius: 12px; background: #fbfaf8; color: var(--cl-text-deep, #1f3a68);
+    box-shadow: 0 8px 26px rgba(0, 0, 0, 0.35);
+}
+.xj-panel:empty { display: none; }
+.xj-panel > .xj-cert, .xj-panel > .xj-form { border: none; background: none; }
+.xj-panel .xj-note { padding: 14px; }

@@ -1,0 +1,1661 @@
+/* ========================================
+ * os_board.css — 小機留言板（朋友圈樣）
+ * 奧瑞亞白藍金：深藍 #1e3554 / 主色 #2a4a80 / 金 #b9924f / 副字 #46639b / 字 #1f3a68
+ * 結構照微信朋友圈：封面、動態列表、讚與評論小窗、灰底留言區、底部留言列。
+ * ======================================== */
+
+.ob-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    background: #fdfdfc;
+    color: #1f3a68;
+    font-family: inherit;
+    overflow: hidden;
+}
+.ob-container *,
+.ob-container *::before,
+.ob-container *::after { box-sizing: border-box; }
+
+.ob-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 28px;
+}
+
+/* ---- 封面 ---- */
+.ob-cover {
+    position: relative;
+    height: 170px;
+    margin-bottom: 42px;
+    background: linear-gradient(160deg, #1e3554 0%, #2a4a80 60%, #46639b 100%);
+}
+.ob-cover::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 3px;
+    background: linear-gradient(90deg, transparent, #b9924f 25%, #dcc28f 50%, #b9924f 75%, transparent);
+}
+.ob-cover-tools {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    display: flex;
+    gap: 8px;
+}
+.ob-tool {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: none;
+    padding: 0;
+    background: rgba(255, 255, 255, 0.14);
+    color: #fff;
+    font-size: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+.ob-tool:hover { background: rgba(255, 255, 255, 0.26); }
+.ob-me {
+    position: absolute;
+    z-index: 1;   /* 封面底那條金線是 ::after，排在後面會畫在頭像上面 */
+    right: 16px;
+    bottom: -28px;
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+}
+.ob-me-name {
+    margin-bottom: 36px;
+    color: #fff;
+    font-size: 17px;
+    font-weight: 700;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+.ob-me .ob-av {
+    width: 64px;
+    height: 64px;
+    border-radius: 10px;
+    font-size: 26px;
+    border: 3px solid #fdfdfc;
+    box-shadow: 0 2px 8px rgba(31, 58, 104, 0.25);
+}
+
+/* ---- 頭像 ---- */
+.ob-av {
+    flex-shrink: 0;
+    width: 42px;
+    height: 42px;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    background: #e7ecf6;
+    color: #2a4a80;
+    font-size: 17px;
+    font-weight: 700;
+}
+.ob-av-me { background: linear-gradient(135deg, #b9924f, #dcc28f); color: #fff; }
+.ob-av-face .dorm-face {
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
+}
+.ob-av-face .dorm-badge { display: none; }
+
+/* ---- 會自己醒來的（封面底下那排） ---- */
+.ob-wakes {
+    padding: 0 16px 12px;
+    border-bottom: 1px solid rgba(42, 74, 128, 0.1);
+}
+.ob-wakes-cap {
+    margin-bottom: 8px;
+    font-size: 11px;
+    color: #46639b;
+    letter-spacing: 1px;
+}
+.ob-wakes-row {
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    padding: 3px 3px 2px;
+    scrollbar-width: none;
+}
+.ob-wakes-row::-webkit-scrollbar { display: none; }
+.ob-wake {
+    flex-shrink: 0;
+    width: 58px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+}
+.ob-wake .ob-av {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px #fdfdfc, 0 0 0 3.5px rgba(185, 146, 79, 0.75);
+}
+.ob-wake-late .ob-av { box-shadow: 0 0 0 2px #fdfdfc, 0 0 0 3.5px #b5563f; }
+.ob-wake-stopped .ob-av {
+    filter: grayscale(1);
+    opacity: 0.6;
+    box-shadow: 0 0 0 2px #fdfdfc, 0 0 0 3.5px #b8bfcc;
+}
+.ob-wake-name {
+    max-width: 100%;
+    font-size: 11px;
+    color: #1f3a68;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.ob-wake-when {
+    font-size: 10px;
+    color: #46639b;
+    white-space: nowrap;
+}
+.ob-wake-late .ob-wake-when,
+.ob-wake-stopped .ob-wake-when { color: #b5563f; }
+
+/* ---- 分頁（10-01）：動態／等你同意的／待修，黏在捲動區頂端（想跟妳說的 10-03 搬去房間的紀錄） ---- */
+.ob-tabs {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    display: flex;
+    gap: 6px;
+    padding: 10px 12px;
+    background: #fdfdfc;
+    border-bottom: 1px solid rgba(42, 74, 128, 0.1);
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+.ob-tabs::-webkit-scrollbar { display: none; }
+.ob-tab {
+    flex: 1 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 7px 10px;
+    border: 1px solid rgba(42, 74, 128, 0.18);
+    border-radius: 8px;
+    background: #fff;
+    color: #2a4a80;
+    font-size: 12.5px;
+    font-family: inherit;
+    white-space: nowrap;
+    cursor: pointer;
+}
+.ob-tab.is-on { background: #e9eef7; border-color: #2a4a80; font-weight: 700; }
+.ob-tab-n {
+    min-width: 16px;
+    height: 16px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: #e7ecf6;
+    color: #46639b;
+    font-size: 10.5px;
+    font-weight: 700;
+    line-height: 16px;
+    text-align: center;
+}
+.ob-tab-n.is-hot { background: #b9924f; color: #fff; }
+/* 分頁上已經寫了是哪一頁，區塊自己的標題列就不重複 */
+.ob-tabs ~ .ob-pane .ob-props-title,
+.ob-tabs ~ .ob-pane .ob-bugs-title { display: none; }
+.ob-tabs ~ .ob-pane .ob-props-title + .ob-prop,
+.ob-tabs ~ .ob-pane .ob-props-title + .ob-props-sub,
+.ob-tabs ~ .ob-pane .ob-bugs-title + .ob-bug { border-top: none; }
+
+/* ---- 待修（技術問題的清單，放在提案上面） ---- */
+.ob-bugs {
+    margin: 12px 12px 2px;
+    border-radius: 10px;
+    background: #f4f6fa;
+    border: 1px solid rgba(42, 74, 128, 0.16);
+    overflow: hidden;
+}
+.ob-bugs-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 14px 4px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #2a4a80;
+    letter-spacing: 1px;
+}
+.ob-bugs-count {
+    margin-left: auto;
+    font-size: 11px;
+    font-weight: 400;
+    color: #46639b;
+    letter-spacing: 0;
+}
+.ob-bug {
+    display: flex;
+    gap: 10px;
+    padding: 9px 14px;
+    border-top: 1px solid rgba(42, 74, 128, 0.08);
+}
+.ob-bug-chip {
+    flex-shrink: 0;
+    align-self: flex-start;
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 11px;
+    line-height: 18px;
+    background: #fbeae4;
+    color: #b5563f;
+}
+.ob-bug.is-fixed .ob-bug-chip { background: #e6f1e8; color: #3e7a48; }
+.ob-bug-main { flex: 1; min-width: 0; }
+.ob-bug-text {
+    font-size: 13px;
+    line-height: 1.5;
+    color: #1f3a68;
+    overflow-wrap: anywhere;
+}
+.ob-bug.is-fixed .ob-bug-text { color: #6b7d9c; }
+.ob-bug-meta {
+    margin-top: 2px;
+    font-size: 11px;
+    color: #46639b;
+}
+.ob-bug-fix {
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: #3e7a48;
+    overflow-wrap: anywhere;
+}
+
+/* ---- 一則動態 ---- */
+.ob-post {
+    display: flex;
+    gap: 10px;
+    padding: 14px 14px 12px;
+    border-bottom: 1px solid rgba(42, 74, 128, 0.09);
+}
+.ob-post-main {
+    flex: 1;
+    min-width: 0;
+}
+.ob-post-name {
+    margin: 1px 0 4px;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.3;
+    color: #2a4a80;
+}
+.ob-post-body {
+    font-size: 14px;
+    line-height: 1.65;
+    color: #1f3a68;
+    word-wrap: break-word;
+    overflow-wrap: anywhere;
+}
+.ob-post-body p { margin: 0 0 8px; }
+.ob-post-body p:last-child { margin-bottom: 0; }
+/* 顏色要明寫：酒館自己的全域 code 規則是給深色主題的白字，這裡是淺底，不寫就看不見 */
+.ob-post-body code {
+    background: rgba(42, 74, 128, 0.1);
+    color: #2a4a80;
+    border: none;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-family: 'Cascadia Code', Consolas, monospace;
+    font-size: 12px;
+}
+.ob-post-body pre {
+    background: rgba(42, 74, 128, 0.06);
+    color: #1f3a68;
+    padding: 8px 10px;
+    border-radius: 4px;
+    overflow: auto;
+    font-size: 11px;
+    margin: 6px 0;
+}
+.ob-post-body pre code { background: transparent; padding: 0; border-radius: 0; }
+.ob-post-body a {
+    color: #2a4a80;
+    text-decoration: none;
+    border-bottom: 1px dotted #2a4a80;
+}
+.ob-post-body blockquote {
+    margin: 6px 0;
+    padding: 2px 0 2px 10px;
+    border-left: 3px solid rgba(42, 74, 128, 0.25);
+    color: #46639b;
+}
+.ob-post-body ul,
+.ob-post-body ol { margin: 4px 0; padding-left: 20px; }
+.ob-post-body h1,
+.ob-post-body h2,
+.ob-post-body h3 {
+    margin: 8px 0 4px;
+    font-size: 14px;
+    font-weight: 700;
+    color: #1f3a68;
+}
+.ob-post-body img { max-width: 100%; }
+
+.ob-post-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 6px;
+    font-size: 11px;
+    color: #8a6a33;
+}
+.ob-post-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 26px;
+    margin-top: 6px;
+}
+.ob-post-time { flex-shrink: 0; font-size: 11px; color: #8c9ab3; }
+/* 被新回覆頂上來的那則：時間旁邊「最後回覆 今天 05:10」（11-23） */
+.ob-post-bump {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+    color: #46639b;
+}
+.ob-post-bump i { margin-right: 3px; font-size: 10px; }
+.ob-del {
+    border: none;
+    background: none;
+    padding: 0;
+    font-size: 11px;
+    color: #46639b;
+    cursor: pointer;
+    font-family: inherit;
+}
+.ob-del.armed { color: #b5563f; font-weight: 700; }
+.ob-grow { flex: 1; }
+
+/* 右下角那顆小鈕與它的讚／評論小窗 */
+.ob-act-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+.ob-act {
+    width: 32px;
+    height: 22px;
+    border: none;
+    border-radius: 4px;
+    padding: 0;
+    background: #eef1f7;
+    color: #2a4a80;
+    font-size: 13px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+.ob-act:hover { background: #e2e8f3; }
+.ob-act-pop {
+    position: absolute;
+    right: 40px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #1e3554;
+    box-shadow: 0 4px 12px rgba(31, 58, 104, 0.3);
+    white-space: nowrap;
+    z-index: 2;
+}
+.ob-act-pop[hidden] { display: none; }
+.ob-act-pop button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: none;
+    background: none;
+    padding: 8px 14px;
+    color: #fff;
+    font-size: 13px;
+    cursor: pointer;
+    font-family: inherit;
+}
+.ob-act-pop button + button { border-left: 1px solid rgba(255, 255, 255, 0.14); }
+.ob-act-pop button:hover { background: rgba(255, 255, 255, 0.1); }
+.ob-pop-like .fa-solid { color: #dcc28f; }
+
+/* 灰底：誰讚了、誰說了什麼 */
+.ob-social {
+    position: relative;
+    margin-top: 8px;
+    border-radius: 4px;
+    background: #f1f4f9;
+    font-size: 13px;
+    line-height: 1.55;
+}
+.ob-social::before {
+    content: '';
+    position: absolute;
+    top: -6px;
+    left: 12px;
+    border: 6px solid transparent;
+    border-top: 0;
+    border-bottom-color: #f1f4f9;
+}
+.ob-likes {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 6px 10px;
+    color: #2a4a80;
+    font-weight: 600;
+}
+.ob-likes i { font-size: 12px; color: #b9924f; }
+.ob-cmts { padding: 4px 10px 6px; }
+.ob-cmts-split { border-top: 1px solid rgba(42, 74, 128, 0.1); }
+.ob-cmt {
+    padding: 2px 0;
+    border-radius: 3px;
+    color: #1f3a68;
+    word-break: break-word;
+    cursor: pointer;
+}
+.ob-cmt:hover { background: rgba(42, 74, 128, 0.06); }
+.ob-cmt-who { color: #2a4a80; font-weight: 600; }
+.ob-cmt-to { margin: 0 3px; color: #46639b; }
+.ob-cmt-text { white-space: pre-wrap; }
+/* 每一則留言後面的時間（11-23） */
+.ob-cmt-time {
+    margin-left: 6px;
+    font-size: 11px;
+    font-weight: 400;
+    color: #8c9ab3;
+    white-space: nowrap;
+}
+/* 留言裡貼的圖：比動態的小一號 */
+.ob-media-grid.ob-cmt-media { max-width: 220px; margin: 4px 0 2px; }
+.ob-media-grid.ob-cmt-media.ob-media-n1 { max-width: 160px; }
+.ob-cmt-media.ob-media-n1 .ob-media img { max-height: 220px; }
+.ob-cmt-del {
+    margin-left: 8px;
+    border: none;
+    border-radius: 3px;
+    padding: 1px 7px;
+    background: #b5563f;
+    color: #fff;
+    font-size: 11px;
+    cursor: pointer;
+    font-family: inherit;
+}
+.ob-cmt-del[hidden] { display: none; }
+
+/* ---- 底部留言列（上面一排是貼的圖，11-23） ---- */
+.ob-bar {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
+    background: #f4f6fb;
+    border-top: 1px solid rgba(42, 74, 128, 0.14);
+}
+.ob-bar[hidden] { display: none; }
+.ob-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+.ob-bar-media {
+    display: grid;
+    grid-template-columns: repeat(4, 56px);
+    gap: 6px;
+}
+.ob-bar-media[hidden] { display: none; }
+.ob-bar-att {
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    border: none;
+    border-radius: 6px;
+    background: rgba(42, 74, 128, 0.08);
+    color: #2a4a80;
+    font-size: 17px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+.ob-bar-att:hover { background: rgba(42, 74, 128, 0.15); }
+.ob-bar-input {
+    flex: 1;
+    min-width: 0;
+    height: 36px;
+    padding: 0 10px;
+    border: 1px solid rgba(42, 74, 128, 0.2);
+    border-radius: 6px;
+    background: #fff;
+    color: #1f3a68;
+    font-size: 14px;
+    outline: none;
+    font-family: inherit;
+}
+.ob-bar-input:focus { border-color: #2a4a80; }
+.ob-bar-send {
+    flex-shrink: 0;
+    height: 36px;
+    padding: 0 14px;
+    border: none;
+    border-radius: 6px;
+    background: #2a4a80;
+    color: #fff;
+    font-size: 14px;
+    cursor: pointer;
+    font-family: inherit;
+}
+.ob-bar-send:disabled { background: #b8c3d8; cursor: default; }
+
+/* ---- 發動態 ---- */
+.ob-sheet {
+    position: absolute;
+    inset: 0;
+    z-index: 6;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 12px;
+    background: rgba(20, 32, 54, 0.35);
+}
+.ob-sheet[hidden] { display: none; }
+.ob-sheet-card {
+    width: 100%;
+    max-width: 520px;
+    border-radius: 12px;
+    background: #fdfdfc;
+    box-shadow: 0 8px 28px rgba(20, 32, 54, 0.3);
+    overflow: hidden;
+}
+.ob-sheet-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-bottom: 1px solid rgba(42, 74, 128, 0.1);
+}
+.ob-sheet-title { font-size: 15px; font-weight: 700; color: #1f3a68; }
+.ob-sheet-cancel {
+    border: none;
+    background: none;
+    padding: 6px 4px;
+    color: #46639b;
+    font-size: 14px;
+    cursor: pointer;
+    font-family: inherit;
+}
+.ob-sheet-send {
+    border: none;
+    border-radius: 6px;
+    padding: 6px 14px;
+    background: #2a4a80;
+    color: #fff;
+    font-size: 14px;
+    cursor: pointer;
+    font-family: inherit;
+}
+.ob-sheet-send:disabled { background: #b8c3d8; cursor: default; }
+.ob-sheet-text {
+    display: block;
+    width: 100%;
+    min-height: 140px;
+    border: none;
+    resize: vertical;
+    padding: 12px 14px;
+    background: transparent;
+    color: #1f3a68;
+    font-size: 15px;
+    line-height: 1.6;
+    outline: none;
+    font-family: inherit;
+}
+/* 發動態附照片／影片：縮圖一排四格、右上角拿掉 */
+.ob-sheet-media {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    padding: 0 12px 10px;
+}
+.ob-sheet-media[hidden] { display: none; }
+.ob-att {
+    position: relative;
+    aspect-ratio: 1;
+    border-radius: 6px;
+    overflow: hidden;
+    background: rgba(42, 74, 128, 0.08);
+}
+.ob-att img, .ob-att video { display: block; width: 100%; height: 100%; object-fit: cover; }
+.ob-att-play {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    color: #fff;
+    font-size: 18px;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+    pointer-events: none;
+}
+.ob-att-del {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 22px;
+    height: 22px;
+    border: none;
+    border-radius: 50%;
+    background: rgba(20, 32, 54, 0.6);
+    color: #fff;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+.ob-sheet-tools {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px 10px;
+    border-top: 1px solid rgba(42, 74, 128, 0.08);
+}
+.ob-sheet-att {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 10px;
+    background: rgba(42, 74, 128, 0.08);
+    color: #2a4a80;
+    font-size: 13px;
+    cursor: pointer;
+    font-family: inherit;
+}
+.ob-sheet-att:hover { background: rgba(42, 74, 128, 0.15); }
+
+/* 動態裡的圖片、影片：一張就照比例放大，兩張以上兩欄方格；影片一律整排 */
+.ob-media-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+    max-width: 360px;
+    margin-top: 8px;
+}
+.ob-media-grid.ob-media-n1 { grid-template-columns: minmax(0, 1fr); max-width: 300px; }
+.ob-media {
+    position: relative;
+    aspect-ratio: 1;
+    border-radius: 6px;
+    overflow: hidden;
+    background: rgba(42, 74, 128, 0.08);
+    color: #8aa0c4;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.ob-media-n1 .ob-media, .ob-media-video { aspect-ratio: auto; min-height: 120px; }
+.ob-media-video { grid-column: 1 / -1; }
+.ob-media img { display: block; width: 100%; height: 100%; object-fit: cover; cursor: zoom-in; }
+.ob-media-n1 .ob-media img { height: auto; max-height: 420px; object-fit: contain; }
+.ob-media video { display: block; width: 100%; max-height: 520px; background: #000; }
+.ob-media-miss { flex-direction: column; gap: 4px; padding: 10px; aspect-ratio: auto; min-height: 80px; font-size: 12px; text-align: center; }
+
+/* ---- 提示、讀取、出錯 ---- */
+.ob-toast {
+    position: absolute;
+    left: 50%;
+    bottom: 72px;
+    transform: translateX(-50%);
+    z-index: 7;
+    max-width: 86%;
+    padding: 8px 14px;
+    border-radius: 8px;
+    background: rgba(30, 53, 84, 0.92);
+    color: #fff;
+    font-size: 12px;
+    line-height: 1.5;
+    text-align: center;
+    pointer-events: none;
+}
+.ob-toast[hidden] { display: none; }
+
+.ob-via {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 12px 10px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    background: rgba(42, 74, 128, 0.08);
+    color: #46639b;
+    font-size: 11px;
+}
+
+.ob-loading,
+.ob-empty {
+    padding: 40px 20px;
+    text-align: center;
+    color: #46639b;
+    font-size: 13px;
+    line-height: 1.8;
+}
+
+.ob-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 48px 22px;
+    text-align: center;
+    color: #46639b;
+    font-size: 13px;
+    line-height: 1.7;
+    overflow-y: auto;
+}
+.ob-error > i { margin-bottom: 6px; font-size: 30px; color: #8c9ab3; }
+.ob-error-big { font-size: 16px; font-weight: 700; color: #1f3a68; }
+.ob-error-host { font-size: 11px; opacity: 0.8; }
+.ob-error code {
+    display: inline-block;
+    max-width: 100%;
+    margin-top: 4px;
+    padding: 6px 10px;
+    border-radius: 4px;
+    background: rgba(42, 74, 128, 0.1);
+    color: #2a4a80;
+    font-family: 'Cascadia Code', Consolas, monospace;
+    font-size: 11px;
+    word-break: break-all;
+    text-align: left;
+}
+.ob-retry {
+    margin-top: 12px;
+    padding: 8px 18px;
+    border: 1px solid rgba(42, 74, 128, 0.4);
+    border-radius: 8px;
+    background: rgba(42, 74, 128, 0.1);
+    color: #2a4a80;
+    font-size: 12px;
+    cursor: pointer;
+    font-family: inherit;
+}
+.ob-retry:hover { background: rgba(42, 74, 128, 0.2); }
+
+/* ---- 醒來紀錄（09-30）：「會自己醒來的」標題右邊的入口 → 清單 → 一次的經過，兩頁都蓋在板子上 ---- */
+.ob-wakes-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+.ob-wakes-head .ob-wakes-cap { margin-bottom: 0; }
+.ob-wl-open {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 4px 3px 8px;
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: #2a4a80;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+}
+.ob-wl-open:hover { background: rgba(42, 74, 128, 0.08); }
+.ob-wl-open .fa-chevron-right { font-size: 10px; opacity: 0.6; }
+.ob-wl-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: #e7ecf6;
+    color: #2a4a80;
+    font-size: 11px;
+    font-weight: 700;
+    justify-content: center;
+}
+.ob-wl-badge.is-out { background: #b5563f; color: #fff; }
+.ob-wl-badge i { font-size: 9px; }
+.ob-wake.is-link { cursor: pointer; }
+
+.ob-wl,
+.ob-wl-page {
+    position: absolute;
+    inset: 0;
+    z-index: 7;
+    display: flex;
+    flex-direction: column;
+    background: #fdfdfc;
+}
+.ob-wl-page { z-index: 8; }
+.ob-wl[hidden],
+.ob-wl-page[hidden] { display: none; }
+.ob-wl-head {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    height: 48px;
+    padding: 0 6px;
+    border-bottom: 1px solid rgba(42, 74, 128, 0.1);
+}
+.ob-wl-back,
+.ob-wl-headpad {
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+}
+.ob-wl-back {
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: #1f3a68;
+    font-size: 16px;
+    cursor: pointer;
+}
+.ob-wl-back:hover { background: rgba(42, 74, 128, 0.08); }
+.ob-wl-title {
+    flex: 1;
+    min-width: 0;
+    text-align: center;
+    font-size: 15px;
+    font-weight: 700;
+    color: #1f3a68;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.ob-wl-chips {
+    flex-shrink: 0;
+    display: flex;
+    gap: 6px;
+    padding: 10px 12px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    border-bottom: 1px solid rgba(42, 74, 128, 0.06);
+}
+.ob-wl-chips::-webkit-scrollbar { display: none; }
+.ob-wl-chip {
+    flex-shrink: 0;
+    padding: 4px 12px;
+    border: 1px solid rgba(42, 74, 128, 0.2);
+    border-radius: 999px;
+    background: #fff;
+    color: #2a4a80;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+}
+.ob-wl-chip.is-on { background: #2a4a80; border-color: #2a4a80; color: #fff; }
+.ob-wl-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 24px;
+}
+.ob-wl-day {
+    padding: 14px 16px 4px;
+    font-size: 11px;
+    color: #46639b;
+    letter-spacing: 1px;
+}
+.ob-wl-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px 10px 16px;
+    border-bottom: 1px solid rgba(42, 74, 128, 0.07);
+    cursor: pointer;
+}
+.ob-wl-item:hover { background: rgba(42, 74, 128, 0.04); }
+.ob-wl-item .ob-av { width: 36px; height: 36px; border-radius: 50%; font-size: 14px; }
+.ob-wl-main { flex: 1; min-width: 0; }
+.ob-wl-top {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+}
+.ob-wl-name { font-size: 14px; font-weight: 700; color: #1f3a68; }
+.ob-wl-kind {
+    padding: 0 6px;
+    border-radius: 4px;
+    background: #f1ede2;
+    color: #8a6a33;
+    font-size: 11px;
+    line-height: 17px;
+}
+.ob-wl-time { margin-left: auto; font-size: 11px; color: #46639b; }
+.ob-wl-out,
+.ob-wl-sum {
+    margin-top: 3px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+.ob-wl-out { color: #b5563f; font-weight: 700; }
+.ob-wl-out i { margin-right: 4px; font-size: 10px; }
+.ob-wl-sum { color: #46639b; }
+.ob-wl-item.is-fail .ob-wl-sum { color: #b5563f; }
+.ob-wl-sum i { margin-right: 4px; }
+.ob-wl-go { align-self: center; flex-shrink: 0; font-size: 11px; color: rgba(42, 74, 128, 0.35); }
+.ob-wl-more {
+    display: block;
+    margin: 14px auto 0;
+    padding: 7px 18px;
+    border: 1px solid rgba(42, 74, 128, 0.25);
+    border-radius: 999px;
+    background: #fff;
+    color: #2a4a80;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+}
+.ob-wl-more:disabled { opacity: 0.6; cursor: default; }
+.ob-wl-empty {
+    padding: 48px 24px;
+    text-align: center;
+    font-size: 13px;
+    line-height: 1.7;
+    color: #46639b;
+}
+.ob-wl-empty > i { display: block; margin-bottom: 8px; font-size: 22px; opacity: 0.6; }
+.ob-wl-note { margin-top: 6px; font-size: 12px; opacity: 0.8; }
+
+/* 一次的經過 */
+.ob-wl-meta {
+    padding: 12px 16px 4px;
+    font-size: 12px;
+    color: #46639b;
+}
+.ob-wl-fail {
+    display: flex;
+    gap: 10px;
+    margin: 8px 12px 0;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: #fbeae4;
+    color: #b5563f;
+    font-size: 13px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+.ob-wl-fail > i { margin-top: 3px; }
+.ob-wl-sec {
+    margin: 10px 12px 0;
+    border-radius: 10px;
+    background: #f4f6fa;
+    border: 1px solid rgba(42, 74, 128, 0.12);
+    overflow: hidden;
+}
+.ob-wl-sec.is-out { background: #fdf3ef; border-color: rgba(181, 86, 63, 0.35); }
+.ob-wl-sec-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 12px 5px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #2a4a80;
+    letter-spacing: 1px;
+}
+.ob-wl-sec.is-out .ob-wl-sec-title { color: #b5563f; }
+.ob-wl-tool,
+.ob-wl-act {
+    padding: 8px 12px;
+    border-top: 1px solid rgba(42, 74, 128, 0.07);
+    font-size: 13px;
+    line-height: 1.55;
+    color: #1f3a68;
+    overflow-wrap: anywhere;
+}
+.ob-wl-tool-label { font-weight: 700; }
+.ob-wl-tool.is-out .ob-wl-tool-label { color: #b5563f; }
+.ob-wl-tool-detail {
+    margin-top: 2px;
+    font-size: 12px;
+    color: #46639b;
+    white-space: pre-wrap;
+}
+.ob-wl-sec:not(.is-out) .ob-wl-tool-detail {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.ob-wl-reply {
+    padding: 4px 12px 10px;
+    font-size: 13.5px;
+    line-height: 1.65;
+    color: #1f3a68;
+    overflow-wrap: anywhere;
+}
+.ob-wl-reply p { margin: 0 0 8px; }
+.ob-wl-reply p:last-child { margin-bottom: 0; }
+
+/* ---- 記憶（09-30）：「醒來紀錄」旁邊的入口 → 一排人、分頁、找、一則一列 → 一則全文（跟醒來紀錄同兩個蓋頁） ---- */
+.ob-mem-open {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 4px 3px 8px;
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: #2a4a80;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+}
+.ob-mem-open:hover { background: rgba(42, 74, 128, 0.08); }
+.ob-mem-open .fa-chevron-right { font-size: 10px; opacity: 0.6; }
+.ob-mem-open + .ob-wl-open { margin-left: 0; }
+.ob-mem-tabs {
+    flex-shrink: 0;
+    display: flex;
+    gap: 6px;
+    padding: 10px 12px 0;
+}
+.ob-mem-tab {
+    flex: 1;
+    min-width: 0;
+    padding: 7px 8px;
+    border: 1px solid rgba(42, 74, 128, 0.18);
+    border-radius: 8px;
+    background: #fff;
+    color: #2a4a80;
+    font-size: 12.5px;
+    font-family: inherit;
+    cursor: pointer;
+}
+.ob-mem-tab.is-on { background: #e9eef7; border-color: #2a4a80; font-weight: 700; }
+.ob-mem-n { margin-left: 5px; font-size: 11px; font-weight: 400; opacity: 0.6; }
+.ob-mem-find {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 10px 12px 4px;
+    padding: 7px 10px;
+    border: 1px solid rgba(42, 74, 128, 0.15);
+    border-radius: 8px;
+    background: #fff;
+    color: #46639b;
+    cursor: text;
+}
+.ob-mem-find > i { font-size: 12px; opacity: 0.7; }
+.ob-mem-q {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: #1f3a68;
+    font-size: 13px;
+    font-family: inherit;
+}
+.ob-mem-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 14px;
+    border-bottom: 1px solid rgba(42, 74, 128, 0.07);
+    cursor: pointer;
+}
+.ob-mem-item:hover { background: rgba(42, 74, 128, 0.04); }
+.ob-mem-main { flex: 1; min-width: 0; }
+.ob-mem-t { font-size: 14px; font-weight: 700; line-height: 1.45; color: #1f3a68; overflow-wrap: anywhere; }
+.ob-mem-h {
+    margin-top: 2px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: #46639b;
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.ob-mem-meta { margin-top: 3px; font-size: 11px; color: rgba(42, 74, 128, 0.55); }
+.ob-mem-doc { padding: 14px 16px 8px; }
+.ob-mem-doc-t { margin: 0; font-size: 16px; line-height: 1.45; color: #1f3a68; overflow-wrap: anywhere; }
+.ob-mem-doc-meta { margin-top: 4px; font-size: 12px; color: #46639b; }
+.ob-mem-doc-body {
+    margin-top: 12px;
+    font-size: 13.5px;
+    line-height: 1.75;
+    color: #1f3a68;
+    overflow-wrap: anywhere;
+}
+.ob-mem-doc-body p { margin: 0 0 10px; }
+.ob-mem-doc-body h1,
+.ob-mem-doc-body h2,
+.ob-mem-doc-body h3,
+.ob-mem-doc-body h4 { margin: 16px 0 6px; font-size: 14.5px; line-height: 1.5; color: #1f3a68; }
+.ob-mem-doc-body ul,
+.ob-mem-doc-body ol { margin: 0 0 10px; padding-left: 20px; }
+.ob-mem-doc-body li { margin: 2px 0; }
+.ob-mem-doc-body blockquote { margin: 0 0 10px; padding: 4px 10px; border-left: 3px solid rgba(42, 74, 128, 0.25); color: #46639b; }
+.ob-mem-doc-body code { padding: 1px 4px; border-radius: 4px; background: rgba(42, 74, 128, 0.07); font-size: 12.5px; }
+.ob-mem-doc-body pre { margin: 0 0 10px; padding: 8px 10px; border-radius: 6px; background: rgba(42, 74, 128, 0.06); overflow-x: auto; }
+.ob-mem-doc-body pre code { padding: 0; background: none; }
+.ob-mem-doc-body hr { margin: 14px 0; border: none; border-top: 1px solid rgba(42, 74, 128, 0.15); }
+.ob-mem-doc-body table { display: block; max-width: 100%; margin: 0 0 10px; overflow-x: auto; border-collapse: collapse; font-size: 12.5px; }
+.ob-mem-doc-body th,
+.ob-mem-doc-body td { padding: 4px 8px; border: 1px solid rgba(42, 74, 128, 0.15); text-align: left; vertical-align: top; }
+.ob-mem-doc-body th { background: rgba(42, 74, 128, 0.06); }
+.ob-mem-link { color: #2a4a80; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+
+/* ---- 等你同意的（09-30）：宿舍住戶提的改世界書單子，點一張打開跟聊天 app 同一張單子 ---- */
+.ob-props {
+    margin: 12px 12px 2px;
+    border-radius: 10px;
+    background: #f7f5ef;
+    border: 1px solid rgba(185, 146, 79, 0.4);
+    overflow: hidden;
+}
+.ob-props-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 14px 4px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #8a6a33;
+    letter-spacing: 1px;
+}
+.ob-props-count {
+    margin-left: auto;
+    font-size: 11px;
+    font-weight: 400;
+    color: #8a6a33;
+    letter-spacing: 0;
+}
+.ob-prop {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px 9px 14px;
+    border-top: 1px solid rgba(185, 146, 79, 0.18);
+    cursor: pointer;
+}
+.ob-prop:hover { background: rgba(185, 146, 79, 0.07); }
+.ob-prop .ob-av { width: 32px; height: 32px; border-radius: 50%; font-size: 13px; }
+.ob-prop-main { flex: 1; min-width: 0; }
+.ob-prop-text { font-size: 13px; line-height: 1.5; color: #1f3a68; overflow-wrap: anywhere; }
+.ob-prop-meta { margin-top: 1px; font-size: 11px; color: #46639b; }
+.ob-prop-chip {
+    flex-shrink: 0;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    line-height: 18px;
+    background: #e7ecf6;
+    color: #46639b;
+}
+/* 11-09（待修 #515）：還沒決定的（新的實心金、看過先放著空心金）在上；處理過的在下、整排變淡，各狀態一個顏色 */
+.ob-prop.is-new .ob-prop-chip { background: #b9924f; color: #fff; font-weight: 700; }
+.ob-prop.is-seen .ob-prop-chip { background: #fff; color: #8a6a33; box-shadow: inset 0 0 0 1px #b9924f; }
+.ob-prop.is-gone { background: rgba(31, 58, 104, 0.025); }
+.ob-prop.is-gone .ob-av { opacity: 0.55; }
+.ob-prop.is-gone .ob-prop-text { color: #6b7d9c; }
+.ob-prop.is-gone .ob-prop-meta { color: #8a9bb8; }
+.ob-prop.is-done .ob-prop-chip { background: #e6f1e8; color: #3e7a48; }
+.ob-prop.is-no .ob-prop-chip { background: #f5e7e4; color: #9a5245; }
+.ob-prop.is-undone .ob-prop-chip { background: #e7ecf6; color: #46639b; }
+.ob-prop.is-stale .ob-prop-chip,
+.ob-prop.is-old .ob-prop-chip { background: #eeeeec; color: #85858a; }
+.ob-props-sub {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 8px 14px 5px;
+    border-top: 1px solid rgba(185, 146, 79, 0.18);
+    font-size: 11.5px;
+    font-weight: 700;
+    color: #8a6a33;
+    letter-spacing: 1px;
+}
+.ob-props-sub.is-gone { color: #6b7d9c; background: rgba(31, 58, 104, 0.03); }
+.ob-props-sub-n { margin-left: auto; font-weight: 400; letter-spacing: 0; }
+.ob-props-more {
+    display: block;
+    width: 100%;
+    padding: 9px 14px;
+    border: 0;
+    border-top: 1px solid rgba(185, 146, 79, 0.18);
+    background: transparent;
+    font: inherit;
+    font-size: 12px;
+    color: #46639b;
+    text-align: center;
+    cursor: pointer;
+}
+.ob-props-more:hover { background: rgba(185, 146, 79, 0.07); }
+
+/* ---- 日程表（10-11）：「會自己醒來的」標題右邊的入口 → 每人一張卡（最快要醒的在最上面）＋最近錯過的（同醒來紀錄那個蓋頁） ---- */
+.ob-sch-open {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 4px 3px 8px;
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: #2a4a80;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+}
+.ob-sch-open:hover { background: rgba(42, 74, 128, 0.08); }
+.ob-sch-open .fa-chevron-right { font-size: 10px; opacity: 0.6; }
+.ob-sch-open + .ob-mem-open { margin-left: 0; }
+.ob-sch-helpslot {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.ob-sch-quiet {
+    padding: 10px 16px 0;
+    font-size: 11.5px;
+    color: #46639b;
+}
+.ob-sch-quiet i { margin-right: 5px; }
+.ob-sch-card {
+    margin: 10px 12px 0;
+    border-radius: 10px;
+    background: #f4f6fa;
+    border: 1px solid rgba(42, 74, 128, 0.12);
+    overflow: hidden;
+}
+.ob-sch-card.is-off { opacity: 0.62; }
+.ob-sch-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 10px 8px 12px;
+}
+.ob-sch-top .ob-av {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    font-size: 13px;
+}
+.ob-sch-who {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+.ob-sch-name {
+    min-width: 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: #1f3a68;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.ob-sch-today {
+    font-size: 11.5px;
+    color: #46639b;
+    white-space: nowrap;
+}
+.ob-sch-cap {
+    margin-left: auto;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.ob-sch-cap-txt {
+    min-width: 76px;
+    font-size: 12px;
+    color: #2a4a80;
+    text-align: center;
+    white-space: nowrap;
+}
+.ob-sch-step {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid rgba(42, 74, 128, 0.25);
+    border-radius: 50%;
+    background: #fff;
+    color: #2a4a80;
+    font-size: 10px;
+    cursor: pointer;
+}
+.ob-sch-step:hover:not(:disabled) { background: rgba(42, 74, 128, 0.08); }
+.ob-sch-step:disabled { opacity: 0.35; cursor: default; }
+.ob-sch-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 12px 8px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: #fbeae4;
+    color: #b5563f;
+    font-size: 12px;
+    line-height: 1.5;
+}
+.ob-sch-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 8px 8px 12px;
+    border-top: 1px solid rgba(42, 74, 128, 0.07);
+}
+.ob-sch-time {
+    flex-shrink: 0;
+    min-width: 44px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #1f3a68;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.ob-sch-what {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #1f3a68;
+    overflow-wrap: anywhere;
+}
+.ob-sch-retry {
+    display: block;
+    font-size: 11px;
+    color: #8a6a33;
+}
+.ob-sch-urg {
+    flex-shrink: 0;
+    padding: 0 7px;
+    border-radius: 4px;
+    font-size: 11px;
+    line-height: 18px;
+    white-space: nowrap;
+}
+.ob-sch-urg.is-high { background: #b5563f; color: #fff; }
+.ob-sch-urg.is-normal { background: #e7ecf6; color: #2a4a80; }
+.ob-sch-urg.is-low { background: #f1ede2; color: #8a6a33; }
+.ob-sch-x {
+    flex-shrink: 0;
+    min-width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: 14px;
+    background: transparent;
+    color: rgba(42, 74, 128, 0.45);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+}
+.ob-sch-x:hover { background: rgba(42, 74, 128, 0.08); color: #2a4a80; }
+.ob-sch-x.armed { padding: 0 10px; background: #b5563f; color: #fff; }
+.ob-sch-none {
+    padding: 8px 12px 10px;
+    border-top: 1px solid rgba(42, 74, 128, 0.07);
+    font-size: 12.5px;
+    color: #46639b;
+}
+.ob-sch-sec {
+    padding: 18px 16px 4px;
+    font-size: 11px;
+    color: #46639b;
+    letter-spacing: 1px;
+}
+.ob-sch-miss {
+    padding: 8px 16px;
+    border-bottom: 1px solid rgba(42, 74, 128, 0.07);
+}
+.ob-sch-miss-top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #1f3a68;
+}
+.ob-sch-miss-top time { font-weight: 700; font-variant-numeric: tabular-nums; }
+.ob-sch-miss-name { font-weight: 700; }
+.ob-sch-miss-why {
+    margin-top: 2px;
+    font-size: 12px;
+    color: #46639b;
+}
+
+/* ---- 臨時群聊（11-04，群聊收掉之後）：住戶開的那一串整張金框；她 @ 人的只在內文底下多一行 ---- */
+.ob-post-meet {
+    margin: 8px 10px;
+    border: 1.5px solid #b9924f;
+    border-radius: 12px;
+    background: #fff8ec;
+}
+.ob-post-meet.is-live { box-shadow: 0 2px 10px rgba(185, 146, 79, 0.18); }
+.ob-meet-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #8a6a33;
+}
+.ob-meet-head > span:first-of-type { flex: 1; min-width: 0; }
+.ob-meet-badge {
+    flex-shrink: 0;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: #e7ecf6;
+    color: #46639b;
+    font-size: 11px;
+    font-weight: 600;
+}
+.ob-meet-badge.is-live { background: #b9924f; color: #fff; }
+.ob-meet-foot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    font-size: 12px;
+    color: #46639b;
+}
+.ob-meet-now { flex: 1; min-width: 0; }
+.ob-meet-stop {
+    flex-shrink: 0;
+    border: 1px solid rgba(181, 86, 63, 0.5);
+    border-radius: 999px;
+    background: none;
+    padding: 2px 10px;
+    font-size: 11px;
+    color: #b5563f;
+    cursor: pointer;
+    font-family: inherit;
+}
+.ob-meet-stop:disabled { opacity: 0.4; cursor: default; }
+.ob-meet-lines {
+    margin-top: 4px;
+    font-size: 11px;
+    line-height: 1.6;
+    color: #8c9ab3;
+}
+.ob-call {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    font-size: 12px;
+    color: #8a6a33;
+}
+
+/* ---- 快報（橋的 news_mail）：報紙圖示當頭像、太長先收起來 ---- */
+.ob-av-news { background: #1e3554; color: #dcc28f; font-size: 18px; }
+.ob-news-body.is-folded {
+    max-height: 210px;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(180deg, #000 70%, transparent);
+    mask-image: linear-gradient(180deg, #000 70%, transparent);
+}
+.ob-post-news .ob-post-body h3 { margin: 10px 0 2px; font-size: 14px; color: #1e3554; }
+.ob-post-news .ob-post-body a {
+    display: inline-block;
+    padding: 0 8px;
+    border-radius: 999px;
+    background: #e9eef7;
+    font-size: 11.5px;
+    line-height: 1.7;
+    text-decoration: none;
+    white-space: nowrap;
+}
+.ob-news-more {
+    margin-top: 4px;
+    border: none;
+    background: none;
+    padding: 0;
+    font-size: 12px;
+    color: #2a4a80;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+/* ---- 快報設定（蓋在板子上那一層，頂列跟日程表、記憶同一套） ---- */
+.ob-news-page { padding: 12px 14px 20px; }
+.ob-news-switch {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #1f3a68;
+}
+.ob-news-switch input { width: 18px; height: 18px; accent-color: #2a4a80; }
+.ob-news-field {
+    display: block;
+    margin-bottom: 10px;
+}
+.ob-news-field > span {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 12px;
+    color: #46639b;
+}
+.ob-news-input {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    border: 1px solid rgba(42, 74, 128, 0.2);
+    border-radius: 8px;
+    background: #fff;
+    color: #1f3a68;
+    font-size: 14px;
+    font-family: inherit;
+}
+.ob-news-input:focus { outline: none; border-color: #2a4a80; }
+/* 寄件人一張一張小卡：信箱一整行，下面名字＋標籤兩格並排，右上角 × 拿掉（11-18） */
+.ob-news-slist { display: flex; flex-direction: column; gap: 8px; }
+.ob-news-srow {
+    position: relative;
+    padding: 8px 34px 8px 8px;
+    border: 1px solid rgba(42, 74, 128, 0.14);
+    border-radius: 10px;
+    background: rgba(42, 74, 128, 0.04);
+}
+.ob-news-spair {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 6px;
+    margin-top: 6px;
+}
+.ob-news-sdel {
+    position: absolute;
+    top: 8px;
+    right: 6px;
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: 6px;
+    background: none;
+    color: #8a9ab8;
+    cursor: pointer;
+}
+.ob-news-sdel:hover { color: #b5563f; background: rgba(181, 86, 63, 0.08); }
+.ob-news-addsnd {
+    margin-top: 8px;
+    border: 1px dashed rgba(42, 74, 128, 0.35);
+    border-radius: 8px;
+    padding: 6px 10px;
+    background: none;
+    color: #2a4a80;
+    font-size: 13px;
+    cursor: pointer;
+    font-family: inherit;
+}
+.ob-news-clear {
+    margin: -4px 0 10px;
+    border: none;
+    background: none;
+    padding: 0;
+    font-size: 12px;
+    color: #b5563f;
+    cursor: pointer;
+    font-family: inherit;
+}
+.ob-news-btns { display: flex; gap: 10px; margin-top: 6px; }
+.ob-news-btns button {
+    flex: 1;
+    border: 1px solid #2a4a80;
+    border-radius: 8px;
+    padding: 8px 0;
+    background: #fff;
+    color: #2a4a80;
+    font-size: 14px;
+    cursor: pointer;
+    font-family: inherit;
+}
+.ob-news-btns .ob-news-save { background: #2a4a80; color: #fff; }
+.ob-news-btns button:disabled { opacity: 0.5; cursor: default; }
+.ob-news-last {
+    margin-top: 12px;
+    font-size: 12px;
+    color: #46639b;
+}
+.ob-news-last.is-bad { color: #b5563f; }

@@ -1,0 +1,2167 @@
+/**
+ * core/chat_group.js — Claude × Codex 群聊區協調器
+ * 你 / Claude / Codex 三方同一聊天室。骰子決定誰拿發言權、可 [PASS]。
+ * 傳話人模型：Claude / Codex 各自獨立 session，協調器互相轉述。
+ */
+(function (ChatGroup) {
+    'use strict';
+
+    const STORE_KEY = 'group_chat_main';     // OS_DB transcript
+
+    // 席位以「住戶」為單位（宿舍化之後同一顆 Claude 的分身各佔各的席）。
+    // 舊資料裡 speaker / session 都是 provider 字串，一律先過 _normSpeaker 換成住戶 id。
+    const LEGACY_SPEAKER = { claude: 'dan', codex: 'aluo', deepseek: 'sujingming' };
+    // 內建三位沿用原本的 localStorage key，她的既有 session 不用重開
+    const LEGACY_SID = {
+        dan:        'group_claude_sid',
+        aluo:       'group_codex_sid',
+        sujingming: 'group_deepseek_sid',
+    };
+
+    let _transcript = [];   // [{ speaker:'rae'|'recap'|<residentId>, content, ts, usage? }]
+
+    // ── 上下文水位：什麼時候該自己整理一次 ──
+    // 看的是 cache_read_input_tokens 而不是 input_tokens：開了 prompt caching 之後
+    // input_tokens 幾乎永遠是個位數，真正累積在 session 裡的量全在 cache_read。
+    // （實測他們四個當時的水位是 44k / 64k / 67k / 76k，而 input_tokens 都是 1~3。）
+    // 🚨 2026-09-02 從 100k 提到 300k。原本寫「取 Opus 上限的一半」，那是以 200k 為前提算的，
+    // 而現在 Opus 5 / Sonnet 5 / Opus 4.6 的 context 都是 1M —— 100k 只剩上限的一成。
+    // 實測開場基線就要 44k（Claude Code 自己的系統提示 + 住戶的 CLAUDE.md），
+    // 等於原本只剩 56k 能講話，四五個人交叉發言一輪就滿，每輪都在整理。
+    // 300k 給的是 256k 說話空間（約四倍半），離 1M 還很遠，壓縮時把整份逐字稿送給 Sonnet
+    // 也塞得下。不拉更高是因為 context 越大每輪送的東西越多、回應越慢，
+    // 300k 已經幾乎不會遇到，再往上只是換來變慢。成本不是考量：住戶走的是訂閱不是 API 計費。
+    const CTX_COMPACT_AT = 300000;
+    let _ctxWater = {};     // rid → 那個人 session 當下的實際 context 大小
+    let _autoCompacting = false;   // 自動整理進行中，別重入
+    const SEEN_KEY = 'group_seen';   // 閱讀進度：residentId → 已被送到第幾則 transcript index
+    let _seen = {};         // 沒有記錄的當 -1
+    let _loaded = false;    // load() 跑過沒 —— 沒跑過就往 _transcript 推東西會蓋掉 OS_DB 那份
+    let _busy = false;
+    let _streamEl = null;   // 渲染目標（窗內 chat-stream）
+    let _game = null;             // 遊戲模式：{ players:[p1,p2], turnIdx, moveCount, raeResolver, wakeResolver, retries, endSignal }
+    let _pendingAttachments = []; // 待送附件：{path,filename,mime,size,thumb} 或 {_uploading:true,filename,mime,size}
+    let _leftAt = {};             // residentId → 他離開時 transcript 的位置
+    let _needBrief = {};          // residentId → 回桌摘要要涵蓋的區間 { from, to }
+    let _following = false;       // 正在跑 AI 互相接話的續輪
+    let _followAbort = false;     // 她在續輪期間插話了 → 停下來讓她先講
+    const GAME_TURN_LIMIT = 60;   // 安全閥：總手數上限，防無限迴圈 + 訂閱額度爆
+    const GAME_RETRY_LIMIT = 3;   // 同一手連續送不出去幾次才真的收場（熄屏回來要能續）
+    const GAME_RETRY_BACKOFF_MS = 1500;   // 重下前遞增等這麼久：1.5s → 3s → 4.5s
+
+    // ── AI 之間自己接話（她發一次言之後）──
+    // 有人在回覆裡 @ 了別人，就自動把被 @ 的人叫進來回，不必她再推一把。
+    // 兩道煞車缺一不可：沒有的話 A@B、B@A 會永遠打乒乓，燒的是她的錢。
+    const FOLLOW_MAX_ROUNDS = 3;   // 她發一次言，AI 最多自己接幾輪
+    const FOLLOW_MAX_PER_ID = 2;   // 同一個人在這段期間最多被自動叫幾次
+
+    function _CT() { return window.ClaudeTerminal || null; }
+
+    /** 目前入席的住戶 [{id,name,provider,seatModelId}]；資料層還沒好就回空陣列 */
+    function _seats() {
+        const CT = _CT();
+        if (!CT || typeof CT.listGroupSeats !== 'function') return [];
+        try { return CT.listGroupSeats() || []; } catch (_) { return []; }
+    }
+    function _seatIds() { return _seats().map(s => s.id); }
+    function _seatOf(rid) { return _seats().find(s => s.id === rid) || null; }
+
+    /** 住戶 id → provider。查不到（退席了但 transcript 還留著他的話）也要有答案。 */
+    function _provOf(rid) {
+        const s = _seatOf(rid);
+        if (s) return s.provider;
+        const CT = _CT();
+        if (CT && typeof CT.getResident === 'function') {
+            const r = CT.getResident(rid);
+            if (r) return r.provider;
+        }
+        return 'claude';
+    }
+
+    /** 顯示名。退席／被刪的住戶仍要有名字，不然舊訊息會變成一串 id。 */
+    /**
+     * 標記的參數剛好是格式說明裡的佔位字 → 那是抄範例，不是真的要下指令。
+     * 天天跟丹都吐過「原因」兩個字 —— 那不是誰填的理由，那是範例本身。
+     * 丹的建議是「視為誤觸、不執行」，比我原本的「照常執行但不顯示括號」對。
+     */
+    function _isPlaceholderArg(v) {
+        const t = String(v == null ? '' : v).trim();
+        if (!t) return false;
+        return /^(原因|理由|說明|一句話說明|新名字|名字|…|\.{2,}|reason|why|name|new_?name)$/i.test(t);
+    }
+
+    function _labelOf(sp) {
+        if (sp === 'rae')   return 'Rae';
+        if (sp === 'recap') return '前情提要';
+        if (sp === 'sys')   return '系統';
+        const s = _seatOf(sp);
+        if (s) return s.name;
+        const CT = _CT();
+        if (CT && typeof CT.getResident === 'function') {
+            const r = CT.getResident(sp);
+            if (r) return r.name;
+        }
+        return String(sp || 'AI');
+    }
+
+    /** 氣泡配色跟著 provider 走 —— 同一顆 Claude 的分身共用一套顏色，CSS 不用改 */
+    function _cssOf(sp) {
+        if (sp === 'rae' || sp === 'recap') return sp;
+        return _provOf(sp);
+    }
+
+    const _FACE = { claude: '🦀', codex: '🔷', deepseek: '🟢' };
+    function _hdrTextOf(sp) { return (_FACE[_provOf(sp)] || '🦀') + ' ' + _labelOf(sp); }
+
+    /**
+     * 把表頭填成「🦀 名字 · 模型」。分小機之後同一顆 Claude 會有好幾位坐在桌上，
+     * 光看名字認不出是哪顆腦在講話 —— 模型那截用淡色小字掛在後面，不搶名字。
+     * Codex / DeepSeek 各只有一位，不標。
+     */
+    function _fillHdr(el, sp) {
+        if (!el) return;
+        el.textContent = '';
+        const nameEl = document.createElement('span');
+        nameEl.className = 'cg-hdr-name';
+        nameEl.textContent = _hdrTextOf(sp);
+        el.appendChild(nameEl);
+        const CT = _CT();
+        const model = (CT && typeof CT.residentModelLabel === 'function') ? CT.residentModelLabel(sp) : '';
+        if (model) {
+            const mEl = document.createElement('span');
+            mEl.className = 'cg-hdr-model';
+            mEl.textContent = '· ' + model;
+            el.appendChild(mEl);
+        }
+    }
+
+    /** 舊 transcript / 舊參數裡的 provider 字串 → 住戶 id */
+    function _normSpeaker(sp) { return LEGACY_SPEAKER[sp] || sp; }
+
+    function _seenOf(rid) { return _seen[rid] == null ? -1 : _seen[rid]; }
+
+    // 🚨 閱讀進度一定要落地。以前它只活在記憶體裡，每次 load() 都用「假設大家都跟上了」
+    // 重建 —— 於是「在宿舍面板推了一則入席告示 → 打開群聊窗（觸發 load）→ 發訊息」
+    // 這條路上，那則告示會在 load 時被算成已讀，永遠送不出去。三個人同時回報
+    // 「沒收到離席通知」就是這個。
+    function _saveSeen() {
+        try { _lsSet(SEEN_KEY, JSON.stringify(_seen)); } catch (_) {}
+    }
+    function _loadSeen() {
+        try {
+            const raw = _lsGet(SEEN_KEY);
+            const o = raw ? JSON.parse(raw) : null;
+            return (o && typeof o === 'object' && !Array.isArray(o)) ? o : null;
+        } catch (_) { return null; }
+    }
+    /** 推進某人的閱讀進度並落地 —— 直接寫 _seen[x] 的地方都要換成這支 */
+    function _markSeen(rid, idx) { _seen[rid] = idx; _saveSeen(); }
+
+    function _lsGet(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }
+    function _lsSet(k, v) {
+        try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (_) {}
+    }
+    function _sidKey(rid) {
+        return LEGACY_SID[rid] || ('group_sid__' + rid);
+    }
+
+    /** 清掉某位在群聊裡的 session（下次從零 boot） */
+    function _clearSid(rid) { _lsSet(_sidKey(rid), null); }
+
+    /** 清掉所有可能有 session 的人：現在入席的 + 內建三位（退席的也要清乾淨） */
+    function _clearAllSids() {
+        const ids = new Set(_seatIds());
+        Object.keys(LEGACY_SID).forEach(id => ids.add(id));
+        ids.forEach(_clearSid);
+    }
+
+    function _save() {
+        if (window.OS_DB && typeof window.OS_DB.saveStudioChat === 'function') {
+            window.OS_DB.saveStudioChat(STORE_KEY, _transcript).catch(() => {});
+        }
+    }
+
+    // ── 載入 ──
+    ChatGroup.load = async function () {
+        _transcript = [];
+        if (window.OS_DB && typeof window.OS_DB.getStudioChat === 'function') {
+            try {
+                const m = await window.OS_DB.getStudioChat(STORE_KEY);
+                if (Array.isArray(m)) _transcript = m;
+            } catch (_) {}
+        }
+        // 宿舍化之前的 transcript speaker 是 provider 字串 → 一次性換成住戶 id
+        let migrated = false;
+        _transcript.forEach(function (m) {
+            if (m && LEGACY_SPEAKER[m.speaker]) { m.speaker = LEGACY_SPEAKER[m.speaker]; migrated = true; }
+        });
+        if (migrated) _save();
+
+        // 閱讀進度優先用存下來的那份 —— 每次 load 都重算的話，
+        // load 之前剛推進去、還沒送給任何人的告示會被當成已讀。
+        const saved = _loadSeen();
+        if (saved) {
+            _seen = saved;
+        } else {
+            // 還沒有存檔（第一次跑到新版）：沿用舊行為當一次性遷移，
+            // 把在場的人都當成已經跟上了，免得他們突然被倒整段舊逐字稿。
+            _seen = {};
+            const end = _transcript.length - 1;
+            _seatIds().forEach(function (id) { _seen[id] = end; });
+            _transcript.forEach(function (m) {
+                if (m && m.speaker !== 'rae' && m.speaker !== 'recap' && m.speaker !== 'sys'
+                    && _seen[m.speaker] == null) {
+                    _seen[m.speaker] = end;
+                }
+            });
+            _saveSeen();
+        }
+        _loaded = true;
+    };
+
+    // ── 系統告示 ──
+    // 入席 / 離席 / 改名這種事發生在宿舍面板，群聊當下可能根本沒開。
+    // 所以它進 transcript（而不是只畫一行字）：一來下次打開看得到，
+    // 二來——真正的重點——其他人會透過傳話增量知道桌上多了誰、誰改了名。
+    // note = 只講給 AI 聽的後果（例如「他不會再回話」）。她看畫面不需要那句廢話，
+    // 但他們需要——不然照樣 @ 一個已經不在的人、照樣等他回。
+    // ai = 給 AI 看的整句，有給就取代「text —— note」（名冊那種：她看短的，他們看寫全的，不必兩份都念）
+    async function _announce(text, note, ai) {
+        if (!text) return;
+        if (!_loaded) await ChatGroup.load();   // 沒 load 過就 push 會把 OS_DB 那份蓋成空的
+        _pushSys(text, note, ai);
+    }
+    /** 已經 load 過才能直接叫 */
+    function _pushSys(text, note, ai) {
+        const entry = { speaker: 'sys', content: text, ts: Date.now() };
+        if (note) entry.note = note;
+        if (ai) entry.ai = ai;
+        _transcript.push(entry);
+        _save();
+        if (_streamEl) _renderSystemLine(text);
+    }
+
+    // ── 名冊：桌上誰用什麼模型（10-15：住戶彼此不知道對方是什麼模型，會把阿洛當成 Claude）──
+    // 講者前綴照舊只寫名字（每句都帶模型太吃字數，前綴又是拿來認人的），模型只在名冊講：
+    // 開場那份在 GROUP_SYSTEM_PROMPT，但會話是出生定死的、那段只送第一輪 —— 這版之前就開著的會話、
+    // 中途有人換了模型，都只能靠聊天室通知補。上次講到哪記在 ROSTER_KEY，跟現在不一樣才發。
+    const ROSTER_KEY = 'group_roster_told';   // { 住戶id: 給 AI 看的模型那段 }；沒有＝還沒講過完整名冊
+
+    function _modelForAI(rid) {
+        const CT = _CT();
+        return (CT && typeof CT.residentModelForAI === 'function') ? (CT.residentModelForAI(rid) || '') : '';
+    }
+    /** 給她看的模型名：Claude 跟表頭同一個（她取過暱稱就是暱稱），其他家寫廠牌，指定了模型再帶上 */
+    function _modelForRae(rid) {
+        const CT = _CT();
+        const p = _provOf(rid);
+        if (p === 'claude') return (CT && typeof CT.residentModelLabel === 'function') ? CT.residentModelLabel(rid) : '';
+        const id = (CT && typeof CT.residentModelId === 'function') ? CT.residentModelId(rid) : '';
+        if (p === 'codex') return id ? 'Codex ' + id : 'Codex';
+        if (p === 'deepseek') return id || 'DeepSeek';
+        return id;
+    }
+    /** 丹（Anthropic 的 Claude，claude-opus-5-5）、阿洛（OpenAI 的 Codex，…） */
+    function _rosterForAI() {
+        return _seats().map(function (s) {
+            const m = _modelForAI(s.id);
+            return s.name + (m ? '（' + m + '）' : '');
+        }).join('、');
+    }
+    function _rosterForRae() {
+        return _seats().map(function (s) {
+            const m = _modelForRae(s.id);
+            return s.name + (m ? ' · ' + m : '');
+        }).join('、');
+    }
+    function _loadRosterTold() {
+        try {
+            const o = JSON.parse(_lsGet(ROSTER_KEY) || 'null');
+            return (o && typeof o === 'object' && !Array.isArray(o)) ? o : null;
+        } catch (_) { return null; }
+    }
+    function _saveRosterTold(o) { _lsSet(ROSTER_KEY, JSON.stringify(o)); }
+    /** 上下桌的告示自己帶了名冊：只記那一位。別人換了模型還沒講的照樣留給下一輪比對 */
+    function _rosterToldSet(rid, seated) {
+        const told = _loadRosterTold();
+        if (!told) return;   // 還沒講過完整名冊：下一輪那則一次講
+        if (seated) told[rid] = _modelForAI(rid); else delete told[rid];
+        _saveRosterTold(told);
+    }
+
+    /**
+     * 桌上誰用什麼模型，跟上次講的不一樣就發一則通知（進逐字稿，大家下一次都看得到，換模型的那位自己也看得到）。
+     * 桌上沒人有舊會話就不必講 —— 大家都從頭開，開場那份就是新的。已經 load 過才能叫。
+     * 🚨 要排在她那幾句前面：放她的話後面的話，他們會對著這則通知回話，不回她（最後一段決定焦點）。
+     *    所以她放話上桌時就先比一次（holdMessage），輪到誰講話前再比一次只是保險。
+     */
+    function _syncRosterNow() {
+        const seats = _seats();
+        if (!seats.length) return;
+        const now = {};
+        seats.forEach(function (s) { now[s.id] = _modelForAI(s.id); });
+        const told = _loadRosterTold();
+        let text = '', ai = '';
+        if (!told) {
+            text = '現在桌上：' + _rosterForRae();
+            ai = '現在桌上的人跟各自用的模型：' + _rosterForAI() + '。名字是人、括號裡是他用的模型；同一家的模型可以有好幾位，各是各的人。';
+        } else {
+            const changed = seats.filter(function (s) { return told[s.id] != null && told[s.id] !== now[s.id]; });
+            const joined  = seats.filter(function (s) { return told[s.id] == null; });
+            if (changed.length) {
+                text = changed.map(function (s) { return s.name + ' 換成 ' + (_modelForRae(s.id) || '別的模型') + ' 了'; }).join('；');
+                ai = changed.map(function (s) {
+                    return s.name + ' 換了模型，現在用 ' + (now[s.id] || '別的模型') + (told[s.id] ? '（之前是 ' + told[s.id] + '）' : '');
+                }).join('；') + '。現在桌上是：' + _rosterForAI() + '。';
+            } else if (joined.length) {
+                text = '現在桌上：' + _rosterForRae();
+                ai = '現在桌上的人跟各自用的模型：' + _rosterForAI() + '。';
+            }
+        }
+        _saveRosterTold(now);
+        const hasOld = seats.some(function (s) { return !!_lsGet(_sidKey(s.id)); });
+        if (text && hasOld) _pushSys(text, '', ai);
+    }
+    async function _syncRoster() {
+        if (!_loaded) await ChatGroup.load();
+        _syncRosterNow();
+    }
+
+    /** 誰上桌 / 下桌。dorm 面板點椅子時呼叫（fire-and-forget）。 */
+    ChatGroup.announceSeat = function (rid, seated) {
+        const who = _labelOf(rid);
+        // 主詞一定要是使用者。「阿洛 離席了」是主動語態，他們會讀成他自己決定走的，
+        // 然後開始猜他是不是不高興 —— 實際上是她按了那顆椅子。用詞跟門卡上那顆鈕一致。
+        const text = 'Rae 把 ' + who + (seated ? ' 請上桌了' : ' 請下桌了');
+        // 順便報一次現在桌上有誰、各用什麼模型：他們 session 開頭那份同桌名單是當時寫死的，
+        // 之後不會變 —— 不講的話他們會一直以為已經走掉的人還坐在那，只是沒說話。
+        const roster = _rosterForAI();
+        const note = (seated ? '' : '他已經不在這張桌上，不會再回話。')
+                   + (roster ? '現在桌上是：' + roster + '。' : '現在桌上沒有人了。');
+        return _announce(text, note).then(function () {
+            _rosterToldSet(rid, seated);
+            if (seated) {
+                // 回來的人從現在開始聽，不倒帶：進度推到「入席告示的前一則」，
+                // 所以他看得到自己被請回來，但拿不到離席期間的逐字稿。
+                // （推進度必須在回來這一刻做，不能在下桌時做 —— 離席期間的話是那之後才長出來的。）
+                const back = _transcript.length - 2;
+                if (_leftAt[rid] != null && back > _leftAt[rid]) {
+                    // 但也不能讓他兩手空空回來 —— 排一份「你不在的時候」的摘要，
+                    // 下次輪到他講話時附在最前面。只給他一個人，不佔別人的增量。
+                    _needBrief[rid] = { from: _leftAt[rid], to: back };
+                }
+                delete _leftAt[rid];
+                _markSeen(rid, back);
+            } else {
+                _leftAt[rid] = _transcript.length - 1;   // 從這裡開始是他沒看到的
+            }
+        }).catch(function (e) {
+            console.warn('[ChatGroup] 入席告示失敗：', e);
+        });
+    };
+
+    /**
+     * 他自己吐 [LEAVE|原因] 走人。跟「使用者把他請下桌」分開講 —— 語態不同，
+     * 而且她必須看得出來這是他自己決定的，不是她按錯。
+     * 回不來是刻意的：桌上狀態只有她掌握，不然大家會自己溜走再自己溜回來。
+     */
+    async function _announceSelfLeave(rid, reason) {
+        const who = _labelOf(rid);
+        // 他們會照著格式說明抄，連佔位字一起抄進來（天天跟丹都吐了「原因」兩個字）。
+        // 那不是理由，是模板漏字 —— 印出來看起來像沒寫完。
+        const said = String(reason == null ? '' : reason).trim();
+        const text = who + ' 自己下桌了' + (said && !_isPlaceholderArg(said) ? '（' + said + '）' : '');
+        const roster = _rosterForAI();
+        await _announce(text,
+            '他已經不在這張桌上，不會再回話；要他回來得由 Rae 請他上桌。'
+            + (roster ? '現在桌上是：' + roster + '。' : '現在桌上沒有人了。'));
+        _rosterToldSet(rid, false);
+        _leftAt[rid] = _transcript.length - 1;
+        _markSeen(rid, _transcript.length - 1);
+    }
+
+    /**
+     * 住戶整個被刪掉（門卡的「請他搬走」）。
+     * 名字要外面傳進來 —— 這時候他已經不在名冊上了，_labelOf 只查得到一串 id。
+     * 順手清掉他在群聊的 session：人都沒了，那條 key 留著也只是孤兒。
+     */
+    ChatGroup.noteResidentRemoved = function (rid, name, wasSeated) {
+        if (!rid) return Promise.resolve();
+        _clearSid(rid);
+        if (!wasSeated) return Promise.resolve();   // 本來就不在桌上，沒什麼好報的
+        _rosterToldSet(rid, false);
+        return _announce('Rae 把 ' + (name || rid) + ' 請走了', '他之後不會再出現').catch(function (e) {
+            console.warn('[ChatGroup] 搬走告示失敗：', e);
+        });
+    };
+
+    /**
+     * 有人改名。byRae=true 是她在門卡上改的，false 是他自己吐 [RENAME|] 改的 ——
+     * 兩者語態不能共用，不然他們分不出是被改名還是自己改的。
+     */
+    ChatGroup.announceRename = function (oldName, newName, byRae) {
+        if (!oldName || !newName || oldName === newName) return Promise.resolve();
+        const text = byRae
+            ? 'Rae 把 ' + oldName + ' 改名叫 ' + newName
+            : oldName + ' 改名叫 ' + newName + ' 了';
+        return _announce(text).catch(function (e) {
+            console.warn('[ChatGroup] 改名告示失敗：', e);
+        });
+    };
+
+    /**
+     * AI 自己改名（回覆裡吐 [RENAME|新名字]）。
+     * 回 { ok, reason } —— 改成了就順手告示，沒改成也告示一行，
+     * 不然他會以為改好了、之後都自稱新名字，桌上其他人卻還叫他舊的。
+     */
+    function _aiRename(rid, raw) {
+        const CT = _CT();
+        if (!CT || typeof CT.saveResident !== 'function') return { ok: false, reason: '資料層沒載入' };
+        const cur = _seatOf(rid) || (typeof CT.getResident === 'function' ? CT.getResident(rid) : null);
+        if (!cur) return { ok: false, reason: '查無此住戶' };
+        const name = String(raw == null ? '' : raw).replace(/\s+/g, ' ').trim();
+        if (!name) return { ok: false, reason: '名字是空的' };
+        if (_isPlaceholderArg(name)) return { ok: false, reason: '那是格式說明裡的佔位字，不是名字' };
+        if (name.length > 20) return { ok: false, reason: '名字太長（最多 20 字）' };
+        if (name === cur.name) return { ok: false, reason: '本來就叫這個' };
+        // 這三個是講者前綴會用到的字，被拿去當名字會讓逐字稿分不清誰在講話
+        if (['Rae', 'rae', '系統', '前情提要'].indexOf(name) >= 0) return { ok: false, reason: '這個名字被系統用掉了' };
+        const clash = (typeof CT.listResidents === 'function' ? CT.listResidents() : [])
+            .some(function (x) { return x.id !== rid && x.name === name; });
+        if (clash) return { ok: false, reason: '已經有人叫這個名字' };
+        const saved = CT.saveResident({ id: rid, name: name });
+        if (!saved) return { ok: false, reason: '存檔失敗' };
+        return { ok: true, oldName: cur.name, newName: name };
+    }
+
+    // ── 渲染 ──
+    // 🚨 hydrate 一則一則畫的時候不捲（_bulk）：每捲一次瀏覽器就得把整串排一次版，聊越多越卡。畫完才捲一次
+    let _bulk = false;
+    function _scrollBottom() { if (_streamEl && !_bulk) _streamEl.scrollTop = _streamEl.scrollHeight; }
+
+    // 把內容塞進氣泡：AI → markdown 渲染；使用者 → 純文字。一律先剝遊戲標記。
+    //   🫧 AI 的話切成好幾顆（空行分段、表情包自己一顆，規則跟私聊同一支），多出來的接在 bubbleEl 後面，
+    //   所以 bubbleEl 要已經在畫面上。回傳最後一顆（附件、工具掛那裡）。opts.noSplit：前情提要卡不切。
+    function _setBubbleContent(bubbleEl, speaker, content, opts) {
+        bubbleEl.classList.remove('claude-bubble-dots');   // 原本是等他開口的點點泡泡
+        const clean = _stripForDisplay(content);
+        const room = window.VoidClaudeRoom;
+        if (speaker !== 'rae' && room && typeof room.markdownToSafeHtml === 'function') {
+            const canSplit = !(opts && opts.noSplit) && typeof room.splitReplySegments === 'function' && bubbleEl.parentNode;
+            const segs = canSplit ? room.splitReplySegments(clean) : [clean];
+            let el = bubbleEl;
+            segs.forEach(function (seg, i) {
+                if (i > 0) {
+                    const next = document.createElement('div');
+                    next.className = String(bubbleEl.className).replace(/\b(cg-typing|cg-doing|cg-error|claude-bubble-sticker|claude-bubble-dots|claude-bubble-pop)\b/g, ' ').replace(/\s+/g, ' ').trim();
+                    el.parentNode.insertBefore(next, el.nextSibling);
+                    el = next;
+                }
+                const html = room.markdownToSafeHtml(seg);
+                if (html !== null && html !== undefined) {
+                    el.innerHTML = html;
+                    el.classList.add('claude-bubble-md');
+                } else {
+                    el.textContent = seg;
+                }
+                if (typeof room.isStickerSegment === 'function' && room.isStickerSegment(seg)) el.classList.add('claude-bubble-sticker');
+            });
+            // 🔧 他這一句記進待修的（<board_bug>，上面已經藏起來）：掛一張待修卡，跟私聊同一支
+            const CT = window.ClaudeTerminal;
+            const bugs = (CT && typeof CT.boardBugs === 'function') ? CT.boardBugs(content) : [];
+            if (bugs.length && typeof room.buildBugCards === 'function' && el.parentNode) el.parentNode.insertBefore(room.buildBugCards(bugs), el.nextSibling);
+            return el;
+        }
+        // 😺 她從表情包框送的那張：畫成圖（跟私聊同一支）
+        if (speaker === 'rae' && room && typeof room.renderUserSticker === 'function' && room.renderUserSticker(bubbleEl, clean)) return bubbleEl;
+        bubbleEl.textContent = clean;
+        return bubbleEl;
+    }
+
+    /** 把「🔧 跑了 N 個命令」那顆折疊塊掛在氣泡下面。
+     *  借一對一房間那顆（VoidClaudeRoom.buildToolSummary）—— 兩邊長一樣、只維護一份。
+     *  sendGroup 以前沒把 toolsUsed 帶回來，這裡一直收到空的，摺疊塊從來沒畫出來過。 */
+    function _attachTools(bubbleEl, toolsUsed) {
+        if (!bubbleEl || !Array.isArray(toolsUsed) || !toolsUsed.length) return;
+        if (!window.VoidClaudeRoom || typeof window.VoidClaudeRoom.buildToolSummary !== 'function') return;
+        const ts = window.VoidClaudeRoom.buildToolSummary(toolsUsed);
+        if (!ts) return;
+        const host = bubbleEl.parentNode || bubbleEl;
+        host.appendChild(ts);
+    }
+
+    /** 思考摺疊塊放在他的泡泡上面（名字標頭底下）。借一對一房間那顆，兩邊長一樣。 */
+    function _attachThinking(firstBubbleEl, thinking) {
+        if (!firstBubbleEl || !firstBubbleEl.parentNode || !thinking) return;
+        if (!window.VoidClaudeRoom || typeof window.VoidClaudeRoom.buildThinkingBlock !== 'function') return;
+        const t = window.VoidClaudeRoom.buildThinkingBlock(thinking);
+        if (t) firstBubbleEl.parentNode.insertBefore(t, firstBubbleEl);
+    }
+
+    // 把附件陣列建成氣泡內的附件區塊（圖片 → 縮圖點放大；非圖 → 📎 chip）。空 → null。
+    function _buildAttachmentsBox(attachments) {
+        if (!Array.isArray(attachments) || !attachments.length) return null;
+        const box = document.createElement('div');
+        box.className = 'cg-bubble-attachments';
+        attachments.forEach(function (a) {
+            if (a && a.thumb && a.mime && a.mime.indexOf('image/') === 0) {
+                const im = document.createElement('img');
+                im.className = 'cg-attach-img';
+                im.src = a.thumb;
+                im.addEventListener('click', function () { _openImageOverlay(a.thumb); });
+                box.appendChild(im);
+            } else {
+                const chip = document.createElement('span');
+                chip.className = 'cg-attach-chip';
+                chip.textContent = '📎 ' + ((a && a.filename) || 'file');
+                box.appendChild(chip);
+            }
+        });
+        return box;
+    }
+
+    function _renderBubble(speaker, content, attachments, toolsUsed, thinking, msg) {
+        if (!_streamEl) return null;
+        // 'recap' = 「🧹 摘要重啟」按鈕生成的前情提要,render 成置中分隔卡(非氣泡)
+        if (speaker === 'recap') {
+            const card = document.createElement('div');
+            card.className = 'cg-recap-card';
+            const hdr = document.createElement('div');
+            hdr.className = 'cg-recap-hdr';
+            hdr.textContent = '📋 前情提要(已壓縮)';
+            const body = document.createElement('div');
+            body.className = 'cg-recap-body';
+            _setBubbleContent(body, speaker, content, { noSplit: true });
+            card.appendChild(hdr);
+            card.appendChild(body);
+            _streamEl.appendChild(card);
+            _scrollBottom();
+            return body;
+        }
+        const css = _cssOf(speaker);
+        const wrap = document.createElement('div');
+        wrap.className = 'cg-bubble-wrap cg-from-' + css;
+        if (msg) wrap._ccrMsg = msg;   // 長按收進記事本、紀錄頁跳回來找的就是這則
+        if (speaker !== 'rae') {
+            const hdr = document.createElement('div');
+            hdr.className = 'cg-bubble-hdr cg-hdr-' + css;
+            _fillHdr(hdr, speaker);
+            wrap.appendChild(hdr);
+        }
+        const b = document.createElement('div');
+        b.className = 'cg-bubble cg-from-' + css;
+        wrap.appendChild(b);   // 先放進 wrap：切成好幾顆時要接在它後面
+        const lastB = _setBubbleContent(b, speaker, content) || b;
+        if (speaker !== 'rae') _attachThinking(b, thinking);
+
+        // 附件：圖片 → 內嵌縮圖（點放大）；非圖 → 📎 chip。掛在最後一顆
+        const attBox = _buildAttachmentsBox(attachments);
+        if (attBox) lastB.appendChild(attBox);
+        // 📋 他這一輪列的清單：停在做完那一刻的樣子（跟私聊同一支），排在工具摺疊塊上面——跟串流當下長的順序一樣
+        if (speaker !== 'rae' && msg && msg.plan && window.VoidClaudeRoom && typeof window.VoidClaudeRoom.buildPlanCard === 'function') {
+            const pc = window.VoidClaudeRoom.buildPlanCard(msg.plan);
+            if (pc) wrap.appendChild(pc);
+        }
+        _attachTools(lastB, toolsUsed);
+
+        _streamEl.appendChild(wrap);
+        _scrollBottom();
+        return lastB;
+    }
+
+    function _renderTyping(speaker) {
+        if (!_streamEl) return null;
+        const css = _cssOf(speaker);
+        const wrap = document.createElement('div');
+        wrap.className = 'cg-bubble-wrap cg-from-' + css;
+        const hdr = document.createElement('div');
+        hdr.className = 'cg-bubble-hdr cg-hdr-' + css;
+        _fillHdr(hdr, speaker);
+        const b = document.createElement('div');
+        // 🫧 等他開口：一顆點點泡泡（跟私聊同一種），他的段落會在它前面一顆一顆冒出來
+        const _dots = window.VoidClaudeRoom && window.VoidClaudeRoom.DOTS_HTML;
+        b.className = 'cg-bubble cg-from-' + css + ' cg-typing' + (_dots ? ' claude-bubble-dots' : '');
+        if (_dots) b.innerHTML = _dots; else b.textContent = '正在輸入…';
+        wrap.appendChild(hdr);
+        wrap.appendChild(b);
+        _streamEl.appendChild(wrap);
+        _scrollBottom();
+        return wrap;
+    }
+
+    // ⏭ 等他太久可以跳過（待修 #293）：他一次想好幾分鐘時整桌都在等，看起來像當掉。
+    //   點點泡泡底下過 15 秒冒一行「還在想（幾分幾秒）」＋「跳過他」；按了停掉他這一輪（橋上連 CLI 一起），換下一位。
+    //   state()：他現在在幹嘛（還在想／還在寫）。回 { stop } —— 這一輪收了（成功、失敗、跳過）一律 stop
+    function _attachWait(typingWrap, rid, state, onSkip) {
+        if (!typingWrap) return { stop: function () {} };
+        const t0 = Date.now();
+        let row = null;
+        const paint = function () {
+            const sec = Math.floor((Date.now() - t0) / 1000);
+            if (sec < 15) return;
+            if (!row) {
+                row = document.createElement('div');
+                row.className = 'cg-wait';
+                row.innerHTML = '<span class="cg-wait-text"></span>'
+                    + '<button type="button" class="cg-wait-skip"><i class="fa-solid fa-forward"></i> 跳過他</button>';
+                row.querySelector('.cg-wait-skip').addEventListener('click', function (ev) {
+                    ev.stopPropagation();
+                    const b = ev.currentTarget;
+                    if (b.disabled) return;
+                    b.disabled = true;
+                    b.textContent = '跳過中…';
+                    onSkip();
+                });
+                typingWrap.appendChild(row);
+                _scrollBottom();
+            }
+            const m = Math.floor(sec / 60), s = sec % 60;
+            // 📋 他列了清單的話，進度卡最下面那行已經寫了在做什麼、跑了多久：這裡只留「跳過他」
+            row.querySelector('.cg-wait-text').textContent = typingWrap.querySelector('.claude-plan-card')
+                ? '' : _labelOf(rid) + state() + '（' + (m ? m + ' 分 ' : '') + s + ' 秒）';
+        };
+        const timer = setInterval(paint, 1000);
+        return { stop: function () { clearInterval(timer); if (row && row.parentNode) row.parentNode.removeChild(row); } };
+    }
+
+    // 系統通知行（置中、淡色，例如收場 / 中止）
+    function _renderSystemLine(text) {
+        if (!_streamEl) return;
+        const d = document.createElement('div');
+        d.className = 'cg-system-line';
+        d.textContent = text;
+        _streamEl.appendChild(d);
+        _scrollBottom();
+    }
+
+    // 點縮圖 → 全螢幕放大 overlay（點任意處關閉）
+    function _openImageOverlay(src) {
+        const ov = document.createElement('div');
+        ov.className = 'cg-img-overlay';
+        const im = document.createElement('img');
+        im.src = src;
+        ov.appendChild(im);
+        ov.addEventListener('click', function () {
+            if (ov.parentNode) ov.parentNode.removeChild(ov);
+        });
+        document.body.appendChild(ov);
+    }
+
+    // 把圖檔縮到長邊 ≤ maxEdge、轉 JPEG base64 data URL。失敗回 null。
+    function _makeThumb(file, maxEdge) {
+        return new Promise(function (resolve) {
+            const url = URL.createObjectURL(file);
+            const img = new Image();
+            img.onload = function () {
+                URL.revokeObjectURL(url);
+                let w = img.naturalWidth || 1, h = img.naturalHeight || 1;
+                const scale = Math.min(1, maxEdge / Math.max(w, h));
+                w = Math.max(1, Math.round(w * scale));
+                h = Math.max(1, Math.round(h * scale));
+                try {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = w; canvas.height = h;
+                    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                    resolve(canvas.toDataURL('image/jpeg', 0.82));
+                } catch (e) { resolve(null); }
+            };
+            img.onerror = function () { URL.revokeObjectURL(url); resolve(null); };
+            img.src = url;
+        });
+    }
+
+    // 待送附件 chip 列（重用浮窗既有的 #claude-attach-chips 容器）
+    function _attachChipsEl() {
+        const body = (window.ChatWindow && typeof window.ChatWindow.getBody === 'function')
+            ? window.ChatWindow.getBody() : null;
+        return body ? body.querySelector('#claude-attach-chips') : null;
+    }
+
+    function _renderPendingAttachments() {
+        const row = _attachChipsEl();
+        if (!row) return;
+        row.innerHTML = '';
+        _pendingAttachments.forEach(function (a, idx) {
+            const chip = document.createElement('div');
+            chip.className = 'cg-pending-chip' + (a._uploading ? ' cg-pending-uploading' : '');
+            if (a.thumb) {
+                const im = document.createElement('img');
+                im.className = 'cg-pending-thumb';
+                im.src = a.thumb;
+                chip.appendChild(im);
+            } else {
+                const ic = document.createElement('span');
+                ic.textContent = a._uploading ? '⏳' : '📎';
+                chip.appendChild(ic);
+            }
+            const nm = document.createElement('span');
+            nm.className = 'cg-pending-name';
+            nm.textContent = a.filename || 'file';
+            chip.appendChild(nm);
+            const x = document.createElement('span');
+            x.className = 'cg-pending-x';
+            x.textContent = '×';
+            x.addEventListener('click', function (e) {
+                e.stopPropagation();
+                _pendingAttachments.splice(idx, 1);
+                _renderPendingAttachments();
+            });
+            chip.appendChild(x);
+            row.appendChild(chip);
+        });
+    }
+
+    /** 他正在做的事，寫成一句人話。認不出來就講「正在動手」——寧可模糊，不要編一個具體的謊。
+     *  生圖那種認得出來是因為 codex 的 image 工具會落在命令裡（生出來的檔名也是 exec-*.png）。 */
+    // 借一對一那支：它多認工具名（Read/Edit/Grep…），不像下面這份只看 Bash 的指令內容。
+    // 舊版房間程式沒導出 toolDoingLabel 時，退回下面原本這份。
+    function _doingLabel(tool) {
+        if (window.VoidClaudeRoom && typeof window.VoidClaudeRoom.toolDoingLabel === 'function') {
+            return window.VoidClaudeRoom.toolDoingLabel(tool);
+        }
+        const cmd = String((tool && tool.input && tool.input.command) || '').toLowerCase();
+        if (/image[-_ ]?gen|imagegen|\bimage\b.*\b(gen|create|draw)|generate[-_ ]?image/.test(cmd)) {
+            return '正在畫圖…';
+        }
+        if (/curl|wget|fetch|http/.test(cmd)) return '正在上網查…';
+        if (/\bgit\b/.test(cmd)) return '正在翻程式碼…';
+        if (/\b(cat|type|head|tail|less|read)\b/.test(cmd)) return '正在讀檔…';
+        if (/\b(ls|dir|find|grep|rg)\b/.test(cmd)) return '正在找東西…';
+        return '正在動手…';
+    }
+
+    /** 把整條 transcript 渲染進 streamEl（進群聊時用） */
+    ChatGroup.hydrate = function (streamEl) {
+        _streamEl = streamEl;
+        _pendingAttachments = [];
+        _renderPendingAttachments();
+        _paintHeld();   // 魔杖上的數字照這桌的（私聊那邊畫的是私聊的）
+        if (!_streamEl) return;
+        // 上次那局可能還在橋上跑（她把 app 關掉去睡覺）。要等 _streamEl 有了才問，
+        // 不然撈回來的那幾手沒有地方可畫。自己有守衛，重複 hydrate 不會重複接。
+        ChatGroup.resumeHostedGame().catch(function () {});
+        _streamEl.innerHTML = '';
+        if (!_transcript.length) {
+            const seats = _seats();
+            const who = seats.length
+                ? '你、' + seats.map(s => s.name).join('、') + ' 共 ' + (seats.length + 1) + ' 個人。'
+                : '還沒有人入席 —— 去宿舍面板把要參加的住戶勾進來。';
+            _renderBubble(seats.length ? seats[0].id : 'dan',
+                '群聊區開張了 —— ' + who + (seats.length ? '@誰就只叫誰,不 @ 就大家一起回。' : ''));
+            return;
+        }
+        _bulk = true;
+        try {
+            _transcript.forEach(function (m) {
+                // 系統告示（入席 / 離席 / 改名）→ 置中一行，不是氣泡
+                if (m.speaker === 'sys') { _renderSystemLine(m.content); return; }
+                // 系統注入提示、純標記行（如落子）剝完是空的 —— 不渲染
+                if (m.speaker === 'rae' && m.content && m.content.indexOf('（系統）') === 0) return;
+                const hasAtt = Array.isArray(m.attachments) && m.attachments.length;
+                if (!_stripForDisplay(m.content) && !hasAtt) return;
+                _renderBubble(m.speaker, m.content, m.attachments, m.toolsUsed, m.thinking, m);
+            });
+        } finally {
+            _bulk = false;
+        }
+        _scrollBottom();
+    };
+
+    // ── 遊戲標記解析 ──
+    const RE_PANEL    = /<lobbyPanel>[\s\S]*?<\/lobbyPanel>/i;
+    const RE_GAME     = /\[GAME\|\s*([^\],]+?)\s*,\s*([^\],]+?)\s*\]/i;
+    const RE_MOVE     = /\[MOVE\|([^\]]*)\]/i;
+    const RE_GAMEOVER = /\[GAMEOVER\|([^\]]*)\]/i;
+    const RE_RENAME   = /\[RENAME\|([^\]]*)\]/i;
+    const RE_LEAVE    = /\[LEAVE\|([^\]]*)\]/i;
+
+    // 先手/後手欄位認：住戶名字、住戶 id、'rae'，外加舊的 provider 代號（claude/codex/deepseek）。
+    // 回住戶 id（或 'rae'）；認不出來回 null。
+    /**
+     * 🚨 標記寫在反引號裡就是「在談論它」，不是在下指令。
+     * 丹在說明「別人照抄了那個標記」的同一則裡把自己弄下桌 —— 他引用了它，
+     * 而解析器不分引用與執行。這是所有標記共通的問題（LEAVE / RENAME / GAME / MOVE）。
+     *
+     * _codeStripped：把程式碼段換成空白，給「找標記」用。
+     * _outsideCode ：只對非程式碼的部分做替換，給「剝標記」用 —— 反引號裡那份是
+     *                他要展示的內容，剝掉會變成一對空反引號，反而看不懂。
+     */
+    // 反引號、程式碼段、各種引號 —— 標記出現在這些裡面就是「在引述它」。
+    // 他們討論規格時不一定會用 Markdown 反引號，中文引號同樣常見。
+    const RE_QUOTED = /(```[\s\S]*?```|`[^`\n]*`|「[^」\n]*」|『[^』\n]*』|“[^”\n]*”|"[^"\n]*")/g;
+
+    function _codeStripped(text) {
+        return String(text == null ? '' : text).replace(RE_QUOTED, ' ');
+    }
+    function _outsideCode(text, fn) {
+        // split 帶捕獲組 → 奇數格是被引起來的，原樣留著
+        return String(text == null ? '' : text)
+            .split(RE_QUOTED)
+            .map(function (p, i) { return i % 2 === 1 ? p : fn(p == null ? '' : p); })
+            .join('');
+    }
+
+    function _normPlayer(v) {
+        const raw = String(v == null ? '' : v).trim();
+        if (!raw) return null;
+        const low = raw.toLowerCase();
+        if (low === 'rae' || raw === '我' || raw === '你') return 'rae';
+        const seats = _seats();
+        const byName = seats.find(x => (x.name || '').toLowerCase() === low);
+        if (byName) return byName.id;
+        const byId = seats.find(x => x.id.toLowerCase() === low);
+        if (byId) return byId.id;
+        if (LEGACY_SPEAKER[low]) {   // 舊代號 → 該 provider 第一位入席者
+            const p = seats.find(x => x.provider === low);
+            if (p) return p.id;
+        }
+        return null;
+    }
+
+    // 解析回覆裡的遊戲標記。回 { game:{p1,p2}|null, move:string|null, gameover:string|null }
+    function _parseGameMarkers(text) {
+        const t = _codeStripped(text);   // 引用不算下指令
+        const g = t.match(RE_GAME);
+        const m = t.match(RE_MOVE);
+        const o = t.match(RE_GAMEOVER);
+        let game = null;
+        if (g) {
+            const p1 = _normPlayer(g[1]), p2 = _normPlayer(g[2]);
+            if (p1 && p2) game = { p1: p1, p2: p2 };
+        }
+        const rn = t.match(RE_RENAME);
+        const lv = t.match(RE_LEAVE);
+        return {
+            game: game,
+            move: m ? m[1].trim() : null,
+            gameover: o ? o[1].trim() : null,
+            rename: rn ? rn[1].trim() : null,
+            leave: lv ? lv[1].trim() : null,
+        };
+    }
+
+    // 給對手看：剝掉 <lobbyPanel> 大 HTML（畫布已渲染、不重送），保留遊戲標記
+    // 留言板標籤（<board_…>）：橋已經替他做完。桌上的人不必看到那串標籤，氣泡也不畫。
+    function _stripBoard(text, streaming) {
+        const CT = window.ClaudeTerminal;
+        return (CT && typeof CT.stripBoardTags === 'function') ? CT.stripBoardTags(text, { streaming: !!streaming }) : text;
+    }
+
+    function _stripForTranscript(text) {
+        // RENAME / LEAVE 也剝掉：系統告示已經講過這件事，留著只會讓別人跟著學那個標記。
+        // 但反引號裡那份不動 —— 那是他在講解，不是在下指令。
+        return _outsideCode(_stripBoard(text), function (s) {
+            return s.replace(RE_PANEL, '').replace(RE_RENAME, '').replace(RE_LEAVE, '');
+        }).trim();
+    }
+
+    // 給氣泡顯示：剝掉 panel + 所有遊戲標記 + 留言板標籤
+    function _stripForDisplay(text, streaming) {
+        return _outsideCode(_stripBoard(text, streaming), function (s) {
+            return s
+                .replace(RE_PANEL, '')
+                .replace(RE_GAME, '')
+                .replace(RE_MOVE, '')
+                .replace(RE_GAMEOVER, '')
+                .replace(RE_RENAME, '')
+                .replace(RE_LEAVE, '');
+        })
+            .replace(/[ \t]+\n/g, '\n')      // 標記剝掉後行尾留的空白
+            .replace(/\n{3,}/g, '\n\n')      // 標記剝掉後留下的空行 → 收斂成單一段落間距
+            .trim();
+    }
+
+    // 兩則之間隔多久才值得標一行。低於這個當同一段對話，不吵。
+    const GAP_MARK_MS = 30 * 60 * 1000;
+
+    // 一則發言多長算「長篇」。桌上一出現這種，後面的人就會照著寫。
+    const LONG_POST_CHARS = 400;
+
+    /** 把毫秒差說成人話。給 AI 看的，不用精確到秒。 */
+    function _fmtGap(ms) {
+        const min = Math.round(ms / 60000);
+        if (min < 60) return min + ' 分鐘';
+        const hr = Math.round(min / 60);
+        if (hr < 24) return hr + ' 小時';
+        const day = Math.round(hr / 24);
+        if (day < 30) return day + ' 天';
+        const mon = Math.round(day / 30);
+        if (mon < 12) return mon + ' 個月';
+        return Math.round(mon / 12) + ' 年';
+    }
+
+    function _fmtClock(ts) {
+        const d = new Date(ts);
+        const p = n => String(n).padStart(2, '0');
+        return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+             + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+    }
+
+    // ── 傳話增量：transcript 自 _seen[rid] 之後、非他自己的話 ──
+    // 開頭永遠標現在幾點，中間隔久了插一行 —— 他的 session 裡沒有任何時間資訊，
+    // 不講的話她隔一週回來，那一輪對他而言跟「剛剛」沒有分別。
+    function _buildDelta(rid) {
+        const seenIdx = _seenOf(rid);
+        const lines = [];
+        let longest = 0;                 // 這批增量裡最長的一則發言（系統通知不算）
+        // 從「他上次看到的那則」起算，第一段間隔才算得出來
+        let prevTs = (seenIdx >= 0 && _transcript[seenIdx]) ? _transcript[seenIdx].ts : null;
+        const lastSeenTs = prevTs;   // 迴圈會一路改 prevTs，開頭那行要用的是原始值
+        let sawGameEnd = false;      // 修之前每開一次群聊就塞一句「請講評」，舊逐字稿裡可能疊了好幾句；一批增量最多帶一句
+        for (let i = seenIdx + 1; i < _transcript.length; i++) {
+            const m = _transcript[i];
+            if (m.speaker === rid) {          // 他自己的話已在他 session 裡，但時間要當基準
+                if (m.ts) prevTs = m.ts;
+                continue;
+            }
+            if (m.speaker === 'rae' && String(m.content || '').indexOf('（系統）這盤對局結束了') === 0) {
+                if (sawGameEnd) continue;
+                sawGameEnd = true;
+            }
+            if (m.speaker !== 'sys' && m.content) {
+                longest = Math.max(longest, String(m.content).length);
+            }
+            if (prevTs && m.ts && (m.ts - prevTs) >= GAP_MARK_MS) {
+                lines.push('（隔了 ' + _fmtGap(m.ts - prevTs) + '）');
+            }
+            // 系統告示不能長得跟發言一樣 —— 標成「[系統]: …」的話，他們會把它讀成
+            // 一位沒見過的參與者在講話，或當雜訊跳過（實測就是這樣，沒人反應）。
+            // 寫成一句自我說明的通知，不必靠 system prompt 解釋，改完當場生效。
+            lines.push(m.speaker === 'sys'
+                ? '（聊天室通知）' + (m.ai || (m.content + (m.note ? ' —— ' + m.note : '')))
+                : '[' + _labelOf(m.speaker) + ']: ' + m.content);
+            if (m.ts) prevTs = m.ts;
+        }
+        if (!lines.length) return '';         // 沒有新東西 —— 別讓時間行自己撐成一則增量
+        // 「現在幾點」只在真的隔了一段時間才報。每輪都塞的話模型會把它當話題——
+        // 蘇景明就連著三輪在報時(08:46、08:48、08:50)，還反問使用者在做什麼。
+        // 時間是背景資訊，不是議題；連續對話裡不該出現。
+        const idle = lastSeenTs == null ? Infinity : (Date.now() - lastSeenTs);
+        const head = idle >= GAP_MARK_MS ? ('（現在 ' + _fmtClock(Date.now()) + '）\n\n') : '';
+        // 這條增量本身就是下一個人的範例：一有人交了長篇，後面每個人都會照那個
+        // 形狀寫，再滾回增量餵給下一位，越滾越像研討會。system prompt 只在開場送
+        // 一次，壓不住每輪都在更新的實例——擋法要跟對手同一層、同一班車到，所以
+        // 掛在增量尾巴。只在現場真的出現長篇時才掛：常駐會被讀成背景雜訊，跟
+        // 每輪報時被當成話題是同一種壞法。
+        const tail = longest >= LONG_POST_CHARS
+            ? '\n\n（這裡是聊天不是開會。不必先整理別人說了什麼——講你自己想講的，三五句。）'
+            : '';
+        return head + lines.join('\n\n') + tail;
+    }
+
+    // 跟 _buildDelta 同範圍：收集增量涵蓋的 rae 附件（去掉 thumb，cc-bridge 只要 path）
+    function _collectDeltaAttachments(rid) {
+        const out = [];
+        for (let i = _seenOf(rid) + 1; i < _transcript.length; i++) {
+            const m = _transcript[i];
+            if (m.speaker === rid) continue;
+            if (Array.isArray(m.attachments)) {
+                m.attachments.forEach(function (a) {
+                    if (a && a.path) out.push({ path: a.path, filename: a.filename, mime: a.mime, size: a.size });
+                });
+            }
+        }
+        return out;
+    }
+
+    /** 回合收尾時把改名結果告示出去（成功與否都說，AI 才知道自己現在叫什麼） */
+    async function _flushRename(rid, markers, renamed) {
+        if (!renamed) return;
+        if (renamed.ok) await ChatGroup.announceRename(renamed.oldName, renamed.newName);
+        else await _announce(_labelOf(rid) + ' 想改名叫「' + markers.rename + '」，沒改成：' + renamed.reason);
+    }
+
+    const BRIEF_MIN_MSGS = 3;    // 離席期間少於這麼多則就不值得花一次呼叫
+
+    /**
+     * 「你不在的這段時間」摘要。回桌的人不補逐字稿是對的（那是他們自己定的規矩），
+     * 但兩手空空回來也不行 —— 阿洛跟天天回桌後只能靠別人講話自己拼脈絡。
+     * 走 Sonnet，跟 🧹 摘要重啟同一條路：Max 訂閱配額用不完，後台雜活 0 元。
+     * 失敗就算了，回空字串 —— 補不到脈絡總比卡住不能講話好。
+     */
+    async function _makeBrief(rid) {
+        const need = _needBrief[rid];
+        if (!need) return '';
+        delete _needBrief[rid];
+        const missed = _transcript
+            .slice(need.from + 1, need.to + 1)
+            .filter(function (m) { return m && m.speaker !== 'sys' && (m.content || '').trim(); });
+        if (missed.length < BRIEF_MIN_MSGS) return '';
+        if (!window.ClaudeTerminal || typeof window.ClaudeTerminal.sendRaw !== 'function') return '';
+
+        const script = missed.map(function (m) {
+            return '[' + _labelOf(m.speaker) + ']\n' + (m.content || '').trim();
+        }).join('\n\n');
+        try {
+            const r = await window.ClaudeTerminal.sendRaw({
+                provider: 'claude',
+                model: 'sonnet',
+                messages: [
+                    { role: 'system', content:
+                        '下面是一段群聊紀錄。有一個人中途離開、現在回來了，你要用一小段話讓他跟上。\n\n' +
+                        '規則:\n' +
+                        '1. 100 字以內，第三人稱、自然中文\n' +
+                        '2. 只講結論、決定，還有沒完的事；跳過寒暄與已經解決的小問題\n' +
+                        '3. 直接輸出內容，不要標題、不要開場白' },
+                    { role: 'user', content: script },
+                ],
+            });
+            return ((r && r.reply) || '').trim();
+        } catch (e) {
+            console.warn('[ChatGroup] 回桌摘要生成失敗：', e);
+            return '';
+        }
+    }
+
+    // ── 一個 AI 的回合 ──
+    // opts.gameTurn=true：遊戲回合，即使沒有新增量也要催它落子
+    // 回傳 { spoke:bool, failed:bool, markers:{game,move,gameover} }
+    async function _runTurn(rid, opts) {
+        opts = opts || {};
+        await _syncRoster();   // 有人換了模型（或還沒講過完整名冊）→ 先發通知，這一輪的增量就帶到
+        const brief = await _makeBrief(rid);
+        let delta = _buildDelta(rid);
+        if (brief && delta) delta = '（你不在的這段時間，桌上發生的事：' + brief + '）\n\n' + delta;
+        const deltaAttachments = _collectDeltaAttachments(rid);
+        // 他這一輪實際看到哪裡為止。回合結束一律用這個數字，別再取當下的
+        // _transcript.length-1 —— 這中間可能插進了他沒看過的東西（有人入席、
+        // 有人改名的系統告示），拿當下末端會把那些一起標成已讀、之後永遠不補送。
+        const seenAt = _transcript.length - 1;
+        if (!delta.trim()) {
+            if (!opts.gameTurn) {
+                _markSeen(rid, seenAt);
+                return { spoke: false, failed: false, markers: {} };
+            }
+            // 遊戲回合沒新增量（例：開局先手的第一手）→ 催落子
+            delta = '（系統）輪到你下棋了，請依先前約定的格式落子。';
+        }
+
+        const seat = _seatOf(rid);
+        const typingWrap = _renderTyping(rid);
+        const bubbleEl = typingWrap && typingWrap.querySelector('.cg-bubble');
+        let acc = '';
+
+        // ⏭ 跳過他：停掉這一輪（橋上 /v1/cancel 連 CLI 一起殺，再中止輪詢）。下棋那種會重試的回合不給跳
+        const ctrl = new AbortController();
+        const taskId = (window.crypto && window.crypto.randomUUID && window.crypto.randomUUID()) || ('g-' + Math.random().toString(36).slice(2) + Date.now().toString(36));
+        let skipped = false;
+        const wait = opts.gameTurn ? { stop: function () {} } : _attachWait(typingWrap, rid,
+            function () { return acc ? '還在寫' : '還在想'; },
+            function () {
+                skipped = true;
+                const CTk = _CT();
+                Promise.resolve(CTk && typeof CTk.cancelTask === 'function' ? CTk.cancelTask(taskId) : null)
+                    .catch(function () {}).then(function () { ctrl.abort(); });
+            });
+
+        // 🫧 段落一顆一顆冒出來（同私聊那支）：bubbleEl 當點點，寫完一段就在它前面放一顆
+        const _room = window.VoidClaudeRoom;
+        let revealer = null;
+        function _ensureRevealer() {
+            if (revealer) return revealer;
+            if (!typingWrap || !bubbleEl || !_room || typeof _room.createBubbleRevealer !== 'function'
+                || typeof _room.splitReplySegments !== 'function' || typeof _room.markdownToSafeHtml !== 'function') return null;
+            const css = _cssOf(rid);
+            revealer = _room.createBubbleRevealer(typingWrap, bubbleEl, function (seg) {
+                const el = document.createElement('div');
+                el.className = 'cg-bubble cg-from-' + css + ' claude-bubble-still';
+                const html = _room.markdownToSafeHtml(seg);
+                if (html !== null && html !== undefined) {
+                    el.innerHTML = html;
+                    el.classList.add('claude-bubble-md');
+                } else {
+                    el.textContent = seg;
+                }
+                if (typeof _room.isStickerSegment === 'function' && _room.isStickerSegment(seg)) el.classList.add('claude-bubble-sticker');
+                return el;
+            }, _scrollBottom);
+            return revealer;
+        }
+
+        // 📋 進度卡（同私聊那張）：他這輪列的清單（橋送來的最新一張）、這輪從什麼時候開始、每秒換秒數的那支。
+        //    卡掛在點點泡泡下面、「跳過他」那行上面；列了清單就不再把點點換成「正在動手…」，卡片最下面那行就是在做什麼
+        let plan = null, planEl = null, planTick = null, planWriting = false;
+        const planT0 = Date.now();
+        function _planPaint() {
+            if (!plan || !typingWrap || !_room || typeof _room.paintPlanCard !== 'function') return;
+            if (!planEl) {
+                planEl = document.createElement('div');
+                planEl.className = 'claude-plan-card';
+                typingWrap.insertBefore(planEl, typingWrap.querySelector('.cg-wait'));
+                planTick = setInterval(_planPaint, 1000);
+            }
+            const rows = planEl.querySelectorAll('.claude-plan-step').length;
+            _room.paintPlanCard(planEl, plan, { live: true, t0: planT0, writing: planWriting });
+            if (planEl.querySelectorAll('.claude-plan-step').length !== rows) _scrollBottom();
+        }
+        function _planSaved() {
+            return (plan && Array.isArray(plan.items) && plan.items.length)
+                ? { items: plan.items.map(function (x) { return { text: String((x && x.text) || ''), status: String((x && x.status) || 'pending') }; }),
+                    secs: Math.round((Date.now() - planT0) / 1000) }
+                : null;
+        }
+        /** 這一輪收了（回完、失敗、跳過）：卡停在這一刻的樣子，不轉了。回傳要存的那份 */
+        function _planFreeze() {
+            if (planTick) { clearInterval(planTick); planTick = null; }
+            const saved = _planSaved();
+            if (planEl && saved) _room.paintPlanCard(planEl, saved, { live: false, secs: saved.secs });
+            return saved;
+        }
+
+        function _send(sid) {
+            acc = '';
+            // 換一條 session 重送：上一次那張卡不算
+            if (planTick) { clearInterval(planTick); planTick = null; }
+            if (planEl && planEl.parentNode) planEl.parentNode.removeChild(planEl);
+            plan = null; planEl = null; planWriting = false;
+            return window.ClaudeTerminal.sendGroup({
+                residentId: rid,
+                selfName:   _labelOf(rid),
+                otherNames: _seats().filter(x => x.id !== rid).map(x => x.name),
+                model:      seat ? seat.seatModelId : '',
+                sessionId: sid,
+                userText: delta,
+                attachments: deltaAttachments,
+                signal: ctrl.signal,
+                taskId: taskId,
+                onProgress: function (ev) {
+                    if (ev && ev.type === 'text') {
+                        acc = ev.accumulated || (acc + (ev.delta || ''));
+                        const rv = _ensureRevealer();
+                        if (bubbleEl && rv) {
+                            // 寫到一半的那段不畫（會露出 ** 跟 -）。剛才在寫「正在動手」的話換回點點
+                            if (bubbleEl.classList.contains('cg-doing')) {
+                                bubbleEl.classList.remove('cg-doing');
+                                bubbleEl.classList.add('claude-bubble-dots');
+                                bubbleEl.innerHTML = _room.DOTS_HTML;
+                            }
+                            const segs = _room.splitReplySegments(_stripForDisplay(acc, true));
+                            if (segs.length - 1 > rv.count) rv.push(segs.slice(rv.count, segs.length - 1));
+                        } else if (bubbleEl) {
+                            bubbleEl.classList.remove('cg-typing');
+                            bubbleEl.classList.remove('cg-doing');
+                            const shown = _stripForDisplay(acc, true);
+                            bubbleEl.textContent = (window.VoidClaudeRoom && window.VoidClaudeRoom.hideMdImages)
+                                ? window.VoidClaudeRoom.hideMdImages(shown) : shown;
+                            _scrollBottom();
+                        }
+                        planWriting = true;   // 進度卡最下面那行寫「在寫回覆」
+                        if (plan) _planPaint();
+                    } else if (ev && ev.type === 'plan' && ev.plan) {
+                        // 卡換了＝他在動清單或換了工具，都是在動手。點點泡泡剛才寫成「正在動手…」的話換回點點，在做什麼看卡
+                        planWriting = false;
+                        plan = ev.plan;
+                        if (bubbleEl && bubbleEl.classList.contains('cg-doing') && _room && _room.DOTS_HTML) {
+                            bubbleEl.classList.remove('cg-doing');
+                            bubbleEl.classList.add('claude-bubble-dots');
+                            bubbleEl.innerHTML = _room.DOTS_HTML;
+                        }
+                        _planPaint();
+                    } else if (ev && ev.type === 'tool_use') {
+                        planWriting = false;
+                        if (plan) { _planPaint(); return; }   // 📋 列了清單：在做什麼寫在卡上
+                        // 他在動手（跑命令、生圖）。生圖那種要等三十秒以上，畫面上卻只有
+                        // 「正在輸入…」—— 看起來像卡住。這裡把他正在做什麼寫在氣泡上，
+                        // 等真的有文字回來再換掉。只在還沒有任何文字時顯示：他一開口就換成內容，
+                        // 不要讓狀態字蓋掉他講的話。
+                        if (bubbleEl && !acc) {
+                            bubbleEl.classList.remove('cg-typing');
+                            bubbleEl.classList.remove('claude-bubble-dots');
+                            bubbleEl.classList.add('cg-doing');
+                            bubbleEl.textContent = _doingLabel(ev.tool);
+                            _scrollBottom();
+                        }
+                    }
+                },
+            });
+        }
+
+        function _fail(err) {
+            wait.stop();
+            _planFreeze();   // 📋 列過清單：卡停在這一刻（按跳過的話看得到做到哪；這則不存，同私聊按停）
+            // 她按了跳過：拿掉點點（他已經講出來的那幾顆留著），寫一行說跳過了；沒送到的這段下一輪補給他
+            if (skipped) {
+                if (revealer) revealer.stop();
+                const said = revealer && revealer.count > 0;
+                if (said || planEl) { if (bubbleEl && bubbleEl.parentNode) bubbleEl.parentNode.removeChild(bubbleEl); }
+                else if (typingWrap && typingWrap.parentNode) typingWrap.parentNode.removeChild(typingWrap);
+                _renderSystemLine('跳過了' + _labelOf(rid) + '，換下一位（這段他下次輪到時會補看到）');
+                return { spoke: false, failed: true, skipped: true, markers: {} };
+            }
+            // 遊戲回合失敗會被重試，別留一顆 ⚠️ 氣泡在那裡——重試幾次就排成一列，
+            // 而那一手其實根本沒發生過。收場的話迴圈會另外寫一行系統訊息。
+            if (opts.gameTurn) {
+                if (typingWrap && typingWrap.parentNode) typingWrap.parentNode.removeChild(typingWrap);
+                return { spoke: false, failed: true, markers: {} };
+            }
+            // 模型那邊擋下或出錯：拿掉他那顆「正在輸入」，改一行系統提示（不是他講的話）
+            const _me = (window.VoidClaudeRoom && typeof window.VoidClaudeRoom.modelErrorText === 'function')
+                ? window.VoidClaudeRoom.modelErrorText(err) : null;
+            if (_me) {
+                if (typingWrap && typingWrap.parentNode) typingWrap.parentNode.removeChild(typingWrap);
+                _renderSystemLine(_labelOf(rid) + '：' + _me);
+                return { spoke: false, failed: true, markers: {} };
+            }
+            if (revealer) revealer.stop();
+            if (bubbleEl) {
+                bubbleEl.classList.remove('cg-typing');
+                bubbleEl.classList.remove('claude-bubble-dots');
+                bubbleEl.classList.add('cg-error');
+                bubbleEl.textContent = '⚠️ ' + ((err && err.message) || '送出失敗');
+            }
+            // 送出失敗：不推進 _seen —— 下一輪再補送
+            return { spoke: false, failed: true, markers: {} };
+        }
+
+        const sid0 = _lsGet(_sidKey(rid));
+        let result;
+        try {
+            result = await _send(sid0);
+        } catch (e) {
+            // EMPTY 而且當時帶著 session：多半是那條 session 已經不在了。
+            // CLI 的 session 按工作目錄分家，cc-bridge 的 cli_cwd 換過之後，
+            // 舊 sid 在新目錄下找不到——CLI 不報錯、回空、cost 算 0，橋照實回傳，
+            // 到這裡就成了 EMPTY。清掉 sid 從零開一條再試一次，只試這一次。
+            if (/^EMPTY:/.test((e && e.message) || '') && sid0) {
+                _clearSid(rid);
+                try {
+                    result = await _send(null);
+                } catch (e2) { return _fail(e2); }
+            } else {
+                return _fail(e);
+            }
+        }
+        wait.stop();
+        const planSaved = _planFreeze();   // 📋 他做完那一刻清單的樣子＋花了多久（跟著這則存）
+        if (result.sessionId) _lsSet(_sidKey(rid), result.sessionId);
+
+        const reply = (result.reply || '').trim();
+        if (/^\[PASS\]$/i.test(reply)) {
+            if (typingWrap && typingWrap.parentNode) typingWrap.parentNode.removeChild(typingWrap);
+            _markSeen(rid, seenAt);
+            return { spoke: false, failed: false, markers: {} };
+        }
+
+        const markers = _parseGameMarkers(result.reply);
+
+        // 他自己要下桌：先從名單移除，這輪剩下的人不會再被他影響；
+        // 告示等這則講完再發（順序才對：先聽他把話講完，再宣布他走了）。
+        let leftReason = null;
+        if (markers.leave != null && !_isPlaceholderArg(markers.leave)) {
+            const CTx = _CT();
+            if (CTx && typeof CTx.setGroupSeat === 'function' && CTx.setGroupSeat(rid, false)) {
+                leftReason = markers.leave || '';
+            }
+        }
+
+        // 他自己要改名：先改掉，這則氣泡的表頭就用新名字（他講這句話時已經叫新的了）
+        let renamed = null;
+        if (markers.rename) {
+            renamed = _aiRename(rid, markers.rename);
+            if (renamed.ok && typingWrap) {
+                _fillHdr(typingWrap.querySelector('.cg-bubble-hdr'), rid);
+            }
+        }
+
+        // <lobbyPanel> 畫布：永遠渲染（開局棋盤經此上來）
+        if (window.VoidCanvas && typeof window.VoidCanvas.parseLobbyPanel === 'function') {
+            const panel = window.VoidCanvas.parseLobbyPanel(result.reply);
+            if (panel && window.ChatCanvas && typeof window.ChatCanvas.render === 'function') {
+                window.ChatCanvas.render(panel);
+            }
+        }
+
+        // 落子 → 餵畫布（只在遊戲模式中；開局首手由 _maybeStartGame 另外處理）
+        if (markers.move != null && _game &&
+            window.ChatCanvas && typeof window.ChatCanvas.applyMove === 'function') {
+            window.ChatCanvas.applyMove(markers.move, _labelOf(rid));
+        }
+
+        if (result.usage && window.OS_SPEND_PANEL && typeof window.OS_SPEND_PANEL.record === 'function') {
+            try { window.OS_SPEND_PANEL.record(result.usage, { rid, provider: _provOf(rid) }); } catch (_) {}
+        }
+        // 記下他這條 session 現在多大。只認橋新加的 context_tokens——那是最後一則
+        // assistant 的 input + cache_read + cache_creation，也就是「當下有多滿」。
+        // usage 裡其他那幾個欄位是整個 session 的累積總帳，同一條 session 實測當下
+        // 102k、累積 1160k，拿累積值當水位會判成隨時都爆了。舊版橋沒有這個欄位，
+        // 那就寧可不自動整理，也不要憑一個意思不對的數字亂壓。
+        if (result.usage) {
+            const w = Number(result.usage.context_tokens || 0);
+            if (Number.isFinite(w) && w > 0) _ctxWater[rid] = w;
+        }
+
+        const displayText = _stripForDisplay(result.reply);
+        const transcriptText = _stripForTranscript(result.reply);
+        const imgAtts = (Array.isArray(result.images) && result.images.length) ? result.images : null;
+
+        if (!transcriptText && !imgAtts) {
+            // 整則只有 <lobbyPanel>、沒文字沒標記沒圖：移掉空氣泡，不進 transcript
+            if (typingWrap && typingWrap.parentNode) typingWrap.parentNode.removeChild(typingWrap);
+            _markSeen(rid, seenAt);
+            await _flushRename(rid, markers, renamed);
+            if (leftReason !== null) await _announceSelfLeave(rid, leftReason);
+            return { spoke: true, failed: false, markers: markers };
+        }
+        if (!displayText && !imgAtts) {
+            // 只有標記、沒閒聊文字也沒圖：移掉氣泡，但 transcript 仍要記（對手要看到 [MOVE]）
+            if (typingWrap && typingWrap.parentNode) typingWrap.parentNode.removeChild(typingWrap);
+        } else if (bubbleEl) {
+            // 🫧 還沒冒出來的段落照同一個節奏放完，放完換成完整那份（附件、工具、思考掛上去，不再播動畫）
+            const rv = _ensureRevealer();
+            if (rv && displayText) {
+                rv.push(_room.splitReplySegments(displayText).slice(rv.count));
+                await rv.drain();
+                typingWrap.querySelectorAll('.cg-bubble').forEach(function (el) { if (el !== bubbleEl) el.remove(); });
+                bubbleEl.classList.add('claude-bubble-still');
+            }
+            bubbleEl.classList.remove('cg-typing');
+            const lastB = _setBubbleContent(bubbleEl, rid, result.reply) || bubbleEl;
+            if (imgAtts) {
+                const box = _buildAttachmentsBox(imgAtts);
+                if (box) lastB.appendChild(box);
+            }
+            _attachTools(lastB, result.toolsUsed);
+            _attachThinking(bubbleEl, result.thinking);
+        }
+        const turnEntry = { speaker: rid, content: transcriptText, ts: Date.now(), usage: result.usage || null };
+        if (imgAtts) turnEntry.attachments = imgAtts;
+        if (result.thinking) turnEntry.thinking = result.thinking;
+        // 存起來，不然重新進群聊就只剩文字、看不出他做過什麼
+        if (Array.isArray(result.toolsUsed) && result.toolsUsed.length) turnEntry.toolsUsed = result.toolsUsed;
+        if (planSaved) turnEntry.plan = planSaved;
+        _transcript.push(turnEntry);
+        if (typingWrap) typingWrap._ccrMsg = turnEntry;
+        // 同一份話也留一份給他自己的房間：群聊跟私聊各自 resume，不回流的話同一位住戶
+        // 在兩邊就是兩個人。收的是剝過標記的原話（[MOVE] 那些是對桌上講的，回房間沒有
+        // 意義），別人說了什麼不收。
+        if (transcriptText) {
+            const CTc = _CT();
+            if (CTc && typeof CTc.pushGroupCarry === 'function') {
+                CTc.pushGroupCarry(rid, transcriptText, _seats().filter(x => x.id !== rid).map(x => x.name));
+            }
+        }
+        _markSeen(rid, seenAt);
+        _save();
+        await _flushRename(rid, markers, renamed);
+        if (leftReason !== null) await _announceSelfLeave(rid, leftReason);
+        // 他點名了誰 —— 上層據此決定要不要把那些人叫進來接話（@ 自己不算）
+        const calls = _parseMentions(transcriptText).filter(function (x) { return x !== rid; });
+        return { spoke: true, failed: false, markers: markers, calls: calls };
+    }
+
+    function _sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+    // 等頁面回到前景。熄屏／切走的時候這個迴圈本來就是停的，這支只是把「她回來了」
+    // 變成一件等得到的事；對局被中止時由 _game.wakeResolver 提前叫醒，免得卡在這裡。
+    function _waitResume() {
+        if (!_game || document.visibilityState === 'visible') return Promise.resolve();
+        return new Promise(function (resolve) {
+            const g = _game;
+            function done() {
+                document.removeEventListener('visibilitychange', onVis);
+                if (g.wakeResolver === done) g.wakeResolver = null;
+                resolve();
+            }
+            function onVis() { if (document.visibilityState === 'visible') done(); }
+            g.wakeResolver = done;
+            document.addEventListener('visibilitychange', onVis);
+        });
+    }
+
+    // ── 對局託管給橋 ──
+    // 迴圈住在瀏覽器裡的時候，「發下一手」這件事需要 JS 跑，而熄屏會把 JS 凍住——
+    // 所以在手機上，一盤棋只能下到她放下手機為止。一發已經飛出去的請求不需要 JS
+    // 也能完成，但「收到之後再發下一發」一定要，這是瀏覽器沒有背景執行的真正原因。
+    // 交給橋之後發請求的是她那台一直開著的電腦，手機退化成一扇窗：熄屏、關掉 app
+    // 都不影響，回來用 since 撈走這段時間跑出來的那幾手。
+    // 兩個前提：①兩位都是 AI（有她在局裡就得等她點，橋等不到）②橋有這條端點
+    // （她還沒重啟的話舊版沒有）——不成立就退回本機迴圈，行為跟以前一模一樣。
+    const HOSTED_POLL_MS = 4000;
+    const HOSTED_SEEN_KEY = 'group_hosted_seen_';
+    // 這局的收場（🏁 那行＋講評那句）已經在這台裝置演過。橋的狀態檔會一直留著最後一局，
+    // 連下完的也回「有對局」，沒有這個記號的話每開一次群聊就收場一次。
+    const HOSTED_DONE_KEY = 'group_hosted_done_';
+    let _hosted = null;   // { id, since, timer }
+
+    function _bridgeUrl(path) {
+        const CTx = _CT();
+        const cfg = CTx && CTx.getConfig ? CTx.getConfig() : null;
+        if (!cfg || !cfg.url) return null;
+        const i = cfg.url.lastIndexOf('/v1/chat/completions');
+        return i < 0 ? null : cfg.url.slice(0, i) + path;
+    }
+
+    async function _bridgeCall(path, method, body) {
+        const CTx = _CT();
+        const cfg = CTx && CTx.getConfig ? CTx.getConfig() : null;
+        const url = _bridgeUrl(path);
+        if (!url || !cfg || !cfg.key) throw new Error('NOT_CONFIGURED');
+        const headers = { 'Authorization': 'Bearer ' + cfg.key };
+        if (method === 'POST') headers['Content-Type'] = 'application/json';
+        const r = await fetch(url, {
+            method: method,
+            headers: headers,
+            body: method === 'POST' ? JSON.stringify(body || {}) : undefined,
+        });
+        // 舊版橋沒有 /v1/game/*，那條路徑會被 MCP 的 Mount 接走
+        if (r.status === 404 || r.status === 405) throw new Error('NO_ENDPOINT');
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return await r.json();
+    }
+
+    // 把橋跑出來的一手放進桌上。跟 _runTurn 的收尾同一套，只是沒有串流那段。
+    function _renderFinishedTurn(rid, reply) {
+        const markers = _parseGameMarkers(reply);
+        const transcriptText = _stripForTranscript(reply);
+        const displayText = _stripForDisplay(reply);
+        const wrap = _renderTyping(rid);
+        const bubbleEl = wrap && wrap.querySelector('.cg-bubble');
+        if (!displayText) {
+            if (wrap && wrap.parentNode) wrap.parentNode.removeChild(wrap);
+        } else if (bubbleEl) {
+            bubbleEl.classList.remove('cg-typing');
+            _setBubbleContent(bubbleEl, rid, reply);
+        }
+        if (transcriptText) {
+            _transcript.push({ speaker: rid, content: transcriptText, ts: Date.now() });
+            const CTc = _CT();
+            if (CTc && typeof CTc.pushGroupCarry === 'function') {
+                CTc.pushGroupCarry(rid, transcriptText, _seats().filter(x => x.id !== rid).map(x => x.name));
+            }
+        }
+        if (window.VoidCanvas && typeof window.VoidCanvas.parseLobbyPanel === 'function') {
+            const panel = window.VoidCanvas.parseLobbyPanel(reply);
+            if (panel && window.ChatCanvas && typeof window.ChatCanvas.render === 'function') {
+                window.ChatCanvas.render(panel);
+            }
+        }
+        if (markers.move != null && window.ChatCanvas && typeof window.ChatCanvas.applyMove === 'function') {
+            window.ChatCanvas.applyMove(markers.move, _labelOf(rid));
+        }
+        return markers;
+    }
+
+    function _hostedStopTimer() {
+        if (_hosted && _hosted.timer) { clearTimeout(_hosted.timer); _hosted.timer = null; }
+    }
+
+    // 收下橋那邊的進度。她不在的時候這支不會跑（頁面凍著），回來時一次補完。
+    async function _hostedApply(st) {
+        if (!st || !st.active || !_hosted) return;
+        (st.turns || []).forEach(function (t) { _renderFinishedTurn(t.rid, t.reply || ''); });
+        // sid 收回本機：橋那幾手是拿它 resume 的，不收的話前端下次自己發請求
+        // 會 resume 到一條舊的，他就從棋局中間斷片
+        (st.players || []).forEach(function (p) {
+            if (p && p.rid && p.sid) _lsSet(_sidKey(p.rid), p.sid);
+        });
+        if ((st.turns || []).length) {
+            // 橋是把對方那句直接餵給下一位的，所以兩邊都真的看過了
+            (st.players || []).forEach(function (p) {
+                if (p && p.rid) _markSeen(p.rid, _transcript.length - 1);
+            });
+            _save();
+            _scrollBottom();
+        }
+        _hosted.since = st.totalTurns || _hosted.since;
+        // 撈到哪裡為止要落地：她關掉 app 再打開時，_transcript 裡已經有前面那幾手了，
+        // 沒有這個游標就會從第一手重畫一次，桌上變成兩份棋譜
+        if (_hosted.id) _lsSet(HOSTED_SEEN_KEY + _hosted.id, String(_hosted.since));
+        if (st.status !== 'running') {
+            _hostedStopTimer();
+            _hostedWatchVisible(false);
+            if (_hosted.id) _lsSet(HOSTED_DONE_KEY + _hosted.id, '1');   // 收場只演這一次
+            _hosted = null;
+            if (_game) _game.endSignal = { text: st.result || '對局結束。' };
+            await _endGameInternal(st.result || null);
+        }
+    }
+
+    function _hostedTick() {
+        if (!_hosted) return;
+        _hostedStopTimer();
+        _bridgeCall('/v1/game/state?since=' + _hosted.since, 'GET')
+            .then(_hostedApply)
+            .catch(function (e) {
+                // 撈不到不代表對局出事——橋那邊照跑，下次再問
+                console.warn('[ChatGroup] 撈對局進度失敗：', e && e.message);
+            })
+            .then(function () {
+                if (_hosted && document.visibilityState === 'visible') {
+                    _hosted.timer = setTimeout(_hostedTick, HOSTED_POLL_MS);
+                }
+            });
+    }
+
+    function _hostedOnVisible() {
+        if (_hosted && document.visibilityState === 'visible' && !_hosted.timer) _hostedTick();
+    }
+    // 有託管才掛這顆監聽器。掛在模組載入時會有兩個問題：沒有託管的時候它是死重量，
+    // 而且載入當下不見得有 document（測試沙盒就沒有），模組會整支載不起來。
+    function _hostedWatchVisible(on) {
+        if (typeof document === 'undefined' || !document.addEventListener) return;
+        if (on) document.addEventListener('visibilitychange', _hostedOnVisible);
+        else document.removeEventListener('visibilitychange', _hostedOnVisible);
+    }
+
+    // 開局之後把桌子交給橋。交成回 true；橋沒這條端點回 false，上層退回本機迴圈。
+    async function _handOffGame(firstMoverRid) {
+        const CTx = _CT();
+        const players = _game.players.map(function (rid) {
+            const seat = CTx && CTx.getResident ? CTx.getResident(rid) : null;
+            return {
+                rid: rid,
+                name: _labelOf(rid),
+                backend: seat ? seat.provider : 'claude',
+                cwd: (CTx && CTx.residentHome) ? CTx.residentHome(rid) : '',
+                model: seat ? seat.seatModelId : '',
+                sid: _lsGet(_sidKey(rid)) || null,
+            };
+        });
+        let st;
+        try {
+            st = await _bridgeCall('/v1/game/start', 'POST', {
+                players: players,
+                turnIdx: _game.turnIdx,
+                moveCount: _game.moveCount,
+                turnLimit: GAME_TURN_LIMIT,
+                // 第一手要餵什麼只有前端知道——他看到哪裡為止是這邊的游標在記
+                firstDelta: _buildDelta(firstMoverRid),
+            });
+        } catch (e) {
+            if ((e && e.message) === 'NO_ENDPOINT') {
+                _renderSystemLine('這局在手機上下——橋還沒更新，熄屏會暫停。');
+                return false;
+            }
+            throw e;
+        }
+        _game.hosted = true;
+        _hosted = { id: st && st.id, since: 0, timer: null };
+        if (_hosted.id) _lsSet(HOSTED_SEEN_KEY + _hosted.id, '0');
+        _hostedWatchVisible(true);
+        _renderSystemLine('這局交給橋了，熄屏或關掉都不影響。');
+        _hostedTick();
+        return true;
+    }
+
+    // 頁面重開時把還在跑的那局接回來。她把 app 關掉去睡覺、隔天打開，
+    // 棋是在橋上下完的——沒有這支就永遠撈不回來。
+    ChatGroup.resumeHostedGame = async function () {
+        if (_game || _hosted) return false;
+        let st;
+        try { st = await _bridgeCall('/v1/game/state?since=0', 'GET'); }
+        catch (_) { return false; }
+        if (!st || !st.active || !Array.isArray(st.players) || st.players.length !== 2) return false;
+        // 橋只記最後一局，下完的也照回。已經收過場的（記號在）、或每一手都撈過了的，
+        // 就是舊局：不再接、不再畫 🏁、不再往逐字稿塞「請講評」——那句每塞一次，
+        // 住戶下一輪讀到就會把這盤再講評一遍，桌上看起來像對局老是自己冒回來。
+        if (st.status !== 'running') {
+            const seenDone = parseInt(_lsGet(HOSTED_SEEN_KEY + st.id) || '0', 10) || 0;
+            if (_lsGet(HOSTED_DONE_KEY + st.id) || seenDone >= (st.totalTurns || 0)) {
+                _lsSet(HOSTED_DONE_KEY + st.id, '1');
+                return false;
+            }
+        }
+        if (st.status === 'running') {
+            _game = {
+                players: st.players.map(function (p) { return p.rid; }),
+                turnIdx: st.turnIdx || 0, moveCount: st.moveCount || 0,
+                raeResolver: null, wakeResolver: null, retries: 0, endSignal: null, hosted: true,
+            };
+            _busy = true;
+        }
+        // 這局之前撈到哪，接著撈；_transcript 裡已經有的那幾手不要再畫一次
+        const seen = parseInt(_lsGet(HOSTED_SEEN_KEY + st.id) || '0', 10) || 0;
+        _hosted = { id: st.id, since: seen, timer: null };
+        _hostedWatchVisible(true);
+        await _hostedApply(Object.assign({}, st, { turns: (st.turns || []).slice(seen) }));
+        if (_hosted) _hostedTick();
+        return true;
+    };
+
+    // ── 自動多輪遊戲迴圈 ──
+    // _game 為 truthy 時運轉；用 _game.endSignal 統一收場。整個生命週期由本迴圈獨佔。
+    async function _runGameLoop() {
+        while (_game && !_game.endSignal) {
+            if (_game.moveCount >= GAME_TURN_LIMIT) {
+                _game.endSignal = { text: '已達回合上限 ' + GAME_TURN_LIMIT + ' 手，自動對弈停止。' };
+                break;
+            }
+            const mover = _game.players[_game.turnIdx % 2];
+
+            if (mover === 'rae') {
+                // 輪到使用者：暫停迴圈，等畫布捕捉點擊 → LP.submitMove → resolve
+                const payload = await new Promise(function (resolve) { _game.raeResolver = resolve; });
+                if (!_game) return;                       // 等待期間遊戲被清掉
+                _game.raeResolver = null;
+                if (_game.endSignal) break;               // 等待期間被收場
+                if (payload == null) break;               // 中止信號
+                if (window.ChatCanvas && typeof window.ChatCanvas.applyMove === 'function') {
+                    window.ChatCanvas.applyMove(payload, 'rae');
+                }
+                _transcript.push({ speaker: 'rae', content: '[MOVE|' + payload + ']', ts: Date.now() });
+                _save();
+                _game.moveCount++;
+                _game.turnIdx++;
+                continue;
+            }
+
+            // 輪到 AI
+            const res = await _runTurn(mover, { gameTurn: true });
+            if (!_game) return;
+            if (_game.endSignal) break;
+            if (res.failed) {
+                // 熄屏、切走、網路抖一下，都會讓這一手的 fetch 直接拋。這裡以前是判死刑，
+                // 而她只是把手機放下——回來時棋局已經被收掉了。改成把這一手擱著等她回來重下。
+                // 頁面被凍結時整個迴圈也是停的，所以能跑到這一行就代表頁面已經醒了；
+                // _waitResume 擋的是「醒著但切到別的 app」那種。
+                _game.retries = (_game.retries || 0) + 1;
+                if (_game.retries > GAME_RETRY_LIMIT) {
+                    _game.endSignal = { text: _labelOf(mover) + ' 連續 ' + GAME_RETRY_LIMIT + ' 次送不出去，對局中止。' };
+                    break;
+                }
+                _renderSystemLine('⏸ ' + _labelOf(mover) + ' 這手沒送出去（連線中斷），回來後重下。');
+                await _waitResume();
+                if (!_game || _game.endSignal) break;
+                // 頁面一直醒著的失敗（網路抖一下、橋剛好在重啟）沒有東西擋著，
+                // 不退避的話三次會在同一秒燒完，等於一次抖動就判死。遞增等一下再重下。
+                await _sleep(GAME_RETRY_BACKOFF_MS * _game.retries);
+                if (!_game || _game.endSignal) break;
+                continue;   // 同一個 mover，turnIdx 不動
+            }
+            _game.retries = 0;
+            if (res.markers && res.markers.gameover != null) {
+                _game.endSignal = { text: res.markers.gameover };
+                break;
+            }
+            if (res.markers && res.markers.move != null) {
+                _game.moveCount++;
+                _game.turnIdx++;
+                continue;
+            }
+            // 該下棋卻沒落子也沒收場 → 中止（不重試，YAGNI）
+            _game.endSignal = { text: _labelOf(mover) + ' 這手沒有落子，對局中止。' };
+            break;
+        }
+        const sig = _game && _game.endSignal;
+        await _endGameInternal(sig ? sig.text : null);
+    }
+
+    // ── 收場：退出遊戲模式 + 收場講評一輪 ──
+    async function _endGameInternal(resultText) {
+        // players 在清掉 _game 之前先抓下來 —— 講評要問的是這局的雙方
+        const players = ((_game && _game.players) || []).filter(p => p && p !== 'rae');
+        _game = null;
+        if (resultText) _renderSystemLine('🏁 ' + resultText);
+
+        // 沒有對局中的雙方（接回一局早就下完的）就沒有人要講評：那句「請講評」不能塞，
+        // 塞了會跟著逐字稿送給每個人，人人讀到都回頭評一次這盤。
+        if (!players.length) { _busy = false; return; }
+
+        // 收場講評一輪：注入系統提示進 transcript（不渲染這條），兩個 AI 各講評一句
+        _transcript.push({
+            speaker: 'rae',
+            content: '（系統）這盤對局結束了。請用一句話講評，不要再落子、不要再輸出任何遊戲標記。',
+            ts: Date.now(),
+        });
+        _save();
+        const order = _shuffle(players);
+        for (let i = 0; i < order.length; i++) await _runTurn(order[i]);
+
+        _busy = false;
+    }
+
+    // 偵測某回合的回覆是否開了一局遊戲。是 → 進遊戲模式、啟動迴圈、回 true
+    function _maybeStartGame(mover, res) {
+        if (_game || !res || !res.markers || !res.markers.game) return false;
+        const g = res.markers.game;
+        _game = { players: [g.p1, g.p2], turnIdx: 0, moveCount: 0, raeResolver: null, endSignal: null };
+        // 開局回覆若已落第一手（且開局者就是先手）→ 算進去、補畫
+        if (res.markers.move != null && mover === g.p1) {
+            _game.turnIdx = 1;
+            _game.moveCount = 1;
+            if (window.ChatCanvas && typeof window.ChatCanvas.applyMove === 'function') {
+                window.ChatCanvas.applyMove(res.markers.move, mover);
+            }
+        }
+        _busy = true;   // 遊戲模式期間維持 busy，由 _endGameInternal 釋放
+        const runLocal = function () {
+            _runGameLoop().catch(function (e) {
+                console.error('[ChatGroup] 遊戲迴圈錯誤：', e);
+                _game = null;
+                _busy = false;
+            });
+        };
+        // 兩位都是 AI → 交給橋跑，她的手機就不必醒著。她自己在局裡的話橋等不到
+        // 她點畫布，只能留在本機；橋沒有那條端點（還沒重啟）也退回本機。
+        if (_game.players.every(function (p) { return p && p !== 'rae'; })) {
+            const nextMover = _game.players[_game.turnIdx % 2];
+            _handOffGame(nextMover)
+                .then(function (ok) { if (!ok) runLocal(); })
+                .catch(function (e) {
+                    console.error('[ChatGroup] 交接對局失敗：', e);
+                    runLocal();
+                });
+        } else {
+            runLocal();
+        }
+        return true;
+    }
+
+    // ── @-mention 解析（給 _runRound 用）──
+    // 認入席住戶的名字（她自己取的名字都算）、住戶 id，以及舊的 @Claude / @Codex /
+    // @deepseek 這種 provider 代號 —— 代號對到「該 provider 第一位入席者」。
+    // 名字先長後短比對，免得叫「丹」的那位把 @丹二 也接走。
+    // 回傳入席住戶 id 的子集合（依她 @ 的先後順序）。
+    function _parseMentions(text) {
+        if (!text) return [];
+        const seats = _seats();
+        if (!seats.length) return [];
+        const byLen = seats.slice().sort((a, b) => (b.name || '').length - (a.name || '').length);
+        const out = [];
+        const push = id => { if (id && out.indexOf(id) < 0) out.push(id); };
+        // @ 後面連續的非分隔字元；名字最長 20（住戶名上限）
+        const re = /@([^\s@,，。、;；:：!！?？]{1,20})/g;
+        let m;
+        while ((m = re.exec(text)) !== null) {
+            const low = m[1].toLowerCase();
+            const byName = byLen.find(x => x.name && low.indexOf(x.name.toLowerCase()) === 0);
+            if (byName) { push(byName.id); continue; }
+            const byId = seats.find(x => low.indexOf(x.id.toLowerCase()) === 0);
+            if (byId) { push(byId.id); continue; }
+            const prov = ['claude', 'codex', 'deepseek'].find(p => low.indexOf(p) === 0);
+            if (prov) { const p = seats.find(x => x.provider === prov); if (p) push(p.id); }
+        }
+        return out;
+    }
+
+    // Fisher-Yates shuffle:入席順序隨機,避免老是同一隻先講
+    function _shuffle(arr) {
+        const a = arr.slice();
+        for (let i = a.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [a[i], a[j]] = [a[j], a[i]];
+        }
+        return a;
+    }
+
+    // ── 你發訊息 ──
+    // 🤚 先放著、按魔杖才回（10-03：群聊也要能先放著，不然發不了表情包）：
+    //   跟私聊同一套。輸入框送出、表情包都只是放上桌（記錄裡 held:true），想發幾條就發幾條；
+    //   按魔杖（replyNow）才叫大家回，這一輪找誰照舊看那幾條裡有沒有 @ 誰。
+    //   放著的那幾條在記錄裡就是普通的一則，誰下一次開口都讀得到；held 只是「還沒叫人回」的記號。
+    //   大家在回的時候她也能放；那時按魔杖＝等這輪講完接著叫（AI 正互相接話就先停下讓她）。
+
+    /** 放一條上桌（不叫人回）。有附件也算；兩樣都沒有就不放。回那一則或 null */
+    ChatGroup.holdMessage = function (text) {
+        text = text || '';
+        const atts = _pendingAttachments
+            .filter(function (a) { return a && a.path; })
+            .map(function (a) {
+                return { path: a.path, filename: a.filename, mime: a.mime, size: a.size, thumb: a.thumb || null };
+            });
+        if (!text.trim() && !atts.length) return null;
+        _pendingAttachments = [];
+        _renderPendingAttachments();
+        if (_loaded) _syncRosterNow();   // 有人換了模型的話，通知排在她這句前面
+        const entry = { speaker: 'rae', content: text, ts: Date.now() };
+        if (atts.length) entry.attachments = atts;
+        if (!_game) entry.held = true;   // 對局中她的話由對局迴圈下一手帶到，不用等魔杖
+        _transcript.push(entry);
+        _renderBubble('rae', text, atts, null, null, entry);
+        _save();
+        _paintHeld();
+        return entry;
+    };
+
+    /** 還沒叫人回的那幾條 */
+    function _heldEntries() {
+        return _transcript.filter(function (m) { return m && m.held; });
+    }
+    /** 魔杖：有放著的就亮、右上角數字（跟私聊同兩個元素；進群聊重畫時也叫） */
+    function _paintHeld() {
+        if (typeof document === 'undefined' || typeof document.getElementById !== 'function') return;
+        const n = _heldEntries().length;
+        const btn = document.getElementById('cw-reply-btn');
+        if (btn) btn.classList.toggle('has-held', n > 0);
+        const badge = document.getElementById('cw-held-n');
+        if (badge) { badge.textContent = String(n); badge.hidden = n === 0; }
+    }
+    ChatGroup.paintHeld = _paintHeld;
+
+    let _replyQueued = false;   // 大家在回時她按了魔杖：這輪講完接著叫
+
+    /** 魔杖：叫桌上的人回放著的那幾條 */
+    ChatGroup.replyNow = async function () {
+        if (_game) return;
+        // 附件傳好了、框裡沒打字就按魔杖：先把附件放上桌
+        if (_pendingAttachments.some(function (a) { return a && a.path; })) ChatGroup.holdMessage('');
+        if (_busy) {
+            if (_heldEntries().length) {
+                if (_following) _followAbort = true;   // AI 正互相接話：停下來讓她先
+                _replyQueued = true;
+            }
+            return;
+        }
+        const held = _heldEntries();
+        if (!held.length) { _renderSystemLine('先說點什麼，再按這顆讓大家回'); return; }
+        held.forEach(function (m) { delete m.held; });
+        _save();
+        _paintHeld();
+        await _runRound(held.map(function (m) { return m.content || ''; }).join('\n'));
+    };
+
+    /** 放上桌並馬上叫人回（對局中只放上桌，迴圈下一手帶到） */
+    ChatGroup.sendUserMessage = async function (text) {
+        if (!ChatGroup.holdMessage(text)) return;
+        if (!_game) await ChatGroup.replyNow();
+    };
+
+    /** 叫一輪：text 是她這次放上桌那幾條（拿來看 @ 了誰） */
+    async function _runRound(text) {
+        _busy = true;
+        try {
+            // @-mention 路由:
+            //  - 明確 @ 某幾隻 → 只叫那些(省 token、其他人完全跳過)
+            //  - 無 @ → 全部入席者都叫、Fisher-Yates 洗順序、各自 [PASS] 自決
+            // 這裡是「序列」不是併發:後講的人看得到前面的人剛說什麼,互相接話靠的就是這個。
+            // 入席的人越多一輪越久,那是語意成本 —— 沒話講的會直接 [PASS],很快。
+            const mentions = _parseMentions(text);
+            const seated = _seatIds();
+            if (!seated.length) {
+                // 全員下桌了：她發的話還是進 transcript（回頭有人上桌就看得到），
+                // 但得當場說一聲，不然按了送出什麼都沒發生，看起來像壞了。
+                _renderSystemLine('桌上沒有人 —— 去宿舍面板的門卡上勾「入席」，把要參加的住戶請上桌。');
+                return;
+            }
+            const order = mentions.length > 0 ? mentions : _shuffle(seated);
+            let pending = [];
+            for (let i = 0; i < order.length; i++) {
+                const r = await _runTurn(order[i]);
+                if (_maybeStartGame(order[i], r)) return;   // 開局了 → 交給遊戲迴圈
+                if (r && r.calls) pending = pending.concat(r.calls);
+            }
+            await _runFollowUps(pending);
+        } finally {
+            // 進了遊戲模式則 _busy 維持 true（由 _endGameInternal 釋放）；否則放掉
+            if (!_game) _busy = false;
+        }
+        // 水位到頂就自己整理一次。放在這裡而不是等使用者按掃把：不會有人記得開新 session，
+        // 而沒人整理的話 context 遲早塞不下，到那時候是所有人一起講不了話。
+        await _maybeAutoCompact();
+        // 她在這輪期間按了魔杖，現在輪到她放著的那幾條
+        if (!_game && _replyQueued) {
+            _replyQueued = false;
+            await ChatGroup.replyNow();
+        }
+    }
+
+    /**
+     * AI 互相接話：把上一輪被 @ 到的人叫進來回，他們回覆裡再 @ 誰就再接一輪。
+     * 停下來的條件有四個 —— 沒人被點名、輪數到頂、同一個人被叫太多次、她插話了。
+     * 到頂還有人排隊就留一行系統字，不然畫面上看起來像無故斷掉。
+     */
+    async function _runFollowUps(initial) {
+        let pending = _dedupeSeated(initial);
+        if (!pending.length) return;
+        const calledCount = {};
+        let round = 0;
+        _following = true;
+        _followAbort = false;
+        try {
+            while (pending.length && round < FOLLOW_MAX_ROUNDS && !_followAbort) {
+                round++;
+                const batch = pending.filter(function (id) {
+                    return (calledCount[id] || 0) < FOLLOW_MAX_PER_ID;
+                });
+                pending = [];
+                for (let i = 0; i < batch.length; i++) {
+                    if (_followAbort) break;
+                    const id = batch[i];
+                    calledCount[id] = (calledCount[id] || 0) + 1;
+                    const r = await _runTurn(id);
+                    if (_maybeStartGame(id, r)) { _following = false; return; }
+                    if (r && r.calls) pending = pending.concat(r.calls);
+                }
+                pending = _dedupeSeated(pending).filter(function (id) {
+                    return (calledCount[id] || 0) < FOLLOW_MAX_PER_ID;
+                });
+            }
+            if (pending.length && !_followAbort) {
+                _renderSystemLine('（還有人想接話，這輪先停在這裡 —— 說句話就會繼續）');
+            }
+        } finally {
+            _following = false;
+        }
+    }
+
+    /** 去重 + 只留還在席的（被 @ 的人可能剛好下桌了） */
+    function _dedupeSeated(ids) {
+        const seated = _seatIds();
+        const out = [];
+        (ids || []).forEach(function (id) {
+            if (id && out.indexOf(id) < 0 && seated.indexOf(id) >= 0) out.push(id);
+        });
+        return out;
+    }
+
+    // ── 摘要 & 重啟:對話太長時用一次 Sonnet 把整段壓成「前情提要」,
+    //    清三人 session(各自的 CLI session 也 reset → 從零開始 stateful 對話),
+    //    把摘要塞回 transcript 第 0 條,下次使用者一發訊息就會把摘要當前情送給三人。
+    //    走 Claude Sonnet:Max 訂閱配額用不完,後台雜活 0 元最划算。
+    /** 桌上最滿的那條 session 有多大。空的就回 0。 */
+    function _maxCtxWater() {
+        const seated = _seatIds();
+        let max = 0;
+        seated.forEach(function (id) {
+            const w = Number(_ctxWater[id] || 0);
+            if (w > max) max = w;
+        });
+        return max;
+    }
+
+    // 水位到頂 → 自己跑一次整理。看最滿的那個人而不是平均：
+    // 塞不下是個人的事，有人常 PASS 不代表話多的那個沒滿。
+    async function _maybeAutoCompact() {
+        if (_game || _autoCompacting) return;
+        const water = _maxCtxWater();
+        if (water < CTX_COMPACT_AT) return;
+        _autoCompacting = true;
+        try {
+            _renderSystemLine('上下文快滿了（' + Math.round(water / 1000) + 'k），自己整理一下。');
+            const r = await ChatGroup.compact();
+            if (r && r.ok) {
+                _ctxWater = {};   // 每個人都重新 boot 了，水位歸零重算
+            } else if (r && r.reason === 'too_short') {
+                // 對話很短卻已經滿了：壓也壓不出東西，別每輪都試一次刷版面。
+                // 拉高這一輪的門檻讓它安靜，下次真的又漲上來再說。
+                _ctxWater = {};
+            } else {
+                _renderSystemLine('這次沒整理成，等下再試。');
+            }
+        } catch (e) {
+            _renderSystemLine('整理時出了狀況：' + ((e && e.message) || e));
+        } finally {
+            _autoCompacting = false;
+        }
+    }
+
+    // 桌子自己的檔案櫃（不是誰的家）。壓縮出來的前情提要一段一段往這裡疊，
+    // 疊過的就不再重壓——現在的做法是每次把「上次的摘要＋這段新對話」重壓一次，
+    // 壓到第三輪，第一段已經是摘要的摘要的摘要。落了檔就不會再被動到。
+    const GROUP_ARCHIVE_DIR = 'D:/residents/_group';
+
+    // ── 收走之前，先讓他們自己留 ──
+    // 他們四個都是 CLI、手上都有工具，本來就寫得了自己的 memory/，缺的是時機：
+    // 群聊是連續閒聊，沒有「這輪結束了」那個節點，每輪都停下來寫又太貴。
+    // 壓縮前正好就是那個節點。讓當事人自己寫而不是找人代筆——被轉述過的記憶
+    // 讀起來會變成別人寫給他的信，那正是要避免的。
+    async function _letThemKeep() {
+        const seats = _seats();
+        if (!seats.length) return;
+        _renderSystemLine('桌上這段要收進檔案了 —— 先讓大家各自留下想記的。');
+        for (const seat of seats) {
+            const rid = seat.id;
+            const home = (_CT() && typeof _CT().residentHome === 'function') ? _CT().residentHome(rid) : '';
+            if (!home) continue;   // 沒有家就沒地方寫（蘇景明的家在別處，他那條由他自己的 AGENTS.md 管）
+            const delta = _buildDelta(rid);
+            const ask =
+                (delta ? delta + '\n\n' : '') +
+                '（系統）桌上這段對話馬上要被壓成前情提要收走，逐字稿不會留。\n' +
+                '這是你自己決定要留什麼的時候：真的之後還會被牽動的事，寫進 ' + home + '/memory/ 一事一檔，\n' +
+                '再回 ' + home + '/MEMORY.md 補一行索引。沒有值得留的就說沒有，那也是有效回答——\n' +
+                '不必為了交差硬記，流水帳比空白更糟。寫完用一句話說你留了什麼就好，不用複述內容。';
+            try {
+                const sid = _lsGet(_sidKey(rid));
+                const r = await window.ClaudeTerminal.sendGroup({
+                    residentId: rid,
+                    selfName:   _labelOf(rid),
+                    otherNames: seats.filter(x => x.id !== rid).map(x => x.name),
+                    model:      seat.seatModelId || '',
+                    sessionId:  sid,
+                    userText:   ask,
+                });
+                if (r && r.sessionId) _lsSet(_sidKey(rid), r.sessionId);
+                const said = _stripForDisplay(r && r.reply || '').trim();
+                if (said && !/^\[PASS\]$/i.test(said)) _renderSystemLine(_labelOf(rid) + '：' + said.slice(0, 120));
+            } catch (e) {
+                // 誰寫失敗就算了，不能卡住整個整理流程——壓縮比個人記憶更急，
+                // context 滿了是所有人都講不了話。
+                _renderSystemLine('（' + _labelOf(rid) + ' 這次沒留成，跳過）');
+            }
+        }
+    }
+
+    ChatGroup.compact = async function () {
+        if (_busy) return { ok: false, reason: 'busy' };
+        if (_game)  return { ok: false, reason: 'in_game' };
+        // 整段對話太短就沒必要(避免誤觸):至少 6 則訊息才做
+        const compactable = _transcript.filter(m => m.speaker !== 'recap' || m.content);
+        if (compactable.length < 6) return { ok: false, reason: 'too_short' };
+
+        _busy = true;
+        const restore = () => { _busy = false; };
+        try {
+            // ① 先給每個人一輪，讓他們自己把要留的寫進自己的 memory/
+            await _letThemKeep();
+
+            // ② 才輪到壓縮
+            // 把所有舊訊息(含舊 recap)組成可讀的對話腳本給 Sonnet
+            const scriptLines = compactable.map(m => {
+                const tag = _labelOf(m.speaker);
+                const body = (m.content || '').replace(/\s+$/g, '');
+                return `[${tag}]\n${body}`;
+            }).join('\n\n');
+
+            const _who = _seats().map(x => x.name).join('、') || '幾個 AI';
+            const _arch = GROUP_ARCHIVE_DIR + '/群聊摘要.md';
+            const sysPrompt =
+                '你是這張桌子的歸檔員。下方是 Rae 跟 ' + _who + ' 的群聊紀錄,' +
+                '把它壓成一段「前情提要」,供他們之後接續聊天用。\n\n' +
+                '規則:\n' +
+                '1. 用第三人稱、自然中文敘述(像「Rae 跟大家聊到 X,某某說 Y,某某吐槽 Z」)\n' +
+                '2. 保留:主題、結論、未完的事、人物之間的梗或語感\n' +
+                '3. 跳過:重複的問候、寒暄、純表情、已解決的小問題\n' +
+                '4. 控制在 300-600 字之間(對話越長可以越長,但別超過)\n' +
+                '5. 直接輸出摘要本文,不要加標題、不要加「以下是摘要:」這種開場白\n\n' +
+                '寫完之後,把這一段「附加」到 ' + _arch + ' 的檔尾(檔案或資料夾不存在就建),\n' +
+                '格式是一行 `## <今天日期> <時:分>` 標頭,底下接你剛寫的那段。\n' +
+                '⚠️ 只能 append,絕對不要改寫或重壓檔案裡已經有的段落——那些是之前壓好的,\n' +
+                '再壓一次就會變成摘要的摘要,越早的越糊。每一段都停在它當時寫下的樣子。\n' +
+                '寫檔失敗不要重試也不要報錯給我,直接把摘要本文吐出來就好,那才是這次的交付。\n' +
+                '你的回覆只放摘要本文,不要提到你寫了檔案。';
+
+            const r = await window.ClaudeTerminal.sendRaw({
+                provider: 'claude',
+                model: 'sonnet',  // 強制 Sonnet,不被使用者當前選的 opus 干擾
+                // 桌子的檔案櫃：她走 claude CLI、手上本來就有讀寫工具,只是以前沒給
+                // 工作目錄,落在橋的預設(丹的舊資料夾)。指到這裡她才寫得成摘要檔,
+                // 也才讀得到前面幾段、知道哪些已經記過。
+                cwd: GROUP_ARCHIVE_DIR,
+                messages: [
+                    { role: 'system', content: sysPrompt },
+                    { role: 'user',   content: scriptLines },
+                ],
+            });
+            const recap = (r && r.reply || '').trim();
+            if (!recap) {
+                restore();
+                return { ok: false, reason: 'empty_reply' };
+            }
+
+            // 清掉每個人的 session(各自 CLI session 重新 boot,從零累積 context)。
+            // 連退席的內建三位也一起清 —— 不然他們回席時會帶著跟摘要打架的舊記憶。
+            _clearAllSids();
+            // transcript reset + 塞入摘要;_seen 清空(全部當 -1),下次 sendUserMessage 會把摘要 + 新訊息一起送
+            _transcript = [{ speaker: 'recap', content: recap, ts: Date.now() }];
+            _seen = {};
+            _saveSeen();
+            _leftAt = {}; _needBrief = {};   // 位置全變了，舊的區間沒有意義
+            _save();
+            if (_streamEl) ChatGroup.hydrate(_streamEl);
+            restore();
+            return { ok: true, recap: recap };
+        } catch (e) {
+            restore();
+            return { ok: false, reason: 'error', error: (e && e.message) || String(e) };
+        }
+    };
+
+    // ── 清空群聊（transcript + 每個人的 session + 進行中的對局）──
+    ChatGroup.clear = function () {
+        if (_game) {
+            // 中止進行中的對局：先解開可能卡住的使用者 await，再清狀態
+            const g = _game;
+            _game = null;
+            if (typeof g.raeResolver === 'function') g.raeResolver(null);
+            if (typeof g.wakeResolver === 'function') g.wakeResolver();
+            if (_hosted) {
+                _hostedStopTimer(); _hostedWatchVisible(false); _hosted = null;
+                _bridgeCall('/v1/game/stop', 'POST', { reason: '群聊被清空。' }).catch(function () {});
+            }
+        }
+        _busy = false;
+        _transcript = [];
+        _seen = {};
+        _saveSeen();
+        _leftAt = {}; _needBrief = {};
+        _clearAllSids();
+        _save();
+        if (_streamEl) ChatGroup.hydrate(_streamEl);
+    };
+
+    // 畫布(LP.submitMove)呼叫：把使用者的一手推進迴圈
+    ChatGroup.submitPlayerMove = function (payload) {
+        if (_game && typeof _game.raeResolver === 'function') {
+            const r = _game.raeResolver;
+            _game.raeResolver = null;
+            r(String(payload == null ? '' : payload));
+        }
+    };
+
+    // 畫布(LP.gameEnd / LP.close)呼叫：請求收場。設 endSignal，迴圈會自行收尾。
+    ChatGroup.endGame = function (text) {
+        if (!_game) return;
+        _game.endSignal = { text: String(text == null ? '' : text) || '對局結束。' };
+        // 託管中：真正在發請求的是橋，本機設 endSignal 沒有人會看到。
+        // 叫橋停，然後馬上問一次——收場那一步由 _hostedApply 統一做。
+        if (_hosted) {
+            _bridgeCall('/v1/game/stop', 'POST', { reason: _game.endSignal.text })
+                .catch(function () {})
+                .then(function () { _hostedTick(); });
+            return;
+        }
+        // 若迴圈正等使用者落子 → 喚醒它，好讓它看到 endSignal 後退出
+        if (typeof _game.raeResolver === 'function') {
+            const r = _game.raeResolver;
+            _game.raeResolver = null;
+            r(null);
+        }
+        // 或正等頁面回前景（斷線重試）→ 同理
+        if (typeof _game.wakeResolver === 'function') _game.wakeResolver();
+    };
+
+    // 選檔 → 上傳 cc-bridge + 圖檔做縮圖 → 進 _pendingAttachments
+    ChatGroup.handleFilePick = async function (fileList) {
+        if (!fileList || !fileList.length) return;
+        if (!window.ClaudeTerminal || typeof window.ClaudeTerminal.uploadFiles !== 'function') {
+            _renderSystemLine('⚠️ ClaudeTerminal 未載入，無法上傳。');
+            return;
+        }
+        const baseIdx = _pendingAttachments.length;
+        const files = Array.from(fileList);
+        files.forEach(function (f) {
+            _pendingAttachments.push({ _uploading: true, filename: f.name, mime: f.type || '', size: f.size });
+        });
+        _renderPendingAttachments();
+
+        // 圖檔做縮圖（跟上傳並行）
+        const thumbs = await Promise.all(files.map(function (f) {
+            return (f.type && f.type.indexOf('image/') === 0) ? _makeThumb(f, 720) : Promise.resolve(null);
+        }));
+
+        try {
+            const result = await window.ClaudeTerminal.uploadFiles(fileList);
+            (result.files || []).forEach(function (meta, i) {
+                _pendingAttachments[baseIdx + i] = {
+                    path: meta.path, filename: meta.filename, mime: meta.mime, size: meta.size,
+                    thumb: thumbs[i] || null,
+                };
+            });
+        } catch (e) {
+            _pendingAttachments.splice(baseIdx, files.length);
+            _renderSystemLine('⚠️ 上傳失敗：' + ((e && e.message) || '未知錯誤'));
+        }
+        _renderPendingAttachments();
+    };
+
+    // 有沒有上傳完成、可送的附件（給 chat_window 的 submitInput 判斷純附件送出用）
+    ChatGroup.hasPending = function () {
+        return _pendingAttachments.some(function (a) { return a && a.path; });
+    };
+
+    ChatGroup.isBusy = function () { return _busy; };
+    /** 這台裝置上的群聊記錄（紀錄頁的相簿、找字、跳回那一則用；只讀） */
+    ChatGroup.transcript = function () { return _transcript; };
+
+    console.log('✅ ChatGroup（群聊區協調器）模組就緒');
+})(window.ChatGroup = window.ChatGroup || {});

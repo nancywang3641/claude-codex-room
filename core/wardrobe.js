@@ -1,0 +1,316 @@
+/**
+ * core/wardrobe.js — 衣櫃（window.RoomWardrobe）
+ * ------------------------------------------------------------------
+ * 10-02：換裝原本不保存、換掉就沒了，所以做衣櫃。
+ * 一套＝身體顏色＋身上的東西＋形象。住戶換裝時，舊的那套穿了一陣子就自動收進來（規則在橋 room_decor：
+ * 穿超過 20 分鐘的才收，連著換幾件的中間樣子不收）；他自己也能寫 wear_outfit 換回去、wear_keep 取名。
+ * 這頁：現在穿的、收著的、現成的（原本的樣子；阿洛多一套 Codex 工作服）。點一套 → 底下那排「穿上／改名／丟掉」，
+ * 改名、丟掉都在那排裡做完，不跳窗。她換的，橋會在他下一輪跟他說一聲。
+ * 資料在橋 GET／POST /v1/wardrobe；每套的小圖借 ClawdPortrait.renderStill 畫一格定格。
+ * 會打扮的住戶都有：Claude 住戶（預設小螃蟹）、阿洛（洛德）走橋；API 小機（倉鼠／小貓／企鵝）不經橋，
+ * 衣櫃在它自己的存檔，規則交給 RoomWear（wear_local.js，跟橋同一套）。
+ * ------------------------------------------------------------------
+ */
+(function (RoomWardrobe) {
+    'use strict';
+
+    const A0 = window.AUI || (window.parent && window.parent.AUI);
+    if (A0 && A0.registerHelp) A0.registerHelp({ room_wardrobe: { title: '衣櫃',
+        body: '他換裝的時候，換下來的那套會自動收進來（穿了一陣子的才收；他一次換一件，連著換好幾件的中間樣子不收）。\n'
+            + '點一套就能幫他換上，他下一次跟你說話時會知道是你換的。他自己也能從衣櫃換回去、幫一套取名。\n'
+            + '一套是整個樣子：身體顏色、身上戴的東西、自己畫的形象一起換。\n'
+            + '衣櫃最多放 30 套，滿了先丟最久沒穿、沒取名的那套。\n'
+            + '每套名字底下那行是它怎麼收進來的：他醒來時、私聊時、群聊時換下來的，或你收的；「現在穿的」底下寫他上次什麼時候、怎麼換的。\n'
+            + '最底下的聊天泡泡：從聊天 app 的泡泡庫挑一套，換的是你們私聊這一間兩邊的泡泡（群聊不換）。學過泡泡課的小機也會自己換。' } });
+
+    // 小機（不經橋）：衣櫃在它自己的存檔裡，規則交給 RoomWear（wear_local.js），引擎要有奧瑞亞的 OS_XIAOJI
+    function _XJ() { return window.OS_XIAOJI || (window.parent && window.parent.OS_XIAOJI) || null; }
+    RoomWardrobe.canDress = function (provider) {
+        if (provider === 'claude' || provider === 'codex') return true;
+        return provider === 'xiaoji' && !!(window.RoomWear && _XJ());
+    };
+
+    function _esc(s) {
+        return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // 什麼時候、哪一路（橋 room_decor 記的 via；小機是 wear_local 那份）：每套底下、現在穿的底下那行（宿舍待修 #378）
+    const VIA_CARD = { wake: '他醒來時收', dm: '他私聊時收', group: '他群聊時收', chat: '他聊天時收', rae: '你收的', self: '他收的' };
+    const VIA_NOW = { wake: '他醒來時', dm: '他在私聊時', group: '他在群聊時', chat: '他聊天時', self: '他' };
+    const _ms = t => { t = +t; return t && isFinite(t) ? (t < 1e12 ? t * 1000 : t) : 0; };     // 橋給秒、小機存毫秒
+    function _md(t, withTime) {
+        const d = new Date(_ms(t)), p = n => String(n).padStart(2, '0');
+        return p(d.getMonth() + 1) + '/' + p(d.getDate()) + (withTime ? ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) : '');
+    }
+    function _cardSrc(o) {      // 沒取名的，名字本來就是收進來的時間，只寫哪一路；舊的沒記哪一路就只剩日期或不寫
+        const how = VIA_CARD[o.via] || '';
+        return o.name ? [_ms(o.created_at) ? _md(o.created_at) : '', how].filter(Boolean).join(' ') : how;
+    }
+    function _nowSrc(ch) {      // 上次換裝：什麼時候、誰、哪一路；整套換上的寫「換上這套」
+        if (!ch || !_ms(ch.at)) return '';
+        const t = _md(ch.at, true);
+        if (ch.via === 'rae') return t + ' 你幫他換' + (ch.outfit ? '上這套' : '的');
+        return t + ' ' + (VIA_NOW[ch.via] || '') + (ch.outfit ? '換上這套' : '換的');
+    }
+    function _bridge() {
+        const OS = window.OS_SETTINGS;
+        const p = (OS && typeof OS.getActiveClaudePreset === 'function') ? OS.getActiveClaudePreset() : null;
+        if (!p || !p.url || !p.key) return null;
+        return { base: String(p.url).replace(/\/v1\/chat\/completions\/?$/, '').replace(/\/+$/, ''), key: p.key };
+    }
+    function _who() {
+        const CT = window.ClaudeTerminal, CW = window.ChatWindow;
+        const provider = (CW && typeof CW.getProvider === 'function') ? CW.getProvider() : 'claude';
+        const rid = (CT && typeof CT.getActiveResidentId === 'function') ? CT.getActiveResidentId() : '';
+        return { rid, provider, base: provider === 'codex' ? 'lorde' : 'crab' };
+    }
+    async function _call(b, who, body) {
+        const url = b.base + '/v1/wardrobe' + (body ? '' : '?rid=' + encodeURIComponent(who.rid) + '&base=' + who.base);
+        const r = await fetch(url, body ? {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + b.key, 'Content-Type': 'application/json' },
+            body: JSON.stringify(Object.assign({ rid: who.rid, base: who.base }, body)),
+        } : { headers: { 'Authorization': 'Bearer ' + b.key } });
+        if (r.status === 404) throw new Error('OLD_BRIDGE');
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+    }
+
+    // 每套的小圖：同一身打扮只畫一次
+    const _pics = new Map();
+    function _pic(wear, base) {
+        const key = base + '|' + JSON.stringify(wear || null);
+        if (!_pics.has(key)) {
+            _pics.set(key, (async () => {
+                const CP = window.ClawdPortrait;
+                if (!CP || typeof CP.renderStill !== 'function') return '';
+                const cv = document.createElement('canvas');
+                await CP.renderStill(cv, wear, 'idle', 1, base);
+                return CP.crop(cv);
+            })().catch(() => ''));
+        }
+        return _pics.get(key);
+    }
+
+    let _host = null, _who0 = null, _data = null;
+    let _sel = null;          // { kind: 'outfit'|'preset'|'current', id?, key? }
+    let _mode = '';           // '' | 'rename' | 'discard'
+    let _busy = false;
+    let _note = '';           // 底下那排剛做完的那句
+    // 每開一次衣櫃記一號。所有子面板共用同一格（#cw-subpanel-body），_host === body 永遠成立：
+    //   以前丹的衣櫃慢回來，會蓋掉她已經換開的阿洛衣櫃（身分卻是阿洛的，按穿上就送 rid=aluo 配丹的編號），
+    //   或蓋掉她改開的留言板。等完一律先看還是不是這一號、那格裡還是不是衣櫃
+    let _seq = 0;
+    function _stale(my, body) { return my !== _seq || !body.querySelector('.wd-wrap'); }
+
+    RoomWardrobe.launch = async function (body) {
+        const my = ++_seq;
+        _host = body;
+        const who = _who0 = _who();
+        _sel = null; _mode = ''; _note = ''; _data = null;
+        body.innerHTML = '<div class="wd-wrap"><div class="wd-msg">打開衣櫃…</div></div>';
+        if (who.provider === 'xiaoji') {
+            const X = _XJ(), RW = window.RoomWear;
+            if (!X || !RW) { body.innerHTML = '<div class="wd-wrap"><div class="wd-msg">小機要在奧瑞亞裡才打得開衣櫃</div></div>'; return; }
+            let data;
+            try {
+                const rec = await X.get(who.rid);
+                if (_stale(my, body)) return;
+                who.base = X.bodyOf(rec);
+                who.local = true;
+                data = RW.wardrobe(rec, who.base);
+            } catch (e) {
+                if (_stale(my, body)) return;
+                body.innerHTML = '<div class="wd-wrap"><div class="wd-msg">小機的存檔讀不到，衣櫃打不開</div></div>';
+                return;
+            }
+            _data = data;
+            _render();
+            return;
+        }
+        const b = _bridge();
+        if (!b) { body.innerHTML = '<div class="wd-wrap"><div class="wd-msg">要先在設置填好橋，才打得開衣櫃</div></div>'; return; }
+        let data;
+        try {
+            data = await _call(b, who);
+        } catch (e) {
+            if (_stale(my, body)) return;
+            body.innerHTML = '<div class="wd-wrap"><div class="wd-msg">'
+                + (e && e.message === 'OLD_BRIDGE' ? '橋還是舊的那版，重開一次橋就有衣櫃了' : '連不上橋，衣櫃打不開') + '</div></div>';
+            return;
+        }
+        if (_stale(my, body)) return;
+        _data = data;
+        _render();
+    };
+
+    function _nowName() {
+        const o = _data.outfits.find(x => x.now);
+        if (o) return o.label;
+        const p = _data.presets.find(x => x.now);
+        return p ? p.name : '';
+    }
+
+    function _selected() {
+        if (!_sel || !_data) return null;
+        if (_sel.kind === 'outfit') return _data.outfits.find(o => o.id === _sel.id) || null;
+        if (_sel.kind === 'preset') return _data.presets.find(p => p.key === _sel.key) || null;
+        return _sel.kind === 'current' ? { now: true, label: '' } : null;
+    }
+
+    function _card(kind, x, label) {
+        const k = kind === 'outfit' ? 'o:' + x.id : 'p:' + x.key;
+        const on = _sel && ((kind === 'outfit' && _sel.kind === 'outfit' && _sel.id === x.id)
+            || (kind === 'preset' && _sel.kind === 'preset' && _sel.key === x.key));
+        const src = kind === 'outfit' ? _cardSrc(x) : '';
+        return '<button type="button" class="wd-card' + (on ? ' is-sel' : '') + (x.now ? ' is-now' : '') + '" data-k="' + _esc(k) + '">'
+            + '<span class="wd-pic"><img alt=""></span>'
+            + '<span class="wd-name">' + _esc(label) + '</span>'
+            + (src ? '<span class="wd-src">' + _esc(src) + '</span>' : '')
+            + (x.now ? '<span class="wd-badge">穿著</span>' : '')
+            + '</button>';
+    }
+
+    function _render() {
+        if (!_host || !_data) return;
+        const base = _who0.base;
+        const oldScroll = _host.querySelector('.wd-scroll');
+        const keepTop = oldScroll ? oldScroll.scrollTop : 0;      // 整頁重畫：捲到哪裡留著，點下面那幾套不會跳回最上面
+        const nowName = _nowName();
+        const help = (A0 && A0.helpBtn) ? A0.helpBtn('room_wardrobe') : '';
+        const canKeepNow = !_data.current.plain && !_data.outfits.some(o => o.now);
+        const nowSrc = _nowSrc(_data.current.changed);
+        let h = '<div class="wd-wrap"><div class="wd-scroll">';
+        h += '<div class="wd-now">'
+            + '<span class="wd-now-pic"><img alt=""></span>'
+            + '<div class="wd-now-info"><div class="wd-now-lab">現在穿的</div>'
+            + '<div class="wd-now-name">' + _esc(nowName || '還沒收進衣櫃') + '</div>'
+            + (nowSrc ? '<div class="wd-now-src">' + _esc(nowSrc) + '</div>' : '')
+            + (canKeepNow ? '<button type="button" class="wd-keep" data-act="keep"><i class="fa-solid fa-tag"></i>取名收好</button>' : '')
+            + '</div><span class="wd-help">' + help + '</span></div>';
+        h += '<div class="wd-h">收著的<span class="wd-n">' + (_data.outfits.length ? _data.outfits.length + ' 套' : '') + '</span></div>';
+        h += _data.outfits.length
+            ? '<div class="wd-grid">' + _data.outfits.map(o => _card('outfit', o, o.label)).join('') + '</div>'
+            : '<div class="wd-empty"><i class="fa-solid fa-shirt"></i>他換下來的衣服會自動收在這裡</div>';
+        h += '<div class="wd-h">現成的</div>';
+        h += '<div class="wd-grid">' + _data.presets.map(p => _card('preset', p, p.name)).join('') + '</div>';
+        h += '<div class="wd-bsec"></div>';   // 🫧 聊天泡泡（RoomBubbles.section，下面畫完衣服那幾格才填）
+        h += '</div>' + _barHtml() + '</div>';
+        _host.innerHTML = h;
+        const sc = _host.querySelector('.wd-scroll');
+        if (sc && keepTop) sc.scrollTop = keepTop;
+        const selCard = _host.querySelector('.wd-card.is-sel');      // 底下那排冒出來時別把選到的那套蓋住
+        if (selCard && selCard.scrollIntoView) selCard.scrollIntoView({ block: 'nearest' });
+
+        // 小圖
+        const nowImg = _host.querySelector('.wd-now-pic img');
+        _pic(_data.current.wear, base).then(u => { if (u && nowImg) nowImg.src = u; });
+        _host.querySelectorAll('.wd-card').forEach(c => {
+            const [t, id] = c.dataset.k.split(':');
+            const x = t === 'o' ? _data.outfits.find(o => String(o.id) === id) : _data.presets.find(p => p.key === id);
+            const img = c.querySelector('img');
+            if (x) _pic(x.wear, base).then(u => { if (u && img) img.src = u; });
+            c.addEventListener('click', () => {
+                if (_busy) return;
+                const same = _sel && ((t === 'o' && _sel.kind === 'outfit' && String(_sel.id) === id)
+                    || (t === 'p' && _sel.kind === 'preset' && _sel.key === id));
+                _sel = same ? null : (t === 'o' ? { kind: 'outfit', id: +id } : { kind: 'preset', key: id });
+                _mode = ''; _note = '';
+                _render();
+            });
+        });
+        const keep = _host.querySelector('[data-act="keep"]');
+        if (keep) keep.addEventListener('click', () => { _sel = { kind: 'current' }; _mode = 'rename'; _note = ''; _render(); });
+        _bindBar();
+        const bsec = _host.querySelector('.wd-bsec');
+        if (bsec && window.RoomBubbles && typeof window.RoomBubbles.section === 'function') window.RoomBubbles.section(bsec, _who0.rid);
+        if (_mode === 'rename') {
+            const inp = _host.querySelector('.wd-input');
+            if (inp) { inp.focus({ preventScroll: true }); inp.select(); }
+        }
+    }
+
+    function _barHtml() {
+        const x = _selected();
+        if (!x) return _note ? '<div class="wd-bar"><span class="wd-bar-note">' + _esc(_note) + '</span></div>' : '';
+        if (_mode === 'rename') {
+            const v = _sel.kind === 'outfit' ? (x.name || '') : '';
+            return '<div class="wd-bar"><input class="wd-input" type="text" maxlength="20" placeholder="幫這套取個名字" value="' + _esc(v) + '">'
+                + '<button type="button" class="wd-btn is-main" data-act="rename-ok">好</button>'
+                + '<button type="button" class="wd-btn" data-act="cancel">取消</button></div>';
+        }
+        if (_mode === 'discard') {
+            return '<div class="wd-bar"><span class="wd-bar-note">丟掉「' + _esc(x.label) + '」？</span>'
+                + '<button type="button" class="wd-btn is-danger" data-act="discard-ok">丟掉</button>'
+                + '<button type="button" class="wd-btn" data-act="cancel">取消</button></div>';
+        }
+        let h = '<div class="wd-bar">';
+        // 剛才沒做成的原因（橋給的、連不上橋、小機存檔存不進）：選著那套時也要看得到。
+        //   以前只有沒選東西時才畫，失敗時選的那套還選著，按鈕暗一下又回來、什麼都沒說
+        if (_note) h += '<span class="wd-bar-note">' + _esc(_note) + '</span>';
+        h += x.now
+            ? (_note ? '' : '<span class="wd-bar-note">他現在就穿著這套</span>')
+            : '<button type="button" class="wd-btn is-main" data-act="wear"><i class="fa-solid fa-shirt"></i>穿上這套</button>';
+        if (_sel.kind === 'outfit') {
+            h += '<button type="button" class="wd-btn" data-act="rename"><i class="fa-solid fa-pen"></i>改名</button>'
+               + '<button type="button" class="wd-btn" data-act="discard"><i class="fa-solid fa-trash-can"></i>丟掉</button>';
+        }
+        return h + '</div>';
+    }
+
+    function _bindBar() {
+        if (!_host) return;
+        _host.querySelectorAll('.wd-bar [data-act]').forEach(btn => btn.addEventListener('click', () => _act(btn.dataset.act)));
+        const inp = _host.querySelector('.wd-input');
+        if (inp) inp.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); _act('rename-ok'); }
+            if (e.key === 'Escape') { e.preventDefault(); _act('cancel'); }
+        });
+    }
+
+    async function _act(what) {
+        if (_busy || !_sel) return;
+        if (what === 'cancel') { _mode = ''; if (_sel.kind === 'current') _sel = null; _render(); return; }
+        if (what === 'rename' || what === 'discard') { _mode = what; _render(); return; }
+        const b = _who0.local ? null : _bridge();
+        if (!b && !_who0.local) return;
+        let req = null;
+        if (what === 'wear') req = _sel.kind === 'preset' ? { act: 'wear', preset: _sel.key } : { act: 'wear', id: _sel.id };
+        if (what === 'discard-ok') req = { act: 'discard', id: _sel.id };
+        if (what === 'rename-ok') {
+            const inp = _host && _host.querySelector('.wd-input');
+            const name = inp ? inp.value.trim() : '';
+            if (!name) { if (inp) inp.focus(); return; }
+            req = { act: 'rename', name: name, id: _sel.kind === 'outfit' ? _sel.id : null };
+        }
+        if (!req) return;
+        _busy = true;
+        const host = _host, my = _seq;
+        host.querySelectorAll('.wd-bar button').forEach(x => { x.disabled = true; });
+        let res = null;
+        if (_who0.local) {
+            const X = _XJ(), RW = window.RoomWear;
+            try {
+                const rec = await X.get(_who0.rid);
+                const [ok, msg] = RW.act(rec, req.act, req.id == null ? null : req.id, req.preset, req.name);
+                if (ok) await X.save(_who0.rid, { wear: rec.wear, closet: rec.closet });
+                res = { ok, msg, wardrobe: RW.wardrobe(rec, _who0.base) };
+            } catch (e) { res = { ok: false, msg: '小機的存檔沒存成' }; }
+        } else {
+            try { res = await _call(b, _who0, req); } catch (e) { res = { ok: false, msg: '連不上橋，沒做成' }; }
+        }
+        _busy = false;
+        if (host !== _host || _stale(my, host)) return;   // 等的時候她換開了別人的衣櫃或別的面板
+        if (res && res.wardrobe) _data = res.wardrobe;
+        _mode = '';
+        if (res && res.ok) {
+            _note = what === 'wear' ? '換好了，他下次跟你說話時會知道' : what === 'discard-ok' ? '丟掉了' : '取好名字了';
+            if (what === 'wear' || what === 'discard-ok' || _sel.kind === 'current') _sel = null;
+            if (what === 'wear' && window.ChatWindow && typeof window.ChatWindow.refreshDecor === 'function') window.ChatWindow.refreshDecor();
+        } else {
+            _note = (res && res.msg) || '沒做成';
+        }
+        _render();
+    }
+
+})(window.RoomWardrobe = window.RoomWardrobe || {});

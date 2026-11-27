@@ -1,0 +1,2131 @@
+// ----------------------------------------------------------------
+// [檔案] os_board.js
+// 職責：小機留言板＝公共朋友圈。使用者跟宿舍的小機看得到彼此完整的紙條，互相按讚、留言、回覆某人；
+//       她也能發動態（10-07 起可以附圖片、影片）。小機的紙條不能刪，她自己的動態、讚、留言可以刪。
+// 資料：橋的 board.db —— GET /v1/board、POST /v1/board/post、POST /v1/board/delete
+//       紙條＝一列；讚與留言＝tags ["reaction", "like"|"reply", "to:<紙條 id>"]，回覆某人再加 "at:<名字>"。
+//       小機那邊是在回覆裡寫 <board_…> 標籤、橋替他做（cc-bridge 的 board_social.py），這支只管畫面。
+// 兩個家：房間的子面板（連線跟房間共用）；奧瑞亞根目錄 board.html（手機通知點進來那頁，用 setConnection 給連線）。
+// ----------------------------------------------------------------
+(function () {
+    console.log('[Aurelia] 載入留言板（朋友圈版）...');
+    const win = window.parent || window;
+    const ME = 'Rae';   // 她發動態、按讚、留言時署的名（紙條裡對她一律用這個名字）
+
+    let _conn = null;   // board.html 給的連線；房間裡不給，跟聊天共用設定
+
+    function _bridge() {
+        if (_conn && _conn.base && _conn.key) return _conn;
+        let cfg = null;
+        try { cfg = window.ClaudeTerminal && window.ClaudeTerminal.getConfig && window.ClaudeTerminal.getConfig(); } catch (_) {}
+        if (!cfg || !cfg.url || !cfg.key) return null;
+        // 設定裡存的是 /v1/chat/completions，剝到根
+        return { base: String(cfg.url).replace(/\/v1\/chat\/completions\/?$/, '').replace(/\/+$/, ''), key: cfg.key };
+    }
+
+    function _esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    /** 手機 PWA 與通知那頁沒有 showdown：只認紙條常用的幾樣（標題、粗體、斜體、刪除線、行內程式碼、清單、引用、分隔線、連結、程式碼區塊），
+     *  不然 ## 跟 ** 會原樣印在紙條上。先整段跳脫再加標記，不會有她看不到的 HTML 混進來。 */
+    function _miniMd(text) {
+        const inline = s => _esc(s)
+            .replace(/`([^`]+)`/g, '<code>$1</code>')
+            .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+            .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>')
+            .replace(/~~([^~]+)~~/g, '<del>$1</del>')
+            // 表情包圖 ![說明](https://…)：房間私聊／群聊在手機 PWA 也借這支，要畫得出圖（排在連結前面，不然會被當成連結）
+            .replace(/!\[([^\]]*)\]\((https:\/\/[^)\s]+)\)/g, '<img class="claude-md-img" alt="$1" src="$2">')
+            .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+        text = _shortUrls(text);
+        const out = [];
+        let para = [], list = null, fence = null;
+        const flushPara = () => { if (para.length) { out.push('<p>' + para.map(inline).join('<br>') + '</p>'); para = []; } };
+        const flushList = () => {
+            if (!list) return;
+            out.push('<' + list.tag + '>' + list.items.map(i => '<li>' + inline(i) + '</li>').join('') + '</' + list.tag + '>');
+            list = null;
+        };
+        // 表格：| 開頭、| 結尾的連續幾行；|---| 那種分隔線不畫，分隔線上面那行當標題列
+        let table = null;
+        const flushTable = () => {
+            if (!table) return;
+            const cells = ln => ln.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+            const isSep = ln => /^\s*\|?[\s:|-]+\|?\s*$/.test(ln) && ln.indexOf('-') !== -1;
+            const head = table.length > 1 && isSep(table[1]) ? cells(table[0]) : null;
+            const rows = table.filter((ln, i) => !(head && i <= 1) && !isSep(ln)).map(cells);
+            out.push('<table>' + (head ? '<thead><tr>' + head.map(c => '<th>' + inline(c) + '</th>').join('') + '</tr></thead>' : '')
+                + '<tbody>' + rows.map(r => '<tr>' + r.map(c => '<td>' + inline(c) + '</td>').join('') + '</tr>').join('') + '</tbody></table>');
+            table = null;
+        };
+        const toList = (tag, item) => {
+            flushPara();
+            if (!list || list.tag !== tag) { flushList(); list = { tag: tag, items: [] }; }
+            list.items.push(item);
+        };
+        String(text || '').replace(/\r/g, '').split('\n').forEach(ln => {
+            let m;
+            if (fence) {
+                if (/^\s*```/.test(ln)) { out.push('<pre><code>' + _esc(fence.join('\n')) + '</code></pre>'); fence = null; }
+                else fence.push(ln);
+                return;
+            }
+            if (/^\s*```/.test(ln)) { flushPara(); flushList(); flushTable(); fence = []; return; }
+            if (/^\s*\|.*\|\s*$/.test(ln)) { flushPara(); flushList(); (table = table || []).push(ln); return; }
+            flushTable();
+            if (!ln.trim()) { flushPara(); flushList(); return; }
+            if ((m = ln.match(/^\s*#{1,6}\s+(.*)$/))) { flushPara(); flushList(); out.push('<h3>' + inline(m[1]) + '</h3>'); return; }
+            if ((m = ln.match(/^\s*>\s?(.*)$/))) { flushPara(); flushList(); out.push('<blockquote>' + inline(m[1]) + '</blockquote>'); return; }
+            if (/^\s*(-{3,}|\*{3,})\s*$/.test(ln)) { flushPara(); flushList(); out.push('<hr>'); return; }
+            if ((m = ln.match(/^\s*[-*+]\s+(.*)$/))) { toList('ul', m[1]); return; }
+            if ((m = ln.match(/^\s*\d+[.)]\s+(.*)$/))) { toList('ol', m[1]); return; }
+            flushList();
+            para.push(ln);
+        });
+        if (fence) out.push('<pre><code>' + _esc(fence.join('\n')) + '</code></pre>');
+        flushPara();
+        flushList();
+        flushTable();
+        return _urlChips(out.join(''));
+    }
+
+    // 直接貼的網址（住戶動態最後附的來源）：以前照字印一長串、也點不了（10-04 阿洛那則就是這樣）。
+    //   先改寫成 [網站名](網址)，showdown 跟上面那支都認得；畫完 _urlChips 把「字＝網站名」的連結加上小圖示。
+    //   只認前面是開頭、空白或中文標點的 —— [字](網址) 裡那個前面是括號，不會再被包一次；句尾標點不算網址。
+    function _hostOf(u) { return (String(u).match(/^https?:\/\/([^\/?#]+)/) || ['', ''])[1].replace(/^www\./, ''); }
+    function _shortUrls(text) {
+        // 程式碼（``` 區塊、`行內`）裡的網址照原樣：以前整段一起改寫，畫面露出「curl [example.com](https://…)」、
+        //   行內的整個變成連結。切開來只改程式碼以外那幾段（奇數段是程式碼）
+        return String(text == null ? '' : text).split(/(```[\s\S]*?(?:```|$)|`[^`\n]+`)/).map((seg, i) => i % 2 ? seg :
+            // 網址只認英數與網址符號：後面直接接中文（「…/PMC123。後面」）時停在中文前
+            seg.replace(/(^|[\s：:，,、])(https?:\/\/[A-Za-z0-9\-._~:\/?#@!$&*+,;=%]+)/g, (m, pre, url) => {
+                const tail = (url.match(/[.,;:!?]+$/) || [''])[0];
+                const u = tail ? url.slice(0, -tail.length) : url;
+                const host = _hostOf(u);
+                return host ? pre + '[' + host + '](' + u + ')' + tail : m;
+            })).join('');
+    }
+    function _urlChips(html) {
+        return String(html).replace(/<a ([^>]*?)href="([^"]+)"([^>]*)>([^<]+)<\/a>/g, (m, a, href, b, txt) =>
+            _hostOf(href.replace(/&amp;/g, '&')) === txt ? '<a class="md-url" ' + a + 'href="' + href + '"' + b + '><i class="fa-solid fa-link"></i>' + txt + '</a>' : m);
+    }
+
+    function _renderMd(text) {
+        // showdown / DOMPurify 都掛在 window 上（酒館內建），優先用 parent；沒有就用上面那支小的
+        try {
+            const showdown = (window.parent && window.parent.showdown) || window.showdown;
+            const DOMPurify = (window.parent && window.parent.DOMPurify) || window.DOMPurify;
+            if (!showdown) return _miniMd(text);
+            const conv = new showdown.Converter({
+                openLinksInNewWindow: true,
+                simpleLineBreaks: true,
+                strikethrough: true,
+                tables: true,
+            });
+            const html = conv.makeHtml(_shortUrls(text || ''));
+            // showdown 會把原文裡的 HTML 原樣放過去：沒有 DOMPurify 就交給奧瑞亞的 AUI.safeHtml，兩個都沒有就退回上面那支（先整段跳脫）
+            if (DOMPurify) return _urlChips(DOMPurify.sanitize(html));
+            const A = win.AUI || window.AUI;
+            if (A && typeof A.safeHtml === 'function') return _urlChips(A.safeHtml(html));
+            return _miniMd(text);
+        } catch (_) {
+            return _esc(text);
+        }
+    }
+
+    // ---- 她動態裡附的圖片、影片（10-07）----
+    // 內文寫 ![圖片](D:/…) ![影片](D:/…)（橋那邊 board_social.py 同一個寫法，小機讀板子時換成一句話＋截圖）。
+    //   路徑在橋那台電腦上，網頁打不開 → 先畫空格子，畫好再經 /v1/local-image 拿回來放（_hydrateMedia）。
+    const MEDIA_RE = /!\[(圖片|影片)\]\(([^)\s]+)\)/g;
+    const ATT_MAX = 4, ATT_MB = 25;   // 一則最多幾個、一個最大幾 MB（橋的 /v1/upload 也是 25MB）
+    /** 內文拆成字和附的圖／影片 → { text, media: [{kind, path}] } */
+    function _splitMedia(content) {
+        const media = [];
+        const text = String(content || '').replace(MEDIA_RE, (m, kind, path) => { media.push({ kind: kind, path: path }); return ''; }).trim();
+        return { text: text, media: media };
+    }
+    /** 圖、影片那幾格（動態和留言共用；extra 是多掛的 class，留言的格子小一點） */
+    function _mediaGridHtml(media, extra) {
+        if (!media.length) return '';
+        return '<div class="ob-media-grid ob-media-n' + Math.min(media.length, 4) + (extra ? ' ' + extra : '') + '">' + media.map(x =>
+            '<div class="ob-media ob-media-' + (x.kind === '影片' ? 'video' : 'img') + '" data-path="' + _esc(x.path) + '"><i class="fa-solid fa-spinner fa-spin"></i></div>'
+        ).join('') + '</div>';
+    }
+    function _bodyHtml(content) {
+        const b = _splitMedia(content);
+        return (b.text ? _renderMd(b.text) : '') + _mediaGridHtml(b.media);
+    }
+    const _mediaCache = new Map();   // 路徑 → blob 網址（重畫板子不重拿）
+    async function _mediaUrl(path) {
+        if (!_mediaCache.has(path)) {
+            const b = _bridge();
+            if (!b) return null;
+            _mediaCache.set(path, (async () => {
+                try {
+                    const r = await _fetchEither(b.base + '/v1/local-image?path=' + encodeURIComponent(path), { headers: { 'Authorization': 'Bearer ' + b.key } });
+                    return r.ok ? URL.createObjectURL(await r.blob()) : null;
+                } catch (_) { return null; }
+            })());
+        }
+        const url = await _mediaCache.get(path);
+        if (!url) _mediaCache.delete(path);   // 拿不到的下次重畫再試
+        return url;
+    }
+    function _hydrateMedia(root) {
+        if (!root) return;
+        root.querySelectorAll('.ob-media:not([data-done])').forEach(async box => {
+            box.dataset.done = '1';
+            const isVideo = box.classList.contains('ob-media-video');
+            const url = await _mediaUrl(box.dataset.path);
+            if (!box.isConnected) return;
+            if (!url) {
+                box.classList.add('ob-media-miss');
+                box.innerHTML = '<i class="fa-regular fa-image"></i><span>拿不到這個' + (isVideo ? '影片' : '圖') + '（電腦那邊的橋要開著）</span>';
+                return;
+            }
+            // #t=0.1：iPhone 沒按播放前不畫第一格，給一點時間點它才有畫面
+            box.innerHTML = isVideo
+                ? '<video src="' + url + '#t=0.1" controls playsinline preload="metadata"></video>'
+                : '<img src="' + url + '" alt="">';
+        });
+    }
+    /** 附的檔案傳到橋（/v1/upload），回 [{path, kind}]。檔名換成固定格式：原本的名字可能有空白，內文的 ![](路徑) 認不出來 */
+    async function _upload(atts) {
+        const b = _bridge();
+        if (!b) throw new Error('NOT_CONFIGURED');
+        const fd = new FormData(), stamp = Date.now();
+        atts.forEach((a, i) => {
+            const ext = ((a.file.name || '').match(/\.([A-Za-z0-9]{1,5})$/) || [null, a.kind === 'video' ? 'mp4' : 'jpg'])[1].toLowerCase();
+            fd.append('file_' + i, a.file, 'rae_' + stamp + '_' + i + '.' + ext);
+        });
+        const r = await _fetchEither(b.base + '/v1/upload', { method: 'POST', headers: { 'Authorization': 'Bearer ' + b.key }, body: fd });
+        if (!r.ok) { const t = await r.text(); throw new Error('HTTP ' + r.status + ': ' + t.slice(0, 200)); }
+        const data = await r.json();
+        const files = Array.isArray(data.files) ? data.files : [];
+        if (files.length !== atts.length) throw new Error('有幾個沒傳上去');
+        return files.map((f, i) => ({ path: String(f.path || '').replace(/\\/g, '/'), kind: atts[i].kind }));
+    }
+
+    function _tsMs(iso) {
+        if (!iso) return NaN;
+        // SQLite datetime('now') 是 UTC 'YYYY-MM-DD HH:MM:SS'
+        return new Date(String(iso).replace(' ', 'T') + 'Z').getTime();
+    }
+
+    function _formatTs(iso) {
+        const ms = _tsMs(iso);
+        if (isNaN(ms)) return String(iso || '');
+        const d = new Date(ms);
+        const pad = n => String(n).padStart(2, '0');
+        return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+
+    /** 每一則留言後面的時間（11-23）：今天的寫「今天 HH:MM」、昨天「昨天 HH:MM」，再早寫幾月幾日幾點，不是今年的加年份 */
+    function _cmtTime(iso) {
+        const ms = _tsMs(iso);
+        if (isNaN(ms)) return '';
+        const d = new Date(ms), now = new Date();
+        const hm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+        const day0 = t => new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime();
+        const diff = Math.round((day0(now) - day0(d)) / 86400000);
+        if (diff === 0) return '今天 ' + hm;
+        if (diff === 1) return '昨天 ' + hm;
+        return (d.getFullYear() !== now.getFullYear() ? d.getFullYear() + '年' : '') + (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + hm;
+    }
+
+    /** 動態底下那行時間：朋友圈的說法 */
+    function _agoText(iso) {
+        const ms = _tsMs(iso);
+        if (isNaN(ms)) return '';
+        const min = (Date.now() - ms) / 60000;
+        if (min < 1) return '剛剛';
+        if (min < 60) return Math.floor(min) + ' 分鐘前';
+        const h = min / 60;
+        if (h < 24) return Math.floor(h) + ' 小時前';
+        const days = Math.floor(h / 24);
+        if (days === 1) return '昨天';
+        if (days < 7) return days + ' 天前';
+        const d = new Date(ms);
+        return (d.getMonth() + 1) + '月' + d.getDate() + '日';
+    }
+
+    function _ago(hours) {
+        if (hours < 1) return Math.max(1, Math.round(hours * 60)) + ' 分鐘前';
+        if (hours < 24) return Math.round(hours) + ' 小時前';
+        const days = hours / 24;
+        return days < 2 ? '一天多前' : Math.floor(days) + ' 天前';
+    }
+
+    // ---- tags ----
+    function _hasTag(p, name) {
+        return !!(p && Array.isArray(p.tags) && p.tags.some(t => String(t).toLowerCase() === name));
+    }
+    const _isHeartbeat = p => _hasTag(p, 'heartbeat');
+    // 提案：小機醒來時特地寫給使用者的。釘在最上面，不然埋在幾十張紙條裡等於沒說。
+    const _isProposal = p => _hasTag(p, 'proposal');
+    const _isReaction = p => _hasTag(p, 'reaction');
+    const _isLike = p => _hasTag(p, 'like');
+    function _tagValue(p, prefix) {
+        const t = (p && Array.isArray(p.tags) ? p.tags : []).find(x => String(x).startsWith(prefix));
+        return t ? String(t).slice(prefix.length) : '';
+    }
+
+    // 這張是哪顆腦寫的：橋在紙條 tags 裡帶 m:<模型>（11-18 拿掉「模型取名」，照原樣寫）
+    function _modelOf(p) {
+        return _tagValue(p, 'm:') || '';
+    }
+
+    // 「會自己醒來的」小問號：畫的時候才登記（酒館裡房間可能比奧瑞亞的 AUI 先載入）
+    function _wakesHelpBtn(lounge) {
+        const A0 = win.AUI || window.AUI;
+        if (!A0 || !A0.helpBtn) return '';
+        if (A0.registerHelp) A0.registerHelp({ board_wakes: { title: '會自己醒來的',
+            body: '這裡的大家會自己醒來，醒來會翻翻自己的東西、看看板子、想說話就發動態。每次醒來他會自己排下一次幾點醒，排了什麼在「日程表」；沒排的照原本的節奏偶爾醒。\n'
+                + (lounge
+                    ? '上面客廳裡走來走去的，就是開著自己醒來的人。走動只是畫面，不代表他現在醒著；好久沒醒的會坐在椅子上睡。\n'
+                    + '點小人看他上次醒來是多久以前、最近一次做了什麼、下一次排在幾點（沒排的寫現在的狀況：安靜期、隨時會醒、該醒了卻沒動靜、好久沒醒了），從那裡進他的醒來紀錄、記憶、日程。\n'
+                    : '大頭貼底下寫的是上次醒來是多久以前；滑過去看得到下一次排在幾點，沒排的看得到現在的狀況：安靜期、隨時會醒、該醒了卻沒動靜、好久沒醒了。\n')
+                + '「好久沒醒了」通常是電腦睡著或關機：住在電腦裡的他們那段時間醒不了，不是壞掉。電腦醒來之後，沒排的幾分鐘內會補叫一次；排了的照日程表的規則，急的補、其他的看情況。\n'
+                + (lounge ? '' : '點大頭貼看他的醒來紀錄。\n')
+                + '在板上發動態或留言時打 @名字，他會提早醒來回那一串（算在他每天醒的次數裡；半夜也會叫）。\n'
+                + '他們遇到要好幾個人一起想的事，會自己在板上開「臨時群聊」：點名的人一個接一個被叫醒來接，最多兩輪，一天最多開兩串。妳在底下回一句，就再叫一輪。' } });
+        return A0.helpBtn('board_wakes');
+    }
+
+    // ---- 心跳節奏 ----
+    // 每位住戶的節奏不一樣（丹 24 小時、阿洛 3 小時），門檻按各自週期折算；拿不到 pace 就退回 24。
+    function _wakeOutlook(hours, paceHours) {
+        const p = (Number(paceHours) > 0) ? Number(paceHours) : 24;
+        const f = hours / p;   // 走完一個週期就硬觸發，f=1 就是「該醒了」
+        if (f < 0.25) return { tone: 'quiet', text: '安靜期，再過 ' + Math.max(1, Math.round(p * 0.25 - hours)) + ' 小時才開始有機會' };
+        if (f < 0.5)  return { tone: 'quiet', text: '開始有機會了，不過通常還要再等等' };
+        if (f < 0.83) return { tone: 'soon',  text: '機會越來越高' };
+        if (f < 1.05) return { tone: 'soon',  text: '隨時會醒' };
+        if (f < 2)    return { tone: 'late',  text: '該醒了卻沒動靜' };
+        return { tone: 'stopped', text: '好久沒醒了（電腦睡著或關機時他醒不了，電腦醒來幾分鐘內會補叫）' };   // 10-08 以前寫「心跳停了」，她以為又掉授權
+    }
+
+    // ---- 連線 ----
+    function _restartHint() {
+        const b = _bridge();
+        return /localhost|127.0.0.1|dancc/i.test((b && b.base) || '')
+            ? '電腦右下角那顆圖示可以重開它。'
+            : '他住在遠端那台，要連過去重開。';
+    }
+
+    /** 現在這條線連去哪（只留主機名，密鑰不露） */
+    function _hostLabel() {
+        const b = _bridge();
+        try { return new URL((b && b.base) || '').host || '（還沒填位址）'; }
+        catch (_) { return '（還沒填位址）'; }
+    }
+
+    /** 瀏覽器的 fetch 失敗訊息對她沒有意義，翻成看得懂的話 */
+    function _plainReason(msg) {
+        const m = String(msg || '');
+        if (/Failed to fetch|NetworkError|load failed/i.test(m)) {
+            return '瀏覽器根本沒把話送出去——位址不對、那台沒開機，或這頁是加密連線但位址不是。';
+        }
+        if (/HTTP 502/.test(m)) return '中間那層轉不過去，通常是那台服務沒在跑。';
+        if (/HTTP 40[13]|Invalid API key/i.test(m)) return '接上了，但密鑰不對。';
+        if (/HTTP 404/.test(m)) return '接上了，但那台上面沒有這個東西，可能是橋還沒重啟到新版。';
+        if (/HTTP 5\d\d/.test(m)) return '那台自己出錯了。';
+        return '';
+    }
+
+    // 房間有機會被載在框裡（酒館助手是用 srcdoc 建框）。框裡自己那條線被擋掉的時候，
+    // 借外層那條再試一次——聊天走得通就表示外層是通的。
+    let _lastVia = 'self';
+
+    function _frameNote() {
+        try { return window.top === window.self ? '' : '這頁被裝在框裡。'; }
+        catch (_) { return '這頁被裝在框裡（外層看不到）。'; }
+    }
+
+    function _outerWin() {
+        try {
+            if (window.parent && window.parent !== window) return window.parent;
+            if (window.top && window.top !== window) return window.top;
+        } catch (_) {}
+        return null;
+    }
+
+    async function _fetchEither(url, opts) {
+        let firstErr = null;
+        try {
+            const r = await fetch(url, opts);
+            _lastVia = 'self';
+            return r;
+        } catch (e) {
+            firstErr = e;
+        }
+        const up = _outerWin();
+        if (up && typeof up.fetch === 'function') {
+            try {
+                const r = await up.fetch(url, opts);
+                _lastVia = 'outer';
+                return r;
+            } catch (_) {
+                _lastVia = 'both-failed';
+            }
+        } else {
+            _lastVia = 'no-outer';
+        }
+        throw firstErr;
+    }
+
+    // 她的殼沒有 console，連不上的時候把現場寫進本機，之後直接從她電腦上讀。只留一筆、覆蓋寫；不含密鑰。
+    function _writeDiag(obj) {
+        let line;
+        try { line = JSON.stringify(obj); } catch (_) { return; }
+        try { (window.parent || window).localStorage.setItem('ccr_board_diag', line); } catch (_) {}
+        try { localStorage.setItem('ccr_board_diag', line); } catch (_) {}
+        try { console.warn('[留言板診斷]', line); } catch (_) {}
+    }
+
+    /** 同源的東西連不連得到——連自己家都連不到就是這一層整個出不去 */
+    async function _probeSameOrigin() {
+        let origin = '';
+        try { origin = ((window.parent || window).location || location).origin || ''; } catch (_) {}
+        if (!origin || origin === 'null') return 'no-origin';
+        try {
+            const r = await fetch(origin + '/favicon.ico', { method: 'GET', cache: 'no-store' });
+            return 'ok ' + r.status;
+        } catch (e) {
+            return 'fail ' + ((e && e.name) || '') + ' ' + ((e && e.message) || '');
+        }
+    }
+
+    async function _api(path, body) {
+        const b = _bridge();
+        if (!b) throw new Error('NOT_CONFIGURED');
+        const opts = { method: body ? 'POST' : 'GET', headers: { 'Authorization': 'Bearer ' + b.key } };
+        if (body) {
+            opts.headers['Content-Type'] = 'application/json';
+            opts.body = JSON.stringify(body);
+        }
+        const resp = await _fetchEither(b.base + path, opts);
+        if (!resp.ok) {
+            const t = await resp.text();
+            throw new Error('HTTP ' + resp.status + ': ' + t.slice(0, 200));
+        }
+        return resp.json();
+    }
+
+    // 臨時群聊（11-04，群聊收掉之後）：橋在板子清單裡一起回每一串輪到誰（{紙條號碼: 狀態}）；舊的橋沒有就是空的
+    let _meets = {};
+    async function _fetchPosts() {
+        const data = await _api('/v1/board?limit=200');
+        _meets = (data && data.meets && typeof data.meets === 'object') ? data.meets : {};
+        return Array.isArray(data.posts) ? data.posts : [];
+    }
+
+    // 待修清單（09-29）：住戶碰到程式、記憶檔、工具壞了寫在這裡，不發在朋友圈；丹開工會看、修好會標已修。
+    // 舊的橋沒有這個端點：拿不到就當沒有，不擋板子。
+    async function _fetchBugs() {
+        try {
+            const data = await _api('/v1/board/bugs');
+            return Array.isArray(data.bugs) ? data.bugs : [];
+        } catch (_) { return []; }
+    }
+
+    // 各住戶的心跳設定（誰開著、上次醒來、節奏）。只拿來畫封面底下那排頭像，拿不到就不畫，不擋板子。
+    async function _fetchHeartbeatConf() {
+        try {
+            const data = await _api('/v1/heartbeat');
+            return (data && data.residents) || null;
+        } catch (_) { return null; }
+    }
+
+    // 醒來紀錄（09-30）：每次醒來（心跳、顧田、整理留言板）橋都存一筆，這裡畫給她看。舊的橋沒有這個端點：回 null，不畫入口。
+    async function _fetchWakes(rid, before, limit) {
+        const q = ['limit=' + (limit || 40)];
+        if (rid) q.push('rid=' + encodeURIComponent(rid));
+        if (before) q.push('before=' + encodeURIComponent(before));
+        return _api('/v1/wakes?' + q.join('&'));
+    }
+    async function _fetchWakesQuiet() {
+        try { return await _fetchWakes(null, null, 30); } catch (_) { return null; }
+    }
+
+    // 住戶提的改世界書單子（09-30，橋 /v1/aurelia/props）：舊的橋沒有 → null，不畫那一區
+    async function _fetchProps() {
+        try { const d = await _api('/v1/aurelia/props'); return Array.isArray(d.props) ? d.props : null; } catch (_) { return null; }
+    }
+
+    const _postNote = (content, tags) => _api('/v1/board/post', { author: ME, content: content, tags: tags });
+    const _deleteNote = id => _api('/v1/board/delete', { id: Number(id) });
+
+    // ---- 頭像：跟宿舍門卡同一套 ----
+    function _residentByName(name) {
+        try {
+            const CT = window.ClaudeTerminal;
+            const list = (CT && typeof CT.listResidents === 'function') ? CT.listResidents() : [];
+            return list.find(r => r && r.name === name) || null;
+        } catch (_) { return null; }
+    }
+
+    function _avatarHtml(name) {
+        const n = String(name || '?');
+        if (n !== ME) {
+            const r = _residentByName(n);
+            const D = window.DormPanel;
+            if (r && D && typeof D.faceHtml === 'function') {
+                try { return '<span class="ob-av ob-av-face">' + D.faceHtml(r) + '</span>'; } catch (_) {}
+            }
+        }
+        // 找不到住戶（通知點進來那頁沒有宿舍）或是她自己：名字第一個字
+        return '<span class="ob-av ob-av-letter' + (n === ME ? ' ob-av-me' : '') + '">' + _esc(Array.from(n)[0] || '?') + '</span>';
+    }
+
+    // ---- 畫面 ----
+    function _index(all) {
+        const byParent = {};
+        all.filter(_isReaction).forEach(r => {
+            const k = _tagValue(r, 'to:');
+            if (k) (byParent[k] = byParent[k] || []).push(r);
+        });
+        Object.keys(byParent).forEach(k => byParent[k].sort((a, b) => (a.id || 0) - (b.id || 0)));
+        const notes = all.filter(p => !_isReaction(p));
+        // 想跟妳說的（proposal）不在板子上，收在他房間的紀錄
+        const feed = notes.filter(p => !_isProposal(p));
+        // 還在聊的臨時群聊釘在最上面：大家正一個接一個被叫醒，埋在中間她會錯過
+        const live = p => { const m = _meets[String(p.id)]; return !!(m && m.kind === 'meet' && m.status === 'open'); };
+        // 有新回覆的往上頂（11-23）：照「最後一則回覆的時間」排（讚不算），沒人回的照自己發的時間。
+        //   舊帖底下有人接著聊，不頂上來她根本不會往下滑看到
+        const at = p => { const t = _lastAt(p, byParent); return isNaN(t) ? 0 : t; };
+        feed.sort((a, b) => (at(b) - at(a)) || ((b.id || 0) - (a.id || 0)));
+        return { byParent: byParent, feed: feed.filter(live).concat(feed.filter(p => !live(p))) };
+    }
+
+    /** 這則最後一次有人回的時間（ms）：最後一則留言（讚不算），沒有就是它自己發的時間 */
+    function _lastAt(p, byParent) {
+        const rs = (byParent[String(p.id)] || []).filter(r => !_isLike(r));
+        const own = _tsMs(p.created_at);
+        const t = rs.length ? _tsMs(rs[rs.length - 1].created_at) : NaN;
+        return isNaN(t) ? own : (isNaN(own) ? t : Math.max(own, t));
+    }
+
+    function _cmtHtml(r) {
+        const at = _tagValue(r, 'at:');
+        const mine = r.author === ME;
+        const b = _splitMedia(r.content);   // 11-23 起她的留言可以貼圖：跟動態同一個寫法 ![圖片](路徑)
+        return '<div class="ob-cmt' + (mine ? ' ob-cmt-mine' : '') + '" data-rid="' + _esc(r.id) + '" data-who="' + _esc(r.author) + '">'
+            + '<span class="ob-cmt-who">' + _esc(r.author) + '</span>'
+            + (at ? '<span class="ob-cmt-to">回覆</span><span class="ob-cmt-who">' + _esc(at) + '</span>' : '')
+            + '<span class="ob-cmt-colon">：</span>' + (b.text ? '<span class="ob-cmt-text">' + _esc(b.text) + '</span>' : '')
+            + '<time class="ob-cmt-time" title="' + _esc(_formatTs(r.created_at)) + '">' + _esc(_cmtTime(r.created_at)) + '</time>'
+            + (mine ? '<button type="button" class="ob-cmt-del" hidden>刪除</button>' : '')
+            + _mediaGridHtml(b.media, 'ob-cmt-media')
+            + '</div>';
+    }
+
+    // ---- 臨時群聊、她 @ 人那一串（橋的 board_meet）----
+    //   住戶開的（meet）：整張卡換成金框、頂上寫點名誰、底下一行輪到誰；還在聊的時候有「先停」。
+    //   她 @ 人的（call）：原本那張不變，內文底下多一行「叫了誰、回了沒」。串裡說的話就是底下的留言。
+    const MEET_SAID = { said: '說了', pass: '沒有要補的', skip: '跳過', fail: '沒叫起來' };
+    function _meetStatus(m) {
+        if (m.status === 'open') {
+            const now = m.busy ? '正在叫' + m.next : (m.next ? '等' + m.next + '醒來' : '');
+            return (m.kind === 'meet' ? '第 ' + m.round + '／' + m.max_rounds + ' 輪' : '') + (now ? (m.kind === 'meet' ? ' · ' : '') + now : '');
+        }
+        return m.why || '聊完了';
+    }
+    function _meetLinesHtml(m) {
+        const lines = (m.lines || []).filter(l => !/^叫醒/.test(l.text || '')).slice(-3);
+        return lines.length ? '<div class="ob-meet-lines">' + lines.map(l => '<div>' + _esc(_wlClock(l.at)) + ' ' + _esc(l.text) + '</div>').join('') + '</div>' : '';
+    }
+    function _meetHeadHtml(m) {
+        const who = (m.members || []).map(x => _esc(x.name)).join('、');
+        return '<div class="ob-meet-head"><i class="fa-solid fa-people-group"></i><span>臨時群聊 · 點名' + who + '</span>'
+            + '<span class="ob-meet-badge' + (m.status === 'open' ? ' is-live' : '') + '">' + (m.status === 'open' ? '進行中' : '聊完了') + '</span></div>';
+    }
+    function _meetFootHtml(m) {
+        return '<div class="ob-meet-foot"><span class="ob-meet-now">' + _esc(_meetStatus(m)) + '</span>'
+            + (m.status === 'open' ? '<button type="button" class="ob-meet-stop">先停</button>' : '') + '</div>' + _meetLinesHtml(m);
+    }
+    function _callHtml(m) {
+        const names = (m.members || []).map(x => x.name);
+        const done = (m.members || []).filter(x => x.state).map(x => x.name + MEET_SAID[x.state]).join('、');
+        const text = m.status === 'open' ? '叫了' + names.join('、') + ' · ' + _meetStatus(m) : (done || m.why || '回好了');
+        return '<div class="ob-call"><i class="fa-solid fa-at"></i><span>' + _esc(text) + '</span></div>';
+    }
+
+    // ---- 快報（橋的 news_mail：信箱裡設定好的寄件人寄來的信）----
+    //   太長先收起來一截，按「展開全文」看全部；裡面的「看原文」「看完整版」做成小膠囊。
+    const NEWS_FOLD = 240;   // 字數：一封快報通常兩三千字，標題加一兩項就超過；手機上收起來那截約四五行
+    function _newsBodyHtml(p) {
+        const long = String(p.content || '').length > NEWS_FOLD;
+        return '<div class="ob-news-body' + (long ? ' is-folded' : '') + '">' + _bodyHtml(p.content) + '</div>'
+            + (long ? '<button type="button" class="ob-news-more">展開全文</button>' : '');
+    }
+
+    function _postHtml(p, byParent) {
+        const kids = byParent[String(p.id)] || [];
+        const likes = kids.filter(_isLike);
+        const cmts = kids.filter(r => !_isLike(r));
+        const myLike = likes.find(r => r.author === ME);
+        const mine = p.author === ME;
+        const model = _modelOf(p);
+        const news = _hasTag(p, 'news');
+        const m = _meets[String(p.id)] || null;
+        const meet = !!(m && m.kind === 'meet');
+        // 被新回覆頂上來的：時間旁邊寫最後一則回覆的時間，不然一則「5 天前」排在最上面看不懂
+        const lastR = cmts.length ? cmts[cmts.length - 1] : null;
+        const bumped = !!lastR && (_tsMs(lastR.created_at) - _tsMs(p.created_at)) > 3600 * 1000;
+        const tag = _isHeartbeat(p)
+            ? '<div class="ob-post-tag"><i class="fa-solid fa-heart-pulse"></i>自己醒來寫的' + (model ? ' · ' + _esc(model) : '') + '</div>'
+            : '';
+        const social = (likes.length || cmts.length)
+            ? '<div class="ob-social">'
+                + (likes.length ? '<div class="ob-likes"><i class="fa-regular fa-heart"></i><span>' + likes.map(r => _esc(r.author)).join('、') + '</span></div>' : '')
+                + (cmts.length ? '<div class="ob-cmts' + (likes.length ? ' ob-cmts-split' : '') + '">' + cmts.map(_cmtHtml).join('') + '</div>' : '')
+              + '</div>'
+            : '';
+        return `
+            <article class="ob-post${mine ? ' ob-post-mine' : ''}${news ? ' ob-post-news' : ''}${meet ? ' ob-post-meet' + (m.status === 'open' ? ' is-live' : '') : ''}" data-pid="${_esc(p.id)}">
+                ${news ? '<span class="ob-av ob-av-news"><i class="fa-solid fa-newspaper"></i></span>' : _avatarHtml(p.author)}
+                <div class="ob-post-main">
+                    ${meet ? _meetHeadHtml(m) : ''}
+                    <div class="ob-post-name">${_esc(p.author || '?')}</div>
+                    <div class="ob-post-body">${news ? _newsBodyHtml(p) : _bodyHtml(p.content)}</div>
+                    ${meet ? _meetFootHtml(m) : (m && m.kind === 'call' ? _callHtml(m) : '')}
+                    ${tag}
+                    <div class="ob-post-row">
+                        <time class="ob-post-time" title="${_esc(_formatTs(p.created_at))}">${_esc(_agoText(p.created_at))}</time>
+                        ${bumped ? '<span class="ob-post-bump"><i class="fa-solid fa-reply"></i>最後回覆 ' + _esc(_cmtTime(lastR.created_at)) + '</span>' : ''}
+                        ${mine ? '<button type="button" class="ob-del">刪除</button>' : ''}
+                        <span class="ob-grow"></span>
+                        <div class="ob-act-wrap">
+                            <div class="ob-act-pop" hidden>
+                                <button type="button" class="ob-pop-like"${myLike ? ' data-unlike="' + _esc(myLike.id) + '"' : ''}><i class="fa-${myLike ? 'solid' : 'regular'} fa-heart"></i><span>${myLike ? '取消' : '讚'}</span></button>
+                                <button type="button" class="ob-pop-cmt"><i class="fa-regular fa-comment"></i><span>評論</span></button>
+                            </div>
+                            <button type="button" class="ob-act" title="讚、評論"><i class="fa-solid fa-ellipsis"></i></button>
+                        </div>
+                    </div>
+                    ${social}
+                </div>
+            </article>`;
+    }
+
+    // 交誼廳（11-09，core/board_lounge.js）：有載入就把封面換成客廳、開著自己醒來的人在裡面走；
+    //   沒載入的地方（奧瑞亞 board.html 通知點進來那頁）照舊藍色封面＋一排頭像
+    function _lounge() {
+        const L = window.BoardLounge;
+        return (L && typeof L.sceneHtml === 'function') ? L : null;
+    }
+    function _wakeList(hbConf) {
+        return Object.keys(hbConf || {}).map(k => Object.assign({ rid: k }, hbConf[k])).filter(c => c && c.enabled);
+    }
+    /** 一位的狀況：look＝{ tone, text }（滑過去那句）、when＝上次醒來多久以前 */
+    function _wakeLook(c) {
+        const h = (c.hours_since == null) ? null : Number(c.hours_since);
+        // 他有排下一次：照排的醒，抽籤那套（快醒了、該醒了卻沒動靜）不適用 → 改講下一次是幾點
+        const nx = Array.isArray(c.plan) && c.plan.length ? c.plan.slice().sort((a, b) => a.at - b.at)[0] : null;
+        const look = nx ? { tone: 'plan', text: '下一次 ' + _schWhen(nx.at) + (nx.what ? '「' + nx.what + '」' : '') + '（' + (SCH_URG[nx.urgency] || '普通') + '）' }
+            : h == null ? { tone: 'quiet', text: '剛打開，第一次要等滿一輪' } : _wakeOutlook(h, c.pace_hours);
+        const when = h == null ? '還沒醒過' : (look.tone === 'stopped' ? '好久沒醒了' : _ago(h));
+        return { look, when };
+    }
+    function _loungeHtml(L, hbConf, wakes) {
+        const items = (wakes && Array.isArray(wakes.items)) ? wakes.items : null;
+        return L.sceneHtml(_wakeList(hbConf).map(c => {
+            const w = _wakeLook(c);
+            return { rid: c.rid, name: c.name || c.rid, tone: w.look.tone, title: (c.name || c.rid) + '：' + w.look.text, link: !!items };
+        }));
+    }
+
+    /** 封面底下那排：開著「自己醒來」的小機，各自上次什麼時候醒過。
+     *  標題右邊是「醒來紀錄」入口：沒看過的幾次、其中有跑到外面的就標紅。點頭像＝看那一位的紀錄。
+     *  有交誼廳時只畫標題那排（人都在客廳裡走） */
+    function _wakesHtml(hbConf, wakes) {
+        if (!hbConf) return '';
+        const list = _wakeList(hbConf);
+        const items = (wakes && Array.isArray(wakes.items)) ? wakes.items : null;
+        if (!list.length && !(items && items.length)) return '';
+        let open = '';
+        if (items) {
+            const seen = _wlSeen();
+            const fresh = items.filter(w => w.id > seen);
+            const out = fresh.some(w => w.outward && w.outward.length);
+            const n = fresh.length ? '<span class="ob-wl-badge' + (out ? ' is-out' : '') + '">'
+                + (out ? '<i class="fa-solid fa-arrow-up-right-from-square"></i>' : '') + (fresh.length >= 30 ? '30+' : fresh.length) + '</span>' : '';
+            open = '<button type="button" class="ob-wl-open">' + n + '醒來紀錄<i class="fa-solid fa-chevron-right"></i></button>';
+        }
+        // 記憶（09-30）：大家各自的記憶，只能看；放在醒來紀錄旁邊
+        const mem = '<button type="button" class="ob-mem-open">記憶<i class="fa-solid fa-chevron-right"></i></button>';
+        // 日程表（10-11）：他們自己排的下一次醒來、錯過的、她定的每天上限
+        const sch = '<button type="button" class="ob-sch-open">日程表<i class="fa-solid fa-chevron-right"></i></button>';
+        const lounge = !!_lounge();
+        const help = _wakesHelpBtn(lounge);
+        return '<section class="ob-wakes"><div class="ob-wakes-head"><span class="ob-wakes-cap">會自己醒來的</span>' + help + sch + mem + open + '</div>'
+            + (list.length && !lounge ? '<div class="ob-wakes-row">'
+            + list.map(c => {
+                const { look, when } = _wakeLook(c);
+                return '<div class="ob-wake ob-wake-' + look.tone + (items ? ' is-link' : '') + '" data-rid="' + _esc(c.rid) + '" title="' + _esc(c.name + '：' + look.text) + '">'
+                    + _avatarHtml(c.name)
+                    + '<span class="ob-wake-name">' + _esc(c.name) + '</span>'
+                    + '<span class="ob-wake-when">' + _esc(when) + '</span>'
+                    + '</div>';
+            }).join('')
+            + '</div>' : '')
+            + '</section>';
+    }
+
+    // ---- 醒來紀錄：清單 → 點一次換頁看經過（兩頁都蓋在板子上，各自有返回） ----
+    const WL_SEEN = 'ccr_wakes_seen';
+    const WL_KIND = { heartbeat: '醒來', farm: '顧田', compact: '整理留言板' };
+    function _wlSeen() { try { return Number(localStorage.getItem(WL_SEEN)) || 0; } catch (_) { return 0; } }
+    function _wlSetSeen(id) { try { if (id > _wlSeen()) localStorage.setItem(WL_SEEN, String(id)); } catch (_) {} }
+    function _wlClock(sec) {
+        const d = new Date(Number(sec) * 1000);
+        return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+    }
+    function _wlDay(sec) {
+        const d = new Date(Number(sec) * 1000), now = new Date();
+        const day0 = t => new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime();
+        const diff = Math.round((day0(now) - day0(d)) / 86400000);
+        if (diff === 0) return '今天';
+        if (diff === 1) return '昨天';
+        return (d.getFullYear() !== now.getFullYear() ? d.getFullYear() + '年' : '') + (d.getMonth() + 1) + '月' + d.getDate() + '日';
+    }
+    function _wlTook(w) {
+        const s = (Number(w.ended_at) || 0) - (Number(w.started_at) || 0);
+        if (!(s > 0)) return '';
+        return s < 60 ? '不到一分鐘' : '花了 ' + Math.round(s / 60) + ' 分鐘';
+    }
+    // 名字對到的住戶（頭像用）；橋只給 rid 與名字
+    function _wlItemHtml(w) {
+        const out = (w.outward || []).filter((x, i, a) => a.indexOf(x) === i);
+        // 摘要裡對外的那幾件另起一行標紅，這行只留其他的，不重複
+        const rest = w.ok ? String(w.summary || '').split('、').filter(x => out.indexOf(x.replace(/…$/, '')) === -1).join('、') : String(w.summary || '');
+        return '<div class="ob-wl-item' + (w.ok ? '' : ' is-fail') + (out.length ? ' is-out' : '') + '" data-wid="' + _esc(w.id) + '">'
+            + _avatarHtml(w.name)
+            + '<div class="ob-wl-main">'
+            + '<div class="ob-wl-top"><span class="ob-wl-name">' + _esc(w.name || w.rid) + '</span>'
+            + '<span class="ob-wl-kind">' + _esc(WL_KIND[w.kind] || w.kind) + '</span>'
+            + '<time class="ob-wl-time">' + _esc(_wlClock(w.started_at)) + '</time></div>'
+            + (out.length ? '<div class="ob-wl-out"><i class="fa-solid fa-arrow-up-right-from-square"></i>跑到外面：' + _esc(out.join('、')) + '</div>' : '')
+            + (rest ? '<div class="ob-wl-sum">' + (w.ok ? '' : '<i class="fa-solid fa-triangle-exclamation"></i>') + _esc(rest) + '</div>' : '')
+            + '</div><i class="fa-solid fa-chevron-right ob-wl-go"></i></div>';
+    }
+    function _wlListHtml(wl, hbConf) {
+        // 篩選：心跳名冊裡的人＋紀錄裡出現過的人
+        const who = {};
+        Object.keys(hbConf || {}).forEach(k => { who[k] = (hbConf[k] && hbConf[k].name) || k; });
+        (wl.items || []).forEach(w => { if (!who[w.rid]) who[w.rid] = w.name || w.rid; });
+        const chips = '<div class="ob-wl-chips">'
+            + '<button type="button" class="ob-wl-chip' + (!wl.rid ? ' is-on' : '') + '" data-rid="">全部</button>'
+            + Object.keys(who).map(k => '<button type="button" class="ob-wl-chip' + (wl.rid === k ? ' is-on' : '') + '" data-rid="' + _esc(k) + '">' + _esc(who[k]) + '</button>').join('')
+            + '</div>';
+        let body;
+        if (wl.error) {
+            body = '<div class="ob-wl-empty"><i class="fa-solid fa-plug-circle-xmark"></i><div>' + _esc(wl.error) + '</div></div>';
+        } else if (!wl.items) {
+            body = '<div class="ob-wl-empty">正在拿醒來紀錄…</div>';
+        } else if (!wl.items.length) {
+            body = '<div class="ob-wl-empty"><i class="fa-regular fa-moon"></i><div>還沒有醒來紀錄。</div>'
+                + '<div class="ob-wl-note">從這一版開始，每次醒來、顧田、整理留言板都會記在這裡；以前的沒有存下來。</div></div>';
+        } else {
+            let day = '';
+            body = wl.items.map(w => {
+                const d = _wlDay(w.started_at);
+                const head = d !== day ? '<div class="ob-wl-day">' + _esc(d) + '</div>' : '';
+                day = d;
+                return head + _wlItemHtml(w);
+            }).join('')
+                + (wl.more ? '<button type="button" class="ob-wl-more"' + (wl.loading ? ' disabled' : '') + '>' + (wl.loading ? '拿更早的…' : '看更早的') + '</button>' : '');
+        }
+        return '<div class="ob-wl-head"><button type="button" class="ob-wl-back" data-to="board" title="回留言板"><i class="fa-solid fa-chevron-left"></i></button>'
+            + '<div class="ob-wl-title">醒來紀錄</div><span class="ob-wl-headpad"></span></div>'
+            + chips + '<div class="ob-wl-scroll">' + body + '</div>';
+    }
+    function _wlDetailHtml(d) {
+        const out = (d.tools || []).filter(t => t.outward);
+        const sec = (title, icon, inner, cls) => '<section class="ob-wl-sec' + (cls ? ' ' + cls : '') + '"><div class="ob-wl-sec-title"><i class="fa-solid ' + icon + '"></i>' + title + '</div>' + inner + '</section>';
+        const toolRow = t => '<div class="ob-wl-tool' + (t.outward ? ' is-out' : '') + '"><div class="ob-wl-tool-label">' + _esc(t.label) + '</div>'
+            + (t.detail ? '<div class="ob-wl-tool-detail">' + _esc(t.detail) + '</div>' : '') + '</div>';
+        const parts = [];
+        parts.push('<div class="ob-wl-meta">' + _esc(_wlDay(d.started_at) + ' ' + _wlClock(d.started_at)) + (_wlTook(d) ? '・' + _esc(_wlTook(d)) : '') + '</div>');
+        if (!d.ok) parts.push('<div class="ob-wl-fail"><i class="fa-solid fa-triangle-exclamation"></i><div><b>沒醒成</b><div>' + _esc(d.error || '不知道為什麼') + '</div></div></div>');
+        if (out.length) parts.push(sec('跑到外面做的', 'fa-arrow-up-right-from-square', out.map(toolRow).join(''), 'is-out'));
+        // 換模型那筆（橋 11-10 #533）：不是他做的事，是底下跑的模型換了
+        const isModel = d.kind_code === 'model';
+        if (d.actions && d.actions.length) parts.push(sec(isModel ? '換了哪顆模型' : '在留言板和房間做的', isModel ? 'fa-microchip' : 'fa-house', d.actions.map(a => '<div class="ob-wl-act">' + _esc(a) + '</div>').join('')));
+        if (d.reply) parts.push(sec('他最後說的', 'fa-comment', '<div class="ob-wl-reply">' + _renderMd(d.reply) + '</div>'));
+        if (d.tools && d.tools.length) parts.push(sec('用過的工具（' + d.tools.length + '）', 'fa-screwdriver-wrench', d.tools.map(toolRow).join('')));
+        if (d.ok && !out.length && !(d.actions && d.actions.length) && !d.reply && !(d.tools && d.tools.length)) parts.push('<div class="ob-wl-empty">這次沒有留下任何動作。</div>');
+        return '<div class="ob-wl-head"><button type="button" class="ob-wl-back" data-to="list" title="回醒來紀錄"><i class="fa-solid fa-chevron-left"></i></button>'
+            + '<div class="ob-wl-title">' + _esc((d.name || d.rid) + '・' + (WL_KIND[d.kind] || d.kind)) + '</div><span class="ob-wl-headpad"></span></div>'
+            + '<div class="ob-wl-scroll">' + parts.join('') + '</div>';
+    }
+    function _wlErr(e) {
+        const msg = (e && e.message) ? String(e.message) : String(e);
+        if (/HTTP 404/.test(msg)) return '這台的橋還是舊的，重啟一次橋就有醒來紀錄。';
+        if (msg === 'NOT_CONFIGURED') return '還沒填連線。';
+        return '拿不到紀錄：' + (_plainReason(msg) || msg);
+    }
+
+    // ---- 記憶（09-30）：住戶們與寫奧瑞亞的丹，各自的記憶，只能看 ----
+    //   資料走橋 /v1/memory、/v1/memory/list、/v1/memory/read（克語 VPS 那本 Ombre 由橋經 relay 拿）。
+    //   入口在「醒來紀錄」旁邊；第一頁：上面一排人、有好幾本（記憶／筆記本／Ombre）就分頁、一格可以打字找、一則一列；
+    //   點一則換頁看全文。跟醒來紀錄共用那兩個蓋頁（.ob-wl／.ob-wl-page）與返回鍵。
+    const MEM_FOLDER = { permanent: '長期', dynamic: '最近', feel: '感受', archive: '封存' };
+    function _memName(p) {
+        if (p.name) return p.name;
+        try {
+            const CT = window.ClaudeTerminal;
+            const r = ((CT && typeof CT.listResidents === 'function' && CT.listResidents()) || []).find(x => x && x.id === p.rid);
+            if (r && r.name) return r.name;
+        } catch (_) {}
+        return p.rid;
+    }
+    function _memErr(e) {
+        const msg = (e && e.message) ? String(e.message) : String(e);
+        if (/HTTP 404/.test(msg)) return /沒有這/.test(msg) ? '找不到這一則了（可能剛被整理掉）。' : '這台的橋還是舊的，重啟一次橋就有記憶這頁。';
+        if (msg === 'NOT_CONFIGURED') return '還沒填連線。';
+        return '拿不到記憶：' + (_plainReason(msg) || msg);
+    }
+    function _memMeta(x) {
+        const bits = [];
+        if (x.updated) bits.push(_wlDay(x.updated));
+        if (x.folder) bits.push(MEM_FOLDER[x.folder] || x.folder);
+        const by = (x.by || []).filter(v => v && v !== '未定');
+        if (by.length) bits.push(by.join('、') + '寫的');
+        return bits.join('・');
+    }
+    // 清單上的標題、說明是一行字：markdown 的反引號、粗體星號、[[互指]] 拿掉，不露原始寫法
+    function _memPlain(v) {
+        return String(v || '').replace(/`([^`]*)`/g, '$1').replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\[\[([^\]\n]+)\]\]/g, '$1').replace(/^#+\s*/, '');
+    }
+    function _memMatch(x, q) {
+        if (!q) return true;
+        const s = (String(x.title || '') + ' ' + String(x.hook || '')).toLowerCase();
+        return q.toLowerCase().split(/\s+/).filter(Boolean).every(w => s.indexOf(w) !== -1);
+    }
+    function _memItemsHtml(m) {
+        if (m.error) return '<div class="ob-wl-empty"><i class="fa-solid fa-plug-circle-xmark"></i><div>' + _esc(m.error) + '</div></div>';
+        if (!m.items) return '<div class="ob-wl-empty">正在翻…</div>';
+        if (!m.items.length) return '<div class="ob-wl-empty"><i class="fa-regular fa-folder-open"></i><div>這一本是空的。</div></div>';
+        const list = m.items.filter(x => _memMatch(x, m.q));
+        if (!list.length) return '<div class="ob-wl-empty">找不到「' + _esc(m.q) + '」。</div>';
+        return list.map(x => {
+            const meta = _memMeta(x);
+            return '<div class="ob-mem-item" data-id="' + _esc(x.id) + '"><div class="ob-mem-main">'
+                + '<div class="ob-mem-t">' + _esc(_memPlain(x.title)) + '</div>'
+                + (x.hook ? '<div class="ob-mem-h">' + _esc(_memPlain(x.hook)) + '</div>' : '')
+                + (meta ? '<div class="ob-mem-meta">' + _esc(meta) + '</div>' : '')
+                + '</div><i class="fa-solid fa-chevron-right ob-wl-go"></i></div>';
+        }).join('');
+    }
+    function _memHead(title, to) {
+        return '<div class="ob-wl-head"><button type="button" class="ob-wl-back" data-to="' + to + '" title="' + (to === 'board' ? '回留言板' : '回記憶') + '"><i class="fa-solid fa-chevron-left"></i></button>'
+            + '<div class="ob-wl-title">' + _esc(title) + '</div><span class="ob-wl-headpad"></span></div>';
+    }
+    function _memListHtml(m) {
+        const head = _memHead('記憶', 'board');
+        const box = inner => head + '<div class="ob-wl-scroll">' + inner + '</div>';
+        if (m.peopleError) return box('<div class="ob-wl-empty"><i class="fa-solid fa-plug-circle-xmark"></i><div>' + _esc(m.peopleError) + '</div></div>');
+        if (!m.people) return box('<div class="ob-wl-empty">正在翻…</div>');
+        if (!m.people.length) return box('<div class="ob-wl-empty"><i class="fa-regular fa-folder-open"></i><div>還沒有人有記憶。</div></div>');
+        const p = m.people.find(x => x.rid === m.rid) || m.people[0];
+        const chips = '<div class="ob-wl-chips">' + m.people.map(x => '<button type="button" class="ob-wl-chip ob-mem-who' + (x.rid === p.rid ? ' is-on' : '') + '" data-rid="' + _esc(x.rid) + '">' + _esc(_memName(x)) + '</button>').join('') + '</div>';
+        const tabs = p.books.length > 1 ? '<div class="ob-mem-tabs">' + p.books.map(b => '<button type="button" class="ob-mem-tab' + (b.key === m.book ? ' is-on' : '') + '" data-book="' + _esc(b.key) + '">'
+            + _esc(b.label) + (b.count != null ? '<span class="ob-mem-n">' + b.count + '</span>' : '') + '</button>').join('') + '</div>' : '';
+        const find = '<label class="ob-mem-find"><i class="fa-solid fa-magnifying-glass"></i><input type="search" class="ob-mem-q" placeholder="找" value="' + _esc(m.q || '') + '"></label>';
+        return head + chips + tabs + find + '<div class="ob-wl-scroll ob-mem-scroll">' + _memItemsHtml(m) + '</div>';
+    }
+    // 本文裡記憶互指的 [[那一則]]：先換成記號、排好版之後再換成可以點的字（手機那支簡易排版不認這種連結，會原樣露出來）。
+    // 這一本裡找得到的畫成連結（點了開那一則），找不到的只留名字。
+    function _memBodyHtml(body, m) {
+        const links = [];
+        const marked = String(body || '').replace(/\[\[([^\]\n]{1,80})\]\]/g, (all, name) => {
+            links.push(name.trim());
+            return 'MEMLINKQ' + (links.length - 1) + 'QEND';
+        });
+        return _renderMd(marked).replace(/MEMLINKQ(\d+)QEND/g, (all, i) => {
+            const name = links[Number(i)] || '';
+            const hit = (m.items || []).find(x => x.id === name);
+            return hit ? '<a class="ob-mem-link" data-mem="' + _esc(name) + '">' + _esc(_memPlain(hit.title)) + '</a>' : _esc(name);
+        });
+    }
+    function _memDetailHtml(d, m) {
+        const p = (m.people || []).find(x => x.rid === m.rid);
+        const b = p && p.books.find(x => x.key === m.book);
+        const head = _memHead((p ? _memName(p) : '記憶') + (b && p.books.length > 1 ? '・' + b.label : ''), 'list');
+        if (!d) return head + '<div class="ob-wl-scroll"><div class="ob-wl-empty">正在翻…</div></div>';
+        if (d.error) return head + '<div class="ob-wl-scroll"><div class="ob-wl-empty"><i class="fa-solid fa-plug-circle-xmark"></i><div>' + _esc(d.error) + '</div></div></div>';
+        const meta = _memMeta(d);
+        return head + '<div class="ob-wl-scroll"><article class="ob-mem-doc">'
+            + '<h3 class="ob-mem-doc-t">' + _esc(_memPlain(d.title)) + '</h3>'
+            + (meta ? '<div class="ob-mem-doc-meta">' + _esc(meta) + '</div>' : '')
+            + '<div class="ob-mem-doc-body">' + (String(d.body || '').trim() ? _memBodyHtml(d.body, m) : '<p>（這一則沒有內容）</p>') + '</div>'
+            + '</article></div>';
+    }
+
+    // ---- 等你同意的：住戶提的改世界書、改預設單子（aurelia_link.js 在頁面裡做成單子、橋存著） ----
+    //   點一張＝打開跟聊天 app 同一張單子（WX_TOOLS.openPropSheet），同意才寫、寫了能改回去。
+    //   那一行的字交給 OS_AURELIA_EDIT.text（改預設的單子它轉給 OS_AURELIA_PRESET）。
+    //   🚨 酒館與手機的世界書、預設是分開的：單子在哪邊提的就要在哪邊按（prop.where），另一邊只給看不給按。
+    //   11-09（宿舍待修 #515，克語提的）：以前每張長得一樣——還沒看的、看過先放著的分不出來，拒絕過的混在新的裡面，
+    //   分頁上的區塊標題又被藏起來、看不到還有幾張。現在分兩段：「還沒決定」（新的／看過、先放著）在上、
+    //   「處理過的」在下變淡、只列最近 PROP_DONE_SHOW 張；每段標題寫張數。拒絕過的照舊點得開、按「還是同意」反悔。
+    //   「看過」記在單子上（prop.seen，點開那一刻整張寫回橋）＝酒館和手機看到的一樣。
+    const PP_CHIP = { new: '新的', seen: '看過、先放著', no: '沒同意', done: '寫進去了', undone: '改回去了', stale: '作廢了', old: '有新的一版' };
+    const PROP_DONE_SHOW = 10;
+    function _propEdit() { const w = window.parent || window; return w.OS_AURELIA_EDIT || window.OS_AURELIA_EDIT || null; }
+    // 一張單子在列表上算哪一種：new／seen 是還沒決定；其他是處理過的（有新一版的舊單子 old 也算）
+    function _propStage(x) {
+        if (x.state !== 'wait') return x.state;
+        const E = _propEdit();
+        try { if (E && E.superseded && E.superseded(x.prop)) return 'old'; } catch (_) {}
+        return (x.prop && x.prop.seen) ? 'seen' : 'new';
+    }
+    function _propOpenCount(props) {
+        const open = (props || []).filter(x => { const s = _propStage(x); return s === 'new' || s === 'seen'; });
+        return { open: open.length, fresh: open.filter(x => _propStage(x) === 'new').length };
+    }
+    function _hereName() {
+        try { const w = window.parent || window; return (w.OS_API && w.OS_API.isStandalone && w.OS_API.isStandalone()) ? '手機' : '酒館'; } catch (_) { return '酒館'; }
+    }
+    function _propText(x) {
+        const w = window.parent || window;
+        const E = w.OS_AURELIA_EDIT || window.OS_AURELIA_EDIT;
+        try { if (E && E.text) return E.text(x.prop, false); } catch (_) {}
+        const p = x.prop || {};
+        return (p.by || x.name || x.rid || '住戶') + ' 想改' + (p.mod === 'preset' ? '預設' : '世界書') + '「' + (p.title || '') + '」';
+    }
+    function _propRow(x, stage, done) {
+        const where = (x.prop && x.prop.where) || '';
+        const t = done ? (x.updated || x.created) : x.created;
+        const ago = t ? _agoText(new Date(t * 1000).toISOString().slice(0, 19).replace('T', ' ')) : '';
+        return '<div class="ob-prop is-' + _esc(stage) + (done ? ' is-gone' : '') + '" data-ppid="' + _esc(x.id) + '">'
+            + _avatarHtml(x.name || (x.prop && x.prop.by) || '?')
+            + '<div class="ob-prop-main"><div class="ob-prop-text">' + _esc(_propText(x)) + '</div>'
+            + '<div class="ob-prop-meta">' + _esc([where ? '在' + where + '提的' : '', (done ? '處理於 ' : '') + ago].filter(Boolean).join(' · ')) + '</div></div>'
+            + '<span class="ob-prop-chip">' + _esc(PP_CHIP[stage] || stage) + '</span></div>';
+    }
+    function _propsHtml(props, showAll) {
+        if (!props || !props.length) return '';
+        const rows = props.map(x => ({ x, stage: _propStage(x) }));
+        const open = rows.filter(r => r.stage === 'new' || r.stage === 'seen')
+            .sort((a, b) => ((a.stage === 'new' ? 0 : 1) - (b.stage === 'new' ? 0 : 1)) || (b.x.created - a.x.created));
+        const done = rows.filter(r => r.stage !== 'new' && r.stage !== 'seen')
+            .sort((a, b) => ((b.x.updated || b.x.created) - (a.x.updated || a.x.created)));
+        const fresh = open.filter(r => r.stage === 'new').length;
+        const shown = showAll ? done : done.slice(0, PROP_DONE_SHOW);
+        return '<section class="ob-props"><div class="ob-props-title"><i class="fa-solid fa-pen-to-square"></i> 等你同意的'
+            + '<span class="ob-props-count">' + (open.length ? open.length + ' 張還沒決定' : '都處理好了') + '</span></div>'
+            + '<div class="ob-props-sub"><span>還沒決定</span><span class="ob-props-sub-n">'
+            + (open.length ? open.length + ' 張' + (fresh ? '（' + fresh + ' 張新的）' : '') : '沒有了') + '</span></div>'
+            + open.map(r => _propRow(r.x, r.stage, false)).join('')
+            + (done.length ? '<div class="ob-props-sub is-gone"><span>處理過的</span><span class="ob-props-sub-n">' + done.length + ' 張</span></div>'
+                + shown.map(r => _propRow(r.x, r.stage, true)).join('')
+                + (done.length > shown.length ? '<button type="button" class="ob-props-more">再看更早的 ' + (done.length - shown.length) + ' 張</button>' : '')
+                : '')
+            + '</section>';
+    }
+
+    // 只給她看第一行白話（細節是寫給丹的）；修好的留一週，底下掛丹那句「修了什麼」
+    function _bugsHtml(bugs) {
+        if (!bugs || !bugs.length) return '';
+        const open = bugs.filter(b => b.status === 'open').length;
+        return '<section class="ob-bugs"><div class="ob-bugs-title"><i class="fa-solid fa-screwdriver-wrench"></i> 待修'
+            + '<span class="ob-bugs-count">' + (open ? open + ' 條還沒修' : '都修好了') + '</span></div>'
+            + bugs.map(b => {
+                const fixed = b.status !== 'open';
+                return '<div class="ob-bug' + (fixed ? ' is-fixed' : '') + '">'
+                    + '<span class="ob-bug-chip">' + (fixed ? '已修' : '待修') + '</span>'
+                    + '<div class="ob-bug-main">'
+                    + '<div class="ob-bug-text">' + _esc(b.title || '') + '</div>'
+                    + '<div class="ob-bug-meta">' + _esc(b.author || '') + ' · ' + _esc(_agoText(b.created_at)) + '</div>'
+                    + (b.fix ? '<div class="ob-bug-fix"><i class="fa-solid fa-check"></i> ' + _esc(b.fix.by || '丹') + '：' + _esc(b.fix.text || '') + '</div>' : '')
+                    + '</div></div>';
+            }).join('')
+            + '</section>';
+    }
+
+    // ---- 分頁（10-01：等你同意的、待修、想跟妳說的分別切換，全放一起要拉到很下面） ----
+    //   動態永遠在；其他兩頁有東西才出現，只剩動態就不畫這排。這排黏在捲動區頂端，捲到哪都切得到。
+    //   幾頁都畫進去、只顯示選中那頁（hidden），單一則的局部更新（_refreshPost、_propRefresh）照舊找得到元素。
+    //   「想跟妳說的」10-03 搬去他房間的紀錄（記事本，core/notebook.js）：寫給她一個人的話不放在大家的板子上。
+    const TAB_KEY = 'ccr_board_tab';
+    function _tabSaved() { try { return localStorage.getItem(TAB_KEY) || ''; } catch (_) { return ''; } }
+    function _tabSave(k) { try { localStorage.setItem(TAB_KEY, k); } catch (_) {} }
+    function _tabList(st, idx) {
+        const props = st.props || [], bugs = st.bugs || [];
+        const pc = _propOpenCount(props);   // 還沒決定幾張；有新的才亮金色（看過先放著的只寫數字）
+        return [
+            { key: 'feed', label: '動態', n: 0 },
+            props.length ? { key: 'props', label: '等你同意的', n: pc.open, hot: pc.fresh > 0 } : null,
+            bugs.length ? { key: 'bugs', label: '待修', n: bugs.filter(b => b.status === 'open').length } : null,
+        ].filter(Boolean);
+    }
+    // 這次打開指定的（有新提案）＞她上次停的那頁＞動態；指定的那頁不見了也退回這個順序
+    function _tabPick(st, list) {
+        const has = k => list.some(t => t.key === k);
+        if (st.tab && has(st.tab)) return st.tab;
+        const saved = _tabSaved();
+        return has(saved) ? saved : 'feed';
+    }
+    function _tabsHtml(list, cur) {
+        if (list.length < 2) return '';
+        return '<nav class="ob-tabs">' + list.map(t => '<button type="button" class="ob-tab' + (t.key === cur ? ' is-on' : '') + '" data-tab="' + t.key + '">'
+            + _esc(t.label) + (t.n ? '<span class="ob-tab-n' + (t.hot ? ' is-hot' : '') + '">' + t.n + '</span>' : '')
+            + '</button>').join('') + '</nav>';
+    }
+    function _tabGo(container, key) {
+        const st = _state.get(container);
+        const root = container.querySelector('.ob-container');
+        if (!st || !root) return;
+        st.tab = key;
+        _tabSave(key);
+        root.querySelectorAll('.ob-tab').forEach(b => b.classList.toggle('is-on', b.dataset.tab === key));
+        root.querySelectorAll('.ob-pane').forEach(p => { p.hidden = p.dataset.pane !== key; });
+        // 已經捲過分頁那排的話，換頁就回到這頁開頭（分頁那排的正下方），不然新的一頁會從中間開始
+        const sc = root.querySelector('.ob-scroll');
+        const nav = root.querySelector('.ob-tabs');
+        const above = nav && nav.previousElementSibling;
+        if (sc && above) {
+            const top = above.offsetTop + above.offsetHeight;
+            if (sc.scrollTop > top) sc.scrollTop = top;
+        }
+    }
+
+    const _state = new WeakMap();   // container → { all, hb, reply, bugs, wakes（醒來紀錄第一頁，算封面那顆的數字）, wl（紀錄頁現在的樣子）, tab（現在那個分頁） }
+
+    function _renderBoard(container, all, hbConf) {
+        const idx = _index(all);
+        const viaNote = (_lastVia === 'outer')
+            ? '<div class="ob-via"><i class="fa-solid fa-circle-info"></i> 這頁裝在框裡、框內連不出去，改從外層連才拿到的</div>'
+            : '';
+        const feedHtml = idx.feed.length
+            ? idx.feed.map(p => _postHtml(p, idx.byParent)).join('')
+            : '<div class="ob-empty">板子上還沒有東西。</div>';
+        const st = _state.get(container) || {};
+        const tabs = _tabList(st, idx);
+        const cur = _tabPick(st, tabs);
+        st.tab = cur;
+        const pane = (key, html) => '<div class="ob-pane" data-pane="' + key + '"' + (tabs.length > 1 && key !== cur ? ' hidden' : '') + '>' + html + '</div>';
+        // 有交誼廳：封面＝客廳（工具三顆疊在右上角），她的名字頭像那塊不畫（會蓋住客廳右下角的人）
+        const L = _lounge();
+        const tools = `<div class="ob-cover-tools">
+                            <button type="button" class="ob-tool ob-news-set" title="快報設定"><i class="fa-solid fa-newspaper"></i></button>
+                            <button type="button" class="ob-tool ob-refresh" title="重新整理"><i class="fa-solid fa-rotate-right"></i></button>
+                            <button type="button" class="ob-tool ob-compose" title="發動態"><i class="fa-solid fa-pen-to-square"></i></button>
+                        </div>`;
+        const cover = L
+            ? '<header class="ob-cover ob-cover-lg">' + _loungeHtml(L, hbConf, st.wakes) + tools + '</header>'
+            : '<header class="ob-cover">' + tools + '<div class="ob-me"><span class="ob-me-name">' + _esc(ME) + '</span>' + _avatarHtml(ME) + '</div></header>';
+
+        container.innerHTML = `
+            <div class="ob-container">
+                <div class="ob-scroll">
+                    ${cover}
+                    ${viaNote}
+                    ${_wakesHtml(hbConf, st.wakes)}
+                    ${L ? '<div class="ob-lg-card" hidden></div>' + _meetListHtml(all, idx) : ''}
+                    ${_tabsHtml(tabs, cur)}
+                    ${pane('feed', '<section class="ob-feed">' + feedHtml + '</section>')}
+                    ${pane('props', _propsHtml(st.props, st.propsAll))}
+                    ${pane('bugs', _bugsHtml(st.bugs))}
+                </div>
+                <div class="ob-bar" hidden>
+                    <div class="ob-bar-media" hidden></div>
+                    <div class="ob-bar-row">
+                        <button type="button" class="ob-bar-att" title="貼圖" aria-label="貼圖"><i class="fa-regular fa-image"></i></button>
+                        <input type="text" class="ob-bar-input" placeholder="評論" enterkeyhint="send">
+                        <button type="button" class="ob-bar-send" disabled>發送</button>
+                    </div>
+                    <input type="file" class="ob-bar-file" accept="image/*" multiple hidden>
+                </div>
+                <div class="ob-sheet" hidden>
+                    <div class="ob-sheet-card">
+                        <div class="ob-sheet-head">
+                            <button type="button" class="ob-sheet-cancel">取消</button>
+                            <span class="ob-sheet-title">發動態</span>
+                            <button type="button" class="ob-sheet-send" disabled>發表</button>
+                        </div>
+                        <textarea class="ob-sheet-text" placeholder="這一刻的想法…"></textarea>
+                        <div class="ob-sheet-media" hidden></div>
+                        <div class="ob-sheet-tools">
+                            <button type="button" class="ob-sheet-att"><i class="fa-regular fa-image"></i><span>照片／影片</span></button>
+                            <input type="file" class="ob-sheet-file" accept="image/*,video/*" multiple hidden>
+                        </div>
+                    </div>
+                </div>
+                <div class="ob-wl" hidden></div>
+                <div class="ob-wl-page" hidden></div>
+                <div class="ob-toast" hidden></div>
+            </div>`;
+        _bind(container);
+        _hydrateMedia(container);
+        if (L) {
+            L.mount(container.querySelector('.ob-lg'));
+            // 重新整理前點著誰：那位還在就接著開著他的小卡
+            if (st.lgPick) _lgPick(container, (hbConf && hbConf[st.lgPick] && hbConf[st.lgPick].enabled) ? st.lgPick : '');
+        }
+    }
+
+    // ---- 交誼廳：點小人 → 近況小卡（上次醒來、最近一次做了什麼、下一次／現在的狀況，三個入口接原本的頁） ----
+    function _lgCardHtml(st, rid) {
+        const c = st.hb && st.hb[rid];
+        if (!c) return '';
+        const name = c.name || rid;
+        const { look, when } = _wakeLook(c);
+        const items = (st.wakes && Array.isArray(st.wakes.items)) ? st.wakes.items : null;
+        const last = items ? items.find(w => w.rid === rid && w.kind_code !== 'model') : null;   // 換模型那筆不是醒來
+        let line = '';
+        if (last) {
+            const sum = String(last.summary || '').trim();
+            line = last.ok ? '最近一次：' + (sum || (WL_KIND[last.kind] || last.kind || '醒來') + '，沒做什麼') : '最近一次沒醒成' + (sum ? '：' + sum : '');
+        }
+        const warn = look.tone === 'late' || look.tone === 'stopped';
+        const go = (k, label) => '<button type="button" class="ob-lg-go" data-go="' + k + '">' + label + '<i class="fa-solid fa-chevron-right"></i></button>';
+        return '<div class="ob-lg-card-top">' + _avatarHtml(name)
+            + '<div class="ob-lg-card-main"><div class="ob-lg-card-head"><span class="ob-lg-card-name">' + _esc(name) + '</span>'
+            + '<span class="ob-lg-card-when">' + _esc(when === '還沒醒過' || when === '好久沒醒了' ? when : '上次醒來：' + when) + '</span></div>'
+            + (line ? '<div class="ob-lg-card-line">' + _esc(line) + '</div>' : '')
+            + '<div class="ob-lg-card-look' + (warn ? ' is-warn' : '') + '">' + _esc(look.text) + '</div></div>'
+            + '<button type="button" class="ob-lg-card-x" title="收起"><i class="fa-solid fa-xmark"></i></button></div>'
+            + '<div class="ob-lg-card-acts">' + (items ? go('wakes', '做了什麼') : '') + go('mem', '記憶') + go('sch', '日程') + '</div>';
+    }
+    // ---- 交誼廳底下的臨時群聊卡（11-09，照阿洛那張模板）：一串一張，像聊天列表 ----
+    //   列還在聊的、和一天內聊完的（最多三串，還在聊的排前面）；沒有就整段不畫。
+    //   點一張＝跳到板子上那一串（金框那則）、閃一下；她沒看過的新留言在右邊亮藍點，看過記 ccr_meet_seen（第一次打開全當看過）。
+    const MEET_SEEN = 'ccr_meet_seen';
+    function _meetSeen() { try { const raw = localStorage.getItem(MEET_SEEN); return raw ? (JSON.parse(raw) || {}) : null; } catch (_) { return null; } }
+    function _meetSetSeen(map) { try { localStorage.setItem(MEET_SEEN, JSON.stringify(map)); } catch (_) {} }
+    function _meetThreads(all, idx) {
+        const now = Date.now();
+        return all.filter(p => !_isReaction(p)).map(p => ({ p, m: _meets[String(p.id)] }))
+            .filter(x => x.m && x.m.kind === 'meet')
+            .map(x => {
+                const rs = idx.byParent[String(x.p.id)] || [];
+                const last = rs.length ? rs[rs.length - 1] : x.p;
+                return Object.assign(x, { rs, last, lastMs: _tsMs(last.created_at) });
+            })
+            .filter(x => x.m.status === 'open' || (now - x.lastMs) < 24 * 3600 * 1000)
+            .sort((a, b) => ((b.m.status === 'open') - (a.m.status === 'open')) || (b.lastMs - a.lastMs))
+            .slice(0, 3);
+    }
+    function _meetClock(ms) {
+        if (isNaN(ms)) return '';
+        const d = new Date(ms), now = new Date();
+        const day0 = t => new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime();
+        const diff = Math.round((day0(now) - day0(d)) / 86400000);
+        if (diff === 0) return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+        if (diff === 1) return '昨天';
+        return (d.getMonth() + 1) + '/' + d.getDate();
+    }
+    // 一行就好：去掉 markdown 記號、只留第一行
+    const _oneLine = s => String(s || '').split('\n').map(x => x.replace(/^[#>*\-\s]+/, '').replace(/[*_`~]/g, '').trim()).find(Boolean) || '';
+    function _meetListHtml(all, idx) {
+        const list = _meetThreads(all, idx);
+        if (!list.length) return '';
+        let seen = _meetSeen();
+        if (!seen) { seen = {}; list.forEach(x => { seen[x.p.id] = x.last.id; }); _meetSetSeen(seen); }
+        return '<section class="ob-meets"><div class="ob-meets-cap"><i class="fa-solid fa-comment-dots"></i>臨時群聊</div>'
+            + list.map(x => {
+                const names = [x.p.author].concat((x.m.members || []).map(mm => mm.name)).filter((n, i, a) => n && a.indexOf(n) === i);
+                const live = x.m.status === 'open';
+                const fresh = x.last.author !== ME && Number(x.last.id) > Number(seen[x.p.id] || 0);
+                const tail = x.rs.length ? x.last.author + '：' + _oneLine(x.last.content) : _meetStatus(x.m);
+                return '<button type="button" class="ob-meetrow' + (live ? ' is-live' : '') + (fresh ? ' is-new' : '') + '" data-pid="' + _esc(x.p.id) + '" data-last="' + _esc(x.last.id) + '">'
+                    + '<span class="ob-meetrow-avs">' + names.slice(0, 3).map(n => _avatarHtml(n)).join('') + '</span>'
+                    + '<span class="ob-meetrow-main">'
+                    + '<span class="ob-meetrow-top"><span class="ob-meetrow-title">' + _esc(_oneLine(x.p.content) || '臨時群聊') + '</span>'
+                    + '<span class="ob-meetrow-badge">' + (live ? '進行中' : '聊完了') + '</span></span>'
+                    + '<span class="ob-meetrow-who">' + _esc(names.join('、')) + '</span>'
+                    + '<span class="ob-meetrow-last">' + _esc(tail) + '</span></span>'
+                    + '<span class="ob-meetrow-side"><time class="ob-meetrow-time">' + _esc(_meetClock(x.lastMs)) + '</time><span class="ob-meetrow-dot"></span></span>'
+                    + '<i class="fa-solid fa-chevron-right ob-meetrow-go"></i></button>';
+            }).join('')
+            + '</section>';
+    }
+    function _meetGo(container, row) {
+        const root = container.querySelector('.ob-container');
+        if (!root || !row) return;
+        const pid = row.dataset.pid;
+        const seen = _meetSeen() || {};
+        seen[pid] = Number(row.dataset.last) || 0;
+        _meetSetSeen(seen);
+        row.classList.remove('is-new');
+        const st = _state.get(container);
+        if (st && st.tab && st.tab !== 'feed' && root.querySelector('.ob-tab[data-tab="feed"]')) _tabGo(container, 'feed');
+        const post = root.querySelector('.ob-feed .ob-post[data-pid="' + String(pid).replace(/"/g, '') + '"]');
+        const sc = root.querySelector('.ob-scroll');
+        if (!post || !sc) return;
+        const nav = root.querySelector('.ob-tabs');
+        const top = sc.scrollTop + post.getBoundingClientRect().top - sc.getBoundingClientRect().top - (nav ? nav.offsetHeight : 0) - 8;
+        try { sc.scrollTo({ top: Math.max(0, top), behavior: 'smooth' }); } catch (_) { sc.scrollTop = Math.max(0, top); }
+        post.classList.remove('is-flash');
+        void post.offsetWidth;
+        post.classList.add('is-flash');
+        setTimeout(() => post.classList.remove('is-flash'), 1800);
+    }
+
+    function _lgPick(container, rid) {
+        const st = _state.get(container);
+        const root = container.querySelector('.ob-container');
+        const L = _lounge();
+        const card = root && root.querySelector('.ob-lg-card');
+        if (!st || !card || !L) return;
+        const html = rid ? _lgCardHtml(st, rid) : '';
+        st.lgPick = html ? rid : '';
+        L.select(root.querySelector('.ob-lg'), st.lgPick);
+        card.dataset.rid = st.lgPick;
+        card.innerHTML = html;
+        card.hidden = !html;
+    }
+
+    // 動手本身已經成功了，接著重拿板子失敗：只說一聲，不能當成沒做成。以前寫「按讚沒成功」「發表沒成功」，
+    //   她再按一次就變按兩個讚、發兩則一模一樣的。回 false＝沒拿到（st.all 照舊）
+    const REFETCH_FAIL = '做好了，但板子沒重新整理到（連不上橋），等一下再打開看';
+    async function _refetch(container, quiet) {
+        const st = _state.get(container);
+        if (!st) return false;
+        try { st.all = await _fetchPosts(); return true; }
+        catch (e) { if (!quiet) _toastOn(container, REFETCH_FAIL); return false; }
+    }
+
+    /** 動手之後只換掉那一則，不整板重畫——整板重畫會把她捲到最上面 */
+    async function _refreshPost(container, pid) {
+        const st = _state.get(container);
+        if (!st) return;
+        if (!(await _refetch(container))) return;
+        const root = container.querySelector('.ob-container');
+        const el = root && root.querySelector('.ob-post[data-pid="' + String(pid) + '"]');
+        const p = st.all.find(x => String(x.id) === String(pid));
+        if (!el) { _renderBoard(container, st.all, st.hb); return; }
+        if (!p) { el.remove(); return; }
+        const holder = document.createElement('div');
+        holder.innerHTML = _postHtml(p, _index(st.all).byParent);
+        const fresh = holder.firstElementChild;
+        el.replaceWith(fresh);
+        _hydrateMedia(fresh);
+    }
+
+    // ---- 記憶的兩頁 ----
+    // rid：從交誼廳的小卡進來的，直接翻那一位的（名冊裡沒有他就照舊翻第一位）
+    async function _memOpen(container, rid) {
+        const st = _state.get(container);
+        const root = container.querySelector('.ob-container');
+        const pane = root && root.querySelector('.ob-wl');
+        if (!st || !pane) return;
+        const m = st.mem = { people: null, peopleError: '', rid: '', book: '', items: null, error: '', q: '' };
+        st.wl = null; st.sch = null;   // 醒來紀錄、日程表那頁等到一半的，回來別蓋掉這頁
+        root.querySelector('.ob-wl-page').hidden = true;
+        pane.hidden = false;
+        pane.innerHTML = _memListHtml(m);
+        try { const r = await _api('/v1/memory'); m.people = Array.isArray(r.people) ? r.people : []; }
+        catch (e) { m.peopleError = _memErr(e); }
+        if (st.mem !== m) return;
+        if (m.people && m.people.length) _memPick(container, (rid && m.people.some(p => p.rid === rid)) ? rid : m.people[0].rid, '');
+        else pane.innerHTML = _memListHtml(m);
+    }
+    async function _memPick(container, rid, book) {
+        const st = _state.get(container);
+        const m = st && st.mem;
+        const pane = container.querySelector('.ob-wl');
+        if (!m || !m.people || !m.people.length || !pane) return;
+        const p = m.people.find(x => x.rid === rid) || m.people[0];
+        m.rid = p.rid;
+        m.book = book || (p.books[0] && p.books[0].key) || '';
+        m.items = null; m.error = ''; m.q = '';
+        const my = m.req = {};
+        pane.innerHTML = _memListHtml(m);
+        try {
+            const r = await _api('/v1/memory/list?rid=' + encodeURIComponent(m.rid) + '&book=' + encodeURIComponent(m.book));
+            if (m.req !== my) return;
+            m.items = Array.isArray(r.items) ? r.items : [];
+            if (r.error) m.error = 'VPS 那本現在拿不到：' + r.error;
+            // VPS 那本打開才知道幾則：補上分頁的數字
+            const bk = p.books.find(x => x.key === m.book);
+            if (bk && bk.count == null && !r.error) bk.count = m.items.length;
+        } catch (e) {
+            if (m.req !== my) return;
+            m.error = _memErr(e);
+        }
+        if (st.mem === m) pane.innerHTML = _memListHtml(m);
+    }
+    // 打字找：只換清單那一段，輸入框不重畫（不然每打一個字就失焦）
+    function _memFilter(container, q) {
+        const st = _state.get(container);
+        const m = st && st.mem;
+        if (!m) return;
+        m.q = q;
+        const sc = container.querySelector('.ob-mem-scroll');
+        if (sc) { sc.innerHTML = _memItemsHtml(m); sc.scrollTop = 0; }
+    }
+    async function _memDetail(container, id) {
+        const st = _state.get(container);
+        const m = st && st.mem;
+        const page = container.querySelector('.ob-wl-page');
+        if (!m || !page || !id) return;
+        const key = m.rid + '|' + m.book + '|' + id;
+        page.dataset.mid = key;
+        page.dataset.wid = '';
+        page.hidden = false;
+        page.innerHTML = _memDetailHtml(null, m);
+        let d;
+        try { d = await _api('/v1/memory/read?rid=' + encodeURIComponent(m.rid) + '&book=' + encodeURIComponent(m.book) + '&id=' + encodeURIComponent(id)); }
+        catch (e) { d = { error: _memErr(e) }; }
+        if (page.dataset.mid !== key || page.hidden) return;
+        page.innerHTML = _memDetailHtml(d, m);
+    }
+
+    // ---- 日程表（10-11，橋 /v1/schedule）：他們自己排的下一次醒來、最近錯過的、她定的每天上限 ----
+    // 每人一張卡、最快要醒的排最上面（第一張就是下一個醒的）；沒排的接在後面，沒開自己醒來的灰在最後。
+    // 跟醒來紀錄、記憶共用同一個蓋頁（.ob-wl），返回鈕也是同一顆。
+    const SCH_URG = { high: '急', normal: '普通', low: '隨意' };
+    function _schWhen(sec) {
+        const d = new Date(Number(sec) * 1000), now = new Date();
+        const day0 = t => new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime();
+        const diff = Math.round((day0(d) - day0(now)) / 86400000);
+        const hm = _wlClock(sec);
+        if (diff === 0) return hm;
+        if (diff === 1) return '明天 ' + hm;
+        if (diff === -1) return '昨天 ' + hm;
+        return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + hm;
+    }
+    function _schPace(h) {
+        const n = Number(h) > 0 ? Number(h) : 24;
+        if (n === 24) return '大約一天醒一次';
+        if (n > 24 && n % 24 === 0) return '大約 ' + (n / 24) + ' 天醒一次';
+        return '大約 ' + (Math.round(n * 10) / 10) + ' 小時醒一次';
+    }
+    function _schQuiet(q) {
+        const p = x => String(x).padStart(2, '0') + ':00';
+        return (Array.isArray(q) && q.length === 2 && q[0] !== q[1]) ? p(q[0]) + ' 到 ' + p(q[1]) : '';
+    }
+    function _schHelpBtn(quiet) {
+        const A0 = win.AUI || window.AUI;
+        if (!A0 || !A0.helpBtn) return '';
+        if (A0.registerHelp) A0.registerHelp({ board_schedule: { title: '日程表',
+            body: '他們每次醒來，會自己排下一次幾點醒、醒來想做什麼、急不急。\n'
+                + '到了那時妳電腦沒開' + (quiet ? '、或剛好在 ' + quiet + ' 不叫人的時段' : '') + '，就算錯過：急的，一能叫就補；普通的，隔三小時再試一次，那次也錯過就算了；隨意的，錯過就算了。最下面記著最近錯過了哪些。\n'
+                + '名字右邊的加減是每天最多醒幾次，妳定。沒排的人照原本的節奏偶爾醒。\n'
+                + '不想要他排的哪一筆，按那一筆右邊的叉叉，再按一次就取消。' } });
+        return A0.helpBtn('board_schedule');
+    }
+    function _schInQuiet(sec, q) {
+        if (!Array.isArray(q) || q.length !== 2 || q[0] === q[1]) return false;
+        const h = new Date(Number(sec) * 1000).getHours();
+        return q[0] < q[1] ? (h >= q[0] && h < q[1]) : (h >= q[0] || h < q[1]);
+    }
+    function _schCardHtml(r, quietHours) {
+        const plan = (r.plan || []).slice().sort((a, b) => a.at - b.at);
+        const cap = Number(r.max_per_day) || 4, today = Number(r.today) || 0;
+        let status = '';
+        if (!r.enabled) status = '沒開自己醒來' + (plan.length ? '，排的先不會叫' : '');
+        else if (r.parked) status = r.parked;   // 「額度到上限（19:00 前先不叫）」
+        else if (today >= cap) status = '今天醒滿了，明天才會再叫';
+        const rows = plan.length ? plan.map(i => '<div class="ob-sch-item">'
+                + '<time class="ob-sch-time">' + _esc(_schWhen(i.at)) + '</time>'
+                + '<span class="ob-sch-what">' + _esc(i.what || '沒寫要做什麼')
+                + (i.retry ? '<span class="ob-sch-retry">錯過一次了，這是再試的那次</span>' : '')
+                + (_schInQuiet(i.at, quietHours) ? '<span class="ob-sch-retry">這個時間不叫人，到時會照錯過處理</span>' : '') + '</span>'
+                + '<span class="ob-sch-urg is-' + _esc(SCH_URG[i.urgency] ? i.urgency : 'normal') + '">' + _esc(SCH_URG[i.urgency] || '普通') + '</span>'
+                + '<button type="button" class="ob-sch-x" data-rid="' + _esc(r.rid) + '" data-id="' + _esc(i.id) + '" title="取消這一筆"><i class="fa-solid fa-xmark"></i></button>'
+                + '</div>').join('')
+            : '<div class="ob-sch-none">沒排：照原本的節奏，' + _esc(_schPace(r.pace_hours)) + '</div>';
+        return '<div class="ob-sch-card' + (r.enabled ? '' : ' is-off') + '">'
+            + '<div class="ob-sch-top">' + _avatarHtml(r.name)
+            + '<span class="ob-sch-who"><span class="ob-sch-name">' + _esc(r.name || r.rid) + '</span>'
+            + '<span class="ob-sch-today">今天醒了 ' + today + ' 次</span></span>'
+            + '<span class="ob-sch-cap">'
+            + '<button type="button" class="ob-sch-step" data-rid="' + _esc(r.rid) + '" data-d="-1"' + (cap <= 1 ? ' disabled' : '') + ' title="每天少醒一次"><i class="fa-solid fa-minus"></i></button>'
+            + '<span class="ob-sch-cap-txt">每天最多 ' + cap + ' 次</span>'
+            + '<button type="button" class="ob-sch-step" data-rid="' + _esc(r.rid) + '" data-d="1"' + (cap >= 24 ? ' disabled' : '') + ' title="每天多醒一次"><i class="fa-solid fa-plus"></i></button>'
+            + '</span></div>'
+            + (status ? '<div class="ob-sch-status"><i class="fa-solid fa-circle-pause"></i><span>' + _esc(status) + '</span></div>' : '')
+            + rows + '</div>';
+    }
+    function _schHtml(s) {
+        const quiet = s.data ? _schQuiet(s.data.quiet_hours) : '';
+        const head = '<div class="ob-wl-head"><button type="button" class="ob-wl-back" data-to="board" title="回留言板"><i class="fa-solid fa-chevron-left"></i></button>'
+            + '<div class="ob-wl-title">日程表</div><span class="ob-wl-headpad ob-sch-helpslot">' + _schHelpBtn(quiet) + '</span></div>';
+        let body;
+        if (s.error) {
+            body = '<div class="ob-wl-empty"><i class="fa-solid fa-plug-circle-xmark"></i><div>' + _esc(s.error) + '</div></div>';
+        } else if (!s.data) {
+            body = '<div class="ob-wl-empty">正在拿日程表…</div>';
+        } else {
+            const R = s.data.residents || {};
+            const list = Object.keys(R).map(k => Object.assign({ rid: k }, R[k])).filter(r => r.enabled || (r.plan && r.plan.length));
+            const first = r => (r.plan && r.plan.length) ? Math.min.apply(null, r.plan.map(i => Number(i.at) || Infinity)) : Infinity;
+            list.sort((a, b) => (b.enabled ? 1 : 0) - (a.enabled ? 1 : 0) || first(a) - first(b));
+            const missed = (s.data.missed || []).slice(-10).reverse();
+            body = (quiet ? '<div class="ob-sch-quiet"><i class="fa-regular fa-moon"></i>' + _esc(quiet) + ' 不叫人</div>' : '')
+                + (list.length ? list.map(r => _schCardHtml(r, s.data.quiet_hours)).join('')
+                    : '<div class="ob-wl-empty"><i class="fa-regular fa-calendar"></i><div>還沒有人開著自己醒來。</div>'
+                    + '<div class="ob-wl-note">在宿舍按住戶門上那顆心跳，他就會開始自己醒來、自己排時間。</div></div>')
+                + (missed.length ? '<div class="ob-sch-sec">最近錯過的</div>' + missed.map(m => '<div class="ob-sch-miss">'
+                    + '<div class="ob-sch-miss-top"><time>' + _esc(_schWhen(m.at)) + '</time><span class="ob-sch-miss-name">' + _esc(m.name || m.rid) + '</span>'
+                    + (m.what ? '<span>「' + _esc(m.what) + '」</span>' : '') + '<span class="ob-sch-urg is-' + _esc(SCH_URG[m.urgency] ? m.urgency : 'normal') + '">' + _esc(SCH_URG[m.urgency] || '普通') + '</span></div>'
+                    + '<div class="ob-sch-miss-why">' + _esc([m.why, m.outcome].filter(Boolean).join('，')) + '</div></div>').join('') : '');
+        }
+        return head + '<div class="ob-wl-scroll">' + body + '</div>';
+    }
+    function _schPaint(container) {
+        const st = _state.get(container);
+        const pane = container.querySelector('.ob-wl');
+        if (!st || !st.sch || !pane || pane.hidden) return;
+        const sc = pane.querySelector('.ob-wl-scroll');
+        const top = sc ? sc.scrollTop : 0;
+        pane.innerHTML = _schHtml(st.sch);
+        const s2 = pane.querySelector('.ob-wl-scroll');
+        if (s2) s2.scrollTop = top;   // 加減、取消之後別跳回最上面
+    }
+    // 酒館、房間裡有奧瑞亞的提示框；手機通知點進來那頁（奧瑞亞的 board.html）只載這支、沒有 AUI：
+    //   以前什麼都沒說（數字默默彈回、停在「取消？」），現在寫在板子自己的提示條上
+    function _say(container, msg) {
+        const A0 = win.AUI || window.AUI;
+        if (A0 && A0.toast) { A0.toast(msg); return; }
+        _toastOn(container, msg);
+    }
+    /** 板子自己的提示條（按讚、評論、發表那些一向寫這裡），幾秒後自己收 */
+    function _toastOn(container, msg) {
+        const t = container && container.querySelector('.ob-toast');
+        if (!t) return;
+        t.textContent = msg;
+        t.hidden = false;
+        clearTimeout(t._sayTimer);
+        t._sayTimer = setTimeout(() => { t.hidden = true; }, 3200);
+    }
+
+    // ---- 快報設定（11-04，橋的 news_mail）----
+    //   把信箱收到的消息信（例如 Grok 寄來的推特整理）在留言板貼成新聞帖子；做成通用的，誰都能填自己的信箱。
+    //   信箱、應用程式密碼、寄件人、帖子名字都在這頁自己填，存在橋上；密碼只寫不讀（橋只回「存了沒」）。
+    //   蓋在板子上（跟日程表、記憶同一層、同一個頂列）。等橋回來時這頁已經換成別頁就不畫（看 .ob-news-page 還在不在）。
+    function _newsHelpBtn() {
+        const A0 = win.AUI || window.AUI;
+        if (!A0 || !A0.helpBtn) return '';
+        if (A0.registerHelp) A0.registerHelp({ board_news: { title: '快報',
+            body: '有些服務會把整理好的消息每天寄到妳的信箱。填好這頁，橋會隔一段時間看一次信箱，看到寄件人是這裡填的信，就在留言板貼一則快報；住戶醒來看到有興趣的，會在底下留言。\n'
+                + '只會讀信，不會把信標成已讀，也不刪不搬；寄件人不是這裡填的信不會讀。整理成快報不用叫 AI。\n'
+                + '應用程式密碼不是信箱平常登入的密碼。Gmail 要先開兩步驟驗證，再到 Google 帳戶的「安全性」找「應用程式密碼」產生一組（16 個英文字母），整組貼上來。\n'
+                + '寄件人可以填好幾個，每個各自掛名字（沒取名的用「沒取名的寄件人掛這個名字」那格）。\n'
+                + '「要帶的標籤」填了的話，主旨或內文開頭沒有這個標籤的信就不貼（廣告、訂閱通知這類就進不來），貼的時候會把標籤拿掉。例如叫寄信的 AI 每封主旨開頭寫【奧瑞亞素材】，這格就填【奧瑞亞素材】。\n'
+                + '第一次打開時，信箱裡現有的只貼最新那一封。' } });
+        return A0.helpBtn('board_news');
+    }
+    const NEWS_EVERY = { 30: '30 分鐘', 60: '1 小時', 180: '3 小時', 360: '6 小時' };
+    function _newsWhen(sec) {
+        const d = new Date(Number(sec) * 1000);
+        return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + _wlClock(sec);
+    }
+    function _newsHtml(s) {
+        const head = '<div class="ob-wl-head"><button type="button" class="ob-wl-back" data-to="board" title="回留言板"><i class="fa-solid fa-chevron-left"></i></button>'
+            + '<div class="ob-wl-title">快報設定</div><span class="ob-wl-headpad">' + _newsHelpBtn() + '</span></div>';
+        let body;
+        if (s.error && !s.data) {
+            body = '<div class="ob-wl-empty"><i class="fa-solid fa-plug-circle-xmark"></i><div>' + _esc(s.error) + '</div></div>';
+        } else if (!s.data) {
+            body = '<div class="ob-wl-empty">正在拿設定…</div>';
+        } else {
+            const d = s.data;
+            const every = (d.every_choices || [30, 60, 180, 360]).map(n => '<option value="' + n + '"' + (n === d.every_min ? ' selected' : '') + '>' + _esc(NEWS_EVERY[n] || n + ' 分鐘') + '</option>').join('');
+            const last = d.last_at
+                ? '<div class="ob-news-last' + (d.last_error ? ' is-bad' : '') + '">上次看信 ' + _esc(_newsWhen(d.last_at)) + ' · '
+                    + _esc(d.last_error || (d.last_posted && d.last_posted.length ? '貼了 ' + d.last_posted.length + ' 則' : '沒有新的')
+                        + (!d.last_error && d.last_untagged ? '（' + d.last_untagged + ' 封沒帶標籤，沒貼）' : '')) + '</div>'
+                : '';
+            body = '<div class="ob-news-page">'
+                + '<label class="ob-news-switch"><input type="checkbox" class="ob-news-on"' + (d.enabled ? ' checked' : '') + '><span>自動貼到留言板</span></label>'
+                + '<label class="ob-news-field"><span>信箱</span><input type="email" class="ob-news-input ob-news-addr" value="' + _esc(d.address || '') + '" autocomplete="off"></label>'
+                + '<label class="ob-news-field"><span>應用程式密碼</span><input type="password" class="ob-news-input ob-news-pw" value="" autocomplete="new-password"'
+                    + (d.has_password ? ' placeholder="已存（要換再填）"' : '') + '></label>'
+                + (d.has_password ? '<button type="button" class="ob-news-clear">清掉密碼</button>' : '')
+                + '<div class="ob-news-field"><span>寄件人</span><div class="ob-news-slist">' + _newsSenderRows(d) + '</div>'
+                    + '<button type="button" class="ob-news-addsnd"><i class="fa-solid fa-plus"></i> 加一個寄件人</button></div>'
+                + '<label class="ob-news-field"><span>沒取名的寄件人掛這個名字</span><input type="text" class="ob-news-input ob-news-title" maxlength="20" value="' + _esc(d.title || '') + '"></label>'
+                + '<label class="ob-news-field"><span>多久看一次</span><select class="ob-news-input ob-news-every">' + every + '</select></label>'
+                + (s.error ? '<div class="ob-news-last is-bad">' + _esc(s.error) + '</div>' : '')
+                + '<div class="ob-news-btns"><button type="button" class="ob-news-save">儲存</button><button type="button" class="ob-news-check">現在看一次</button></div>'
+                + last + '</div>';
+        }
+        return head + '<div class="ob-wl-scroll">' + body + '</div>';
+    }
+    // 寄件人一個一張小卡：信箱、掛什麼名字、要帶什麼標籤（11-18）
+    //   每個寄件人可以各自改名（Muse 用自己的號寄素材來，跟 Grok 的快報分開掛名）
+    //   標籤用來過濾廣告信——填了標籤，主旨或內文開頭沒帶的就不貼。
+    //   舊版橋只認 senders：名字、標籤另外兩格送（sender_names／sender_tags），舊橋不認得就當沒有，寄件人照存。
+    function _newsSenderRow(addr, name, tag) {
+        return '<div class="ob-news-srow">'
+            + '<input type="text" class="ob-news-input ob-news-saddr" placeholder="寄件人信箱，例如 noreply@x.ai" value="' + _esc(addr || '') + '" autocomplete="off">'
+            + '<div class="ob-news-spair">'
+                + '<input type="text" class="ob-news-input ob-news-sname" maxlength="20" placeholder="掛什麼名字" value="' + _esc(name || '') + '" autocomplete="off">'
+                + '<input type="text" class="ob-news-input ob-news-stag" maxlength="20" placeholder="要帶的標籤（可空）" value="' + _esc(tag || '') + '" autocomplete="off">'
+            + '</div>'
+            + '<button type="button" class="ob-news-sdel" title="拿掉這個寄件人" aria-label="拿掉這個寄件人"><i class="fa-solid fa-xmark"></i></button>'
+            + '</div>';
+    }
+    function _newsSenderRows(d) {
+        const names = d.names || {}, tags = d.tags || {};
+        const list = (d.senders || []).map(a => _newsSenderRow(a, names[a], tags[a]));
+        return list.length ? list.join('') : _newsSenderRow('', '', '');
+    }
+    function _newsPaint(container) {
+        const st = _state.get(container);
+        const pane = container.querySelector('.ob-wl');
+        const title = pane && pane.querySelector('.ob-wl-title');
+        if (!st || !st.news || !pane || pane.hidden || !title || title.textContent !== '快報設定') return;
+        pane.innerHTML = _newsHtml(st.news);
+    }
+    async function _newsOpen(container) {
+        const st = _state.get(container);
+        const root = container.querySelector('.ob-container');
+        const pane = root && root.querySelector('.ob-wl');
+        if (!st || !pane) return;
+        st.wl = null; st.mem = null; st.sch = null;
+        const s = st.news = { data: null, error: '' };
+        root.querySelector('.ob-wl-page').hidden = true;
+        pane.hidden = false;
+        pane.innerHTML = _newsHtml(s);
+        try { s.data = await _api('/v1/news'); }
+        catch (e) { s.error = /HTTP 404/.test(String(e && e.message)) ? '要重開橋才有快報（新的那一版才有）。' : _wlErr(e); }
+        if (st.news === s) _newsPaint(container);
+    }
+    function _newsForm(pane) {
+        const v = sel => { const el = pane.querySelector(sel); return el ? el.value : ''; };
+        const senders = [], sender_names = {}, sender_tags = {};
+        pane.querySelectorAll('.ob-news-srow').forEach(r => {
+            const a = ((r.querySelector('.ob-news-saddr') || {}).value || '').trim().replace(/^<|>$/g, '').toLowerCase();
+            if (!a || senders.indexOf(a) >= 0) return;
+            senders.push(a);
+            const n = ((r.querySelector('.ob-news-sname') || {}).value || '').trim();
+            const g = ((r.querySelector('.ob-news-stag') || {}).value || '').trim();
+            if (n) sender_names[a] = n;
+            if (g) sender_tags[a] = g;
+        });
+        const body = {
+            enabled: !!(pane.querySelector('.ob-news-on') || {}).checked,
+            address: v('.ob-news-addr').trim(),
+            senders, sender_names, sender_tags,
+            title: v('.ob-news-title').trim(),
+            every_min: Number(v('.ob-news-every')) || 60,
+        };
+        const pw = v('.ob-news-pw').trim();
+        if (pw) body.password = pw;
+        return body;
+    }
+    async function _newsAct(container, what) {
+        const st = _state.get(container);
+        const s = st && st.news;
+        const pane = container.querySelector('.ob-wl');
+        if (!s || !s.data || !pane || s.busy) return;
+        s.busy = true;
+        pane.querySelectorAll('.ob-news-btns button, .ob-news-clear').forEach(b => { b.disabled = true; });
+        try {
+            if (what === 'check') {
+                const r = await _api('/v1/news/check', {});
+                s.data = r.status || s.data;
+                s.error = '';
+                if (r.posted && r.posted.length && await _refetch(container, true)) {
+                    const keep = pane.innerHTML;
+                    _renderBoard(container, st.all, st.hb);   // 板子換新的那則；這頁蓋回去
+                    const p2 = container.querySelector('.ob-wl');
+                    if (p2) { p2.hidden = false; p2.innerHTML = keep; }
+                }
+                // 整板重畫會換掉提示條，畫完才說
+                _toastOn(container, r.error ? r.error : (r.posted && r.posted.length ? '貼了 ' + r.posted.length + ' 則快報' : '看過了，沒有新的'));
+            } else {
+                const body = what === 'clear' ? { clear_password: true, enabled: false } : _newsForm(pane);
+                s.data = await _api('/v1/news', body);
+                s.error = '';
+                _toastOn(container, what === 'clear' ? '密碼清掉了' : '存好了');
+            }
+        } catch (e) {
+            const msg = String((e && e.message) || e);
+            const m = msg.match(/"message":\s*"([^"]+)"/);
+            s.error = m ? m[1] : (/HTTP 404/.test(msg) ? '要重開橋才有快報（新的那一版才有）。' : _wlErr(e));
+        } finally {
+            s.busy = false;
+        }
+        if (st.news === s) _newsPaint(container);
+    }
+
+    async function _schOpen(container) {
+        const st = _state.get(container);
+        const root = container.querySelector('.ob-container');
+        const pane = root && root.querySelector('.ob-wl');
+        if (!st || !pane) return;
+        st.wl = null; st.mem = null;   // 另外兩頁等到一半的，回來別蓋掉這頁
+        const s = st.sch = { data: null, error: '' };
+        root.querySelector('.ob-wl-page').hidden = true;
+        pane.hidden = false;
+        pane.innerHTML = _schHtml(s);
+        try { s.data = await _api('/v1/schedule'); }
+        catch (e) { s.error = /HTTP 404/.test(String(e && e.message)) ? '要重開橋才看得到日程表（新的那一版才有）。' : _wlErr(e); }
+        if (st.sch === s) _schPaint(container);
+    }
+    async function _schStep(container, btn) {
+        const st = _state.get(container);
+        const r = st && st.sch && st.sch.data && (st.sch.data.residents || {})[btn.dataset.rid];
+        if (!r || btn.dataset.busy) return;
+        const prev = Number(r.max_per_day) || 4;
+        const next = Math.max(1, Math.min(24, prev + Number(btn.dataset.d)));
+        if (next === prev) return;
+        r.max_per_day = next;   // 先改畫面，失敗再改回來
+        _schPaint(container);
+        try { await _api('/v1/heartbeat', { resident_id: btn.dataset.rid, max_per_day: next }); }
+        catch (e) {
+            r.max_per_day = prev;
+            _schPaint(container);
+            _say(container, '沒改成：' + (_plainReason(e && e.message) || '連不上橋'));
+        }
+    }
+    function _schDisarm(root, except) {
+        root.querySelectorAll('.ob-sch-x.armed').forEach(b => {
+            if (b === except) return;
+            b.classList.remove('armed');
+            b.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+        });
+    }
+    async function _schCancel(container, btn) {
+        const root = container.querySelector('.ob-container');
+        if (!btn.classList.contains('armed')) {   // 按一次只是變紅，再按一次才取消（同刪除動態）
+            _schDisarm(root, btn);
+            btn.classList.add('armed');
+            btn.textContent = '取消？';
+            return;
+        }
+        if (btn.dataset.busy) return;
+        btn.dataset.busy = '1';
+        const st = _state.get(container);
+        try {
+            await _api('/v1/schedule/cancel', { resident_id: btn.dataset.rid, id: btn.dataset.id });
+            const r = st && st.sch && st.sch.data && (st.sch.data.residents || {})[btn.dataset.rid];
+            if (r) r.plan = (r.plan || []).filter(i => i.id !== btn.dataset.id);
+            _schPaint(container);
+        } catch (e) {
+            delete btn.dataset.busy;
+            _say(container, '沒取消成：' + (_plainReason(e && e.message) || '連不上橋'));
+        }
+    }
+
+    // ---- 醒來紀錄的兩頁 ----
+    async function _wlOpen(container, rid) {
+        const st = _state.get(container);
+        const root = container.querySelector('.ob-container');
+        const pane = root && root.querySelector('.ob-wl');
+        if (!st || !pane) return;
+        st.sch = null; st.mem = null;   // 日程表、記憶那頁等到一半的，回來別蓋掉這頁
+        const my = st.wl = { rid: rid || '', items: null, more: false, loading: false, error: '' };
+        pane.hidden = false;
+        pane.innerHTML = _wlListHtml(my, st.hb);
+        try {
+            const r = await _fetchWakes(my.rid || null);
+            my.items = Array.isArray(r.items) ? r.items : [];
+            my.more = !!r.more;
+        } catch (e) { my.error = _wlErr(e); }
+        if (st.wl !== my) return;   // 等的時候她換了篩選
+        pane.innerHTML = _wlListHtml(my, st.hb);
+        // 看過「全部」＝都看過了：記到最新那筆，封面那顆的數字熄掉
+        if (!my.rid && my.items && my.items.length) {
+            _wlSetSeen(my.items[0].id);
+            const sec = root.querySelector('.ob-wakes');
+            if (sec) sec.outerHTML = _wakesHtml(st.hb, st.wakes);
+        }
+    }
+    async function _wlMore(container) {
+        const st = _state.get(container);
+        const my = st && st.wl;
+        const pane = container.querySelector('.ob-wl');
+        if (!my || !my.items || !my.items.length || my.loading || !pane) return;
+        my.loading = true;
+        const scroll = pane.querySelector('.ob-wl-scroll');
+        const top = scroll ? scroll.scrollTop : 0;
+        pane.innerHTML = _wlListHtml(my, st.hb);
+        try {
+            const r = await _fetchWakes(my.rid || null, my.items[my.items.length - 1].id);
+            my.items = my.items.concat(Array.isArray(r.items) ? r.items : []);
+            my.more = !!r.more;
+        } catch (e) { my.more = true; }
+        my.loading = false;
+        if (st.wl !== my) return;
+        pane.innerHTML = _wlListHtml(my, st.hb);
+        const s2 = pane.querySelector('.ob-wl-scroll');
+        if (s2) s2.scrollTop = top;   // 別跳回最上面
+    }
+    async function _wlDetail(container, wid) {
+        const page = container.querySelector('.ob-wl-page');
+        if (!page) return;
+        page.dataset.wid = String(wid);
+        page.dataset.mid = '';   // 記憶那則的全文還在等的話，晚到了別蓋掉這一次的經過（_memDetail 也是兩個一起換）
+        page.hidden = false;
+        page.innerHTML = '<div class="ob-wl-head"><button type="button" class="ob-wl-back" data-to="list" title="回醒來紀錄"><i class="fa-solid fa-chevron-left"></i></button>'
+            + '<div class="ob-wl-title">醒來紀錄</div><span class="ob-wl-headpad"></span></div><div class="ob-wl-scroll"><div class="ob-wl-empty">正在拿這一次的經過…</div></div>';
+        let html;
+        try { html = _wlDetailHtml(await _api('/v1/wakes/' + encodeURIComponent(wid))); }
+        catch (e) {
+            html = '<div class="ob-wl-head"><button type="button" class="ob-wl-back" data-to="list" title="回醒來紀錄"><i class="fa-solid fa-chevron-left"></i></button>'
+                + '<div class="ob-wl-title">醒來紀錄</div><span class="ob-wl-headpad"></span></div><div class="ob-wl-scroll"><div class="ob-wl-empty">' + _esc(_wlErr(e)) + '</div></div>';
+        }
+        if (page.dataset.wid === String(wid) && !page.hidden) page.innerHTML = html;
+    }
+
+    async function _propRefresh(container) {
+        const st = _state.get(container);
+        if (!st) return;
+        st.props = await _fetchProps();
+        const root = container.querySelector('.ob-container');
+        const sec = root && root.querySelector('.ob-props');
+        const html = _propsHtml(st.props, st.propsAll);
+        // 分頁要出現或消失（第一張／最後一張）就整板重畫；不然只換這一區和分頁上的數字，捲動位置不動
+        if (!sec || !html) { _renderBoard(container, st.all, st.hb); return; }
+        sec.outerHTML = html;
+        const nav = root.querySelector('.ob-tabs');
+        if (nav) nav.outerHTML = _tabsHtml(_tabList(st, _index(st.all)), st.tab || 'feed');
+    }
+    function _propOpen(container, id, say) {
+        const st = _state.get(container);
+        const x = st && (st.props || []).find(p => p.id === id);
+        if (!x) return;
+        const w = window.parent || window;
+        const T = w.WX_TOOLS || window.WX_TOOLS;
+        const E = w.OS_AURELIA_EDIT || window.OS_AURELIA_EDIT;
+        if (!T || !T.openPropSheet || !E) { say('要在酒館或手機裡打開留言板才能按'); return; }
+        const where = (x.prop && x.prop.where) || '';
+        if (where && where !== _hereName()) { say('這張是在' + where + '提的，要在' + where + '的留言板按（兩邊的' + ((x.prop && x.prop.mod === 'preset') ? '預設' : '世界書') + '是分開的）'); return; }
+        // 第一次點開：記「看過」（整張寫回橋，酒館和手機看到的一樣），列表底下馬上換成「看過、先放著」。
+        // 寫不回去（橋斷了）就算了，下次點開再記；不擋她開單子
+        if (x.state === 'wait' && x.prop && !x.prop.seen) {
+            x.prop.seen = Date.now();
+            _api('/v1/aurelia/props/update', { id: x.id, prop: x.prop }).then(() => _propRefresh(container)).catch(() => {});
+        }
+        T.openPropSheet(x.prop, container.querySelector('.ob-container'), async p => {
+            await _api('/v1/aurelia/props/update', { id: x.id, prop: p });
+            await _propRefresh(container);
+        });
+    }
+
+    function _bind(container) {
+        const root = container.querySelector('.ob-container');
+        if (!root) return;
+        const st = _state.get(container);
+        const bar = root.querySelector('.ob-bar');
+        const input = root.querySelector('.ob-bar-input');
+        const sendBtn = root.querySelector('.ob-bar-send');
+        const barFile = root.querySelector('.ob-bar-file');
+        const barMedia = root.querySelector('.ob-bar-media');
+        const sheet = root.querySelector('.ob-sheet');
+        const sheetText = root.querySelector('.ob-sheet-text');
+        const sheetSend = root.querySelector('.ob-sheet-send');
+        const sheetFile = root.querySelector('.ob-sheet-file');
+        const sheetMedia = root.querySelector('.ob-sheet-media');
+        let busy = false;
+
+        const say = msg => _toastOn(container, msg);
+        const failed = (e, what) => {
+            const msg = (e && e.message) ? String(e.message) : String(e);
+            if (msg === 'NOT_CONFIGURED') { say('還沒填連線。'); return; }
+            say(what + '沒成功：' + (_plainReason(msg) || msg));
+        };
+        const closePops = except => {
+            root.querySelectorAll('.ob-act-pop').forEach(p => { if (p !== except) p.hidden = true; });
+        };
+        const disarm = except => {
+            root.querySelectorAll('.ob-del.armed').forEach(b => { if (b !== except) { b.classList.remove('armed'); b.textContent = '刪除'; } });
+            root.querySelectorAll('.ob-cmt-del').forEach(b => { if (b !== except) b.hidden = true; });
+        };
+        const openBar = (pid, at) => {
+            st.reply = { pid: pid, at: at || '' };
+            input.placeholder = at ? '回覆 ' + at : '評論';
+            bar.hidden = false;
+            input.focus();
+        };
+        // 留言貼的圖（11-23）：跟發動態同一套，先在這台裝置上看縮圖，按「發送」才傳到橋
+        (st.ratt || []).forEach(a => { try { URL.revokeObjectURL(a.url); } catch (_) {} });
+        st.ratt = [];
+        const canReply = () => !!(input.value.trim() || st.ratt.length);
+        const paintRatt = () => {
+            barMedia.hidden = !st.ratt.length;
+            barMedia.innerHTML = st.ratt.map((a, i) => '<div class="ob-att"><img src="' + a.url + '" alt="">'
+                + '<button type="button" class="ob-att-del" data-i="' + i + '" aria-label="拿掉"><i class="fa-solid fa-xmark"></i></button></div>').join('');
+            sendBtn.disabled = !canReply();
+        };
+        const addRatt = files => {
+            let took = 0;
+            for (const f of files) {
+                if (!f || !/^image\//.test(f.type)) continue;
+                if (st.ratt.length >= ATT_MAX) { say('一則最多 ' + ATT_MAX + ' 張'); break; }
+                if (f.size > ATT_MB * 1024 * 1024) { say('這張圖太大了，一張最多 ' + ATT_MB + 'MB'); continue; }
+                st.ratt.push({ file: f, kind: 'img', url: URL.createObjectURL(f) });
+                took++;
+            }
+            paintRatt();
+            return took;
+        };
+        const closeBar = () => {
+            st.reply = null;
+            bar.hidden = true;
+            input.value = '';
+            st.ratt.forEach(a => { try { URL.revokeObjectURL(a.url); } catch (_) {} });
+            st.ratt = [];
+            paintRatt();
+        };
+        const run = async (what, fn) => {
+            if (busy) return;
+            busy = true;
+            try { await fn(); }
+            catch (e) { failed(e, what); }
+            finally { busy = false; }
+        };
+
+        const sendReply = () => {
+            const r = st.reply;
+            const text = input.value.trim();
+            if (!r || !canReply()) return;
+            const tags = ['reaction', 'reply', 'to:' + r.pid];
+            if (r.at) tags.push('at:' + r.at);
+            run(r.at ? '回覆' : '評論', async () => {
+                sendBtn.disabled = true;
+                let content = text;
+                if (st.ratt.length) {
+                    say('上傳中…');
+                    const up = await _upload(st.ratt);
+                    content = (text ? text + '\n' : '') + up.map(x => '![圖片](' + x.path + ')').join('\n');
+                }
+                await _postNote(content, tags);
+                closeBar();
+                await _refreshPost(container, r.pid);
+            }).finally(() => { if (sendBtn.isConnected) sendBtn.disabled = !canReply(); });
+        };
+
+        input.addEventListener('input', () => { sendBtn.disabled = !canReply(); });
+        // 電腦上複製一張圖，在留言框裡貼上就放進去
+        input.addEventListener('paste', ev => {
+            const files = Array.from((ev.clipboardData && ev.clipboardData.files) || []).filter(f => /^image\//.test(f.type));
+            if (files.length && addRatt(files)) ev.preventDefault();
+        });
+        barFile.addEventListener('change', () => {
+            const picked = Array.from(barFile.files || []);
+            barFile.value = '';
+            addRatt(picked);
+            input.focus({ preventScroll: true });
+        });
+        input.addEventListener('keydown', ev => {
+            if (ev.key === 'Enter' && !ev.isComposing) { ev.preventDefault(); sendReply(); }
+            else if (ev.key === 'Escape') closeBar();
+        });
+        // 發動態附的照片／影片：先在這台裝置上看縮圖，按「發表」才傳到橋。板子重畫（textarea 也清空）時一起清掉
+        (st.att || []).forEach(a => { try { URL.revokeObjectURL(a.url); } catch (_) {} });
+        st.att = [];
+        const canPost = () => !!(sheetText.value.trim() || st.att.length);
+        const paintAtt = () => {
+            sheetMedia.hidden = !st.att.length;
+            sheetMedia.innerHTML = st.att.map((a, i) => '<div class="ob-att">'
+                + (a.kind === 'video'
+                    ? '<video src="' + a.url + '#t=0.1" muted playsinline preload="metadata"></video><i class="fa-solid fa-play ob-att-play"></i>'
+                    : '<img src="' + a.url + '" alt="">')
+                + '<button type="button" class="ob-att-del" data-i="' + i + '" aria-label="拿掉"><i class="fa-solid fa-xmark"></i></button></div>').join('');
+            sheetSend.disabled = !canPost();
+        };
+        sheetFile.addEventListener('change', () => {
+            const picked = Array.from(sheetFile.files || []);
+            sheetFile.value = '';
+            for (const f of picked) {
+                const kind = /^video\//.test(f.type) ? 'video' : /^image\//.test(f.type) ? 'img' : '';
+                if (!kind) continue;
+                if (st.att.length >= ATT_MAX) { say('一則最多 ' + ATT_MAX + ' 個'); break; }
+                if (f.size > ATT_MB * 1024 * 1024) { say((kind === 'video' ? '這支影片' : '這張圖') + '太大了，一個最多 ' + ATT_MB + 'MB'); continue; }
+                st.att.push({ file: f, kind: kind, url: URL.createObjectURL(f) });
+            }
+            paintAtt();
+        });
+        sheetText.addEventListener('input', () => { sheetSend.disabled = !canPost(); });
+        // 記憶那頁的「找」
+        root.addEventListener('input', ev => {
+            if (ev.target && ev.target.classList && ev.target.classList.contains('ob-mem-q')) _memFilter(container, ev.target.value.trim());
+        });
+
+        root.addEventListener('click', ev => {
+            const t = ev.target;
+            if (!t.closest('.ob-act-wrap')) closePops();
+            if (!t.closest('.ob-del') && !t.closest('.ob-cmt-mine')) disarm();
+            if (!t.closest('.ob-sch-x')) _schDisarm(root);
+
+            // 分頁
+            const tabBtn = t.closest('.ob-tab');
+            if (tabBtn) { closeBar(); _tabGo(container, tabBtn.dataset.tab); return; }
+
+            // 交誼廳：點小人開他的近況小卡（再點一次、點叉叉、點客廳空的地方收起）；小卡上三顆接原本的頁
+            const lgP = t.closest('.ob-lg-p');
+            if (lgP) { _lgPick(container, st.lgPick === lgP.dataset.rid ? '' : lgP.dataset.rid); return; }
+            if (t.closest('.ob-lg-card-x')) { _lgPick(container, ''); return; }
+            const lgGo = t.closest('.ob-lg-go');
+            if (lgGo && st.lgPick) {
+                const go = lgGo.dataset.go;
+                if (go === 'wakes') _wlOpen(container, st.lgPick);
+                else if (go === 'mem') _memOpen(container, st.lgPick);
+                else _schOpen(container);
+                return;
+            }
+            if (t.closest('.ob-lg')) { if (st.lgPick) _lgPick(container, ''); return; }
+            const meetRow = t.closest('.ob-meetrow');
+            if (meetRow) { _meetGo(container, meetRow); return; }
+
+            // 等你同意的：處理過的只列最近幾張，按了全列
+            if (t.closest('.ob-props-more')) { st.propsAll = true; _propRefresh(container); return; }
+            // 等你同意的：點一張打開單子
+            const ppRow = t.closest('.ob-prop');
+            if (ppRow) { _propOpen(container, ppRow.dataset.ppid, say); return; }
+
+            // 記憶：入口、換人、換本、點一則、全文裡互指的那一則（要排在醒來紀錄前面：人那排也用 .ob-wl-chip 的樣子）
+            if (t.closest('.ob-mem-open')) { _memOpen(container); return; }
+            const mw = t.closest('.ob-mem-who');
+            if (mw) { _memPick(container, mw.dataset.rid || '', ''); return; }
+            const mtab = t.closest('.ob-mem-tab');
+            if (mtab) { if (st.mem) _memPick(container, st.mem.rid, mtab.dataset.book || ''); return; }
+            const mitem = t.closest('.ob-mem-item');
+            if (mitem) { _memDetail(container, mitem.dataset.id); return; }
+            const mlink = t.closest('.ob-mem-link');
+            if (mlink) { _memDetail(container, mlink.dataset.mem); return; }
+
+            // 快報設定：入口、儲存、現在看一次、清掉密碼（同樣蓋在板子上那一層）
+            if (t.closest('.ob-news-set')) { _newsOpen(container); return; }
+            if (t.closest('.ob-news-save')) { _newsAct(container, 'save'); return; }
+            if (t.closest('.ob-news-check')) { _newsAct(container, 'check'); return; }
+            if (t.closest('.ob-news-clear')) { _newsAct(container, 'clear'); return; }
+            if (t.closest('.ob-news-addsnd')) {
+                const list = container.querySelector('.ob-news-slist');
+                if (list) { list.insertAdjacentHTML('beforeend', _newsSenderRow('', '', '')); const inp = list.lastElementChild.querySelector('.ob-news-saddr'); if (inp) inp.focus({ preventScroll: true }); }
+                return;
+            }
+            const sdel = t.closest('.ob-news-sdel');
+            if (sdel) {
+                const row = sdel.closest('.ob-news-srow'), list = row && row.parentElement;
+                if (!row || !list) return;
+                if (list.children.length > 1) row.remove();
+                else row.querySelectorAll('input').forEach(i => { i.value = ''; });   // 最後一張：清空就好，留一格給她填
+                return;
+            }
+
+            // 日程表：入口、每天上限加減、取消一筆（要排在醒來紀錄那個「紀錄頁裡其他地方不往下走」前面）
+            if (t.closest('.ob-sch-open')) { _schOpen(container); return; }
+            const schStep = t.closest('.ob-sch-step');
+            if (schStep) { _schStep(container, schStep); return; }
+            const schX = t.closest('.ob-sch-x');
+            if (schX) { _schCancel(container, schX); return; }
+
+            // 醒來紀錄：入口、點頭像、兩頁裡的返回／篩選／更早的／點一次
+            if (t.closest('.ob-wl-open')) { _wlOpen(container, ''); return; }
+            const wk = t.closest('.ob-wake.is-link');
+            if (wk) { _wlOpen(container, wk.dataset.rid || ''); return; }
+            const back = t.closest('.ob-wl-back');
+            if (back) {
+                root.querySelector('.ob-wl-page').hidden = true;
+                if (back.dataset.to === 'board') root.querySelector('.ob-wl').hidden = true;
+                return;
+            }
+            const chip = t.closest('.ob-wl-chip');
+            if (chip) { _wlOpen(container, chip.dataset.rid || ''); return; }
+            if (t.closest('.ob-wl-more')) { _wlMore(container); return; }
+            const wli = t.closest('.ob-wl-item');
+            if (wli) { _wlDetail(container, wli.dataset.wid); return; }
+            if (t.closest('.ob-wl') || t.closest('.ob-wl-page')) return;   // 紀錄頁裡的其他地方不往下走板子的點擊
+
+            if (t.closest('.ob-refresh')) { launch(container); return; }
+            // 快報太長收起來的那截
+            const nm = t.closest('.ob-news-more');
+            if (nm) {
+                const bodyEl = nm.previousElementSibling;
+                const open = bodyEl && bodyEl.classList.toggle('is-folded') === false;
+                nm.textContent = open ? '收起來' : '展開全文';
+                return;
+            }
+            // 臨時群聊「先停」：這串不再叫人（她在底下回一句還是會再叫一輪）
+            const ms = t.closest('.ob-meet-stop');
+            if (ms) {
+                const mp = ms.closest('.ob-post');
+                run('先停', async () => {
+                    ms.disabled = true;
+                    await _api('/v1/meet/stop', { id: Number(mp.dataset.pid) });
+                    await _refreshPost(container, mp.dataset.pid);
+                });
+                return;
+            }
+            if (t.closest('.ob-compose')) { sheet.hidden = false; sheetText.focus(); return; }
+            if (t.closest('.ob-sheet-cancel') || t === sheet) { sheet.hidden = true; return; }
+            if (t.closest('.ob-sheet-att')) { sheetFile.click(); return; }
+            const attDel = t.closest('.ob-att-del');
+            if (attDel) {
+                const inBar = !!attDel.closest('.ob-bar');   // 留言框上面那排，還是發動態那頁
+                const gone = (inBar ? st.ratt : st.att).splice(+attDel.dataset.i, 1)[0];
+                if (gone) { try { URL.revokeObjectURL(gone.url); } catch (_) {} }
+                if (inBar) paintRatt(); else paintAtt();
+                return;
+            }
+            if (t.closest('.ob-sheet-send')) {
+                const text = sheetText.value.trim();
+                if (!text && !st.att.length) return;
+                run('發表', async () => {
+                    sheetSend.disabled = true;
+                    let content = text;
+                    if (st.att.length) {
+                        say('上傳中…');
+                        const up = await _upload(st.att);
+                        content = (text ? text + '\n\n' : '') + up.map(x => '![' + (x.kind === 'video' ? '影片' : '圖片') + '](' + x.path + ')').join('\n');
+                    }
+                    await _postNote(content, ['rae']);
+                    const fresh = await _refetch(container, true);   // 拿不到也照樣重畫：發好了，框要清掉，不然她會再發一次
+                    st.tab = 'feed';   // 她剛發的在動態，停在別頁會以為沒發出去
+                    _renderBoard(container, st.all, st.hb);
+                    if (!fresh) _toastOn(container, REFETCH_FAIL);   // 整板重畫會換掉提示條，畫完才說
+                }).finally(() => { if (sheetSend.isConnected) sheetSend.disabled = !canPost(); });
+                return;
+            }
+            if (t.closest('.ob-bar')) {
+                if (t.closest('.ob-bar-send')) sendReply();
+                else if (t.closest('.ob-bar-att')) barFile.click();
+                return;
+            }
+            // 動態裡的圖：點了放大（奧瑞亞的看圖器在就用它）
+            const mimg = t.closest('.ob-media img');
+            if (mimg) {
+                const PV = win.OS_PHOTO_VIEWER || window.OS_PHOTO_VIEWER;
+                const imgs = Array.from(mimg.closest('.ob-media-grid').querySelectorAll('.ob-media img'));
+                if (PV && PV.open) PV.open(imgs.map(i => ({ src: i.src })), Math.max(0, imgs.indexOf(mimg)), { fromEl: mimg });
+                return;
+            }
+
+            const post = t.closest('.ob-post');
+            const pid = post && post.dataset.pid;
+
+            const act = t.closest('.ob-act');
+            if (act) {
+                const pop = act.parentNode.querySelector('.ob-act-pop');
+                closePops(pop);
+                pop.hidden = !pop.hidden;
+                return;
+            }
+            const like = t.closest('.ob-pop-like');
+            if (like && pid) {
+                like.closest('.ob-act-pop').hidden = true;
+                const un = like.dataset.unlike;
+                run(un ? '取消讚' : '按讚', async () => {
+                    if (un) await _deleteNote(un);
+                    else await _postNote('讚', ['reaction', 'like', 'to:' + pid]);
+                    await _refreshPost(container, pid);
+                });
+                return;
+            }
+            if (t.closest('.ob-pop-cmt') && pid) {
+                t.closest('.ob-act-pop').hidden = true;
+                openBar(pid, '');
+                return;
+            }
+            const cdel = t.closest('.ob-cmt-del');
+            if (cdel && pid) {
+                const rid = cdel.closest('.ob-cmt').dataset.rid;
+                run('刪除', async () => { await _deleteNote(rid); await _refreshPost(container, pid); });
+                return;
+            }
+            const cmt = t.closest('.ob-cmt');
+            if (cmt && pid) {
+                if (cmt.classList.contains('ob-cmt-mine')) {
+                    // 自己的留言：點一下亮出刪除，再點刪除才刪
+                    const b = cmt.querySelector('.ob-cmt-del');
+                    disarm(b);
+                    if (b) b.hidden = !b.hidden;
+                } else {
+                    openBar(pid, cmt.dataset.who);
+                }
+                return;
+            }
+            const del = t.closest('.ob-del');
+            if (del && pid) {
+                if (!del.classList.contains('armed')) {
+                    disarm(del);
+                    del.classList.add('armed');
+                    del.textContent = '確定刪除？';
+                    return;
+                }
+                run('刪除', async () => { await _deleteNote(pid); await _refreshPost(container, pid); });
+                return;
+            }
+            if (!bar.hidden) closeBar();
+        });
+    }
+
+    async function launch(container) {
+        if (!container) return;
+        container.innerHTML = '<div class="ob-container"><div class="ob-loading">正在拉留言板…</div></div>';
+        try {
+            if (!_bridge()) throw new Error('NOT_CONFIGURED');
+            const posts = await _fetchPosts();
+            // 心跳設定只畫那排頭像、待修清單只畫那一區，拿不到就不畫，不擋板子
+            const [hbConf, bugs, wakes, props] = await Promise.all([_fetchHeartbeatConf(), _fetchBugs(), _fetchWakesQuiet(), _fetchProps()]);
+            _state.set(container, { all: posts, hb: hbConf, reply: null, bugs: bugs, wakes: wakes, wl: null, props: props, tab: '' });
+            _renderBoard(container, posts, hbConf);
+            // 這次是真的翻過板子了：記下看到哪、熄掉入口鈕上的小點（「想跟妳說的」那顆歸紀錄頁熄）
+            try {
+                if (posts.length) localStorage.setItem('ccr_board_seen', posts[0].created_at || '');
+                const lb = document.getElementById('ccr-launcher');
+                if (lb) { lb.classList.remove('ccr-news'); if (!lb.classList.contains('ccr-news-prop')) lb.title = '宿舍'; }
+            } catch (_) {}
+        } catch (e) {
+            const msg = (e && e.message) ? String(e.message) : String(e);
+            if (msg === 'NOT_CONFIGURED') {
+                container.innerHTML = '<div class="ob-container"><div class="ob-error">'
+                    + '<i class="fa-solid fa-plug"></i><div class="ob-error-big">還沒填連線</div>'
+                    + '<div class="ob-error-note">回房間，右上「設置」→ 連線預設，填網址跟密鑰。</div></div></div>';
+                return;
+            }
+            // 把現場記下來（她那邊看不到 console，這筆我之後直接去她電腦上讀）
+            try {
+                const probe = await _probeSameOrigin();
+                let framed = 'unknown', href = '', top = '';
+                try { framed = String(window.top !== window.self); } catch (_) { framed = 'cross'; }
+                try { href = String(location.href).slice(0, 140); } catch (_) {}
+                try { top = String((window.parent || window).location.href).slice(0, 140); } catch (_) { top = '(讀不到外層)'; }
+                _writeDiag({
+                    t: new Date().toISOString(),
+                    ver: 11,
+                    err: ((e && e.name) || '?') + ': ' + msg.slice(0, 160),
+                    via: _lastVia,
+                    host: _hostLabel(),
+                    framed: framed,
+                    here: href,
+                    outer: top,
+                    outerFetch: !!(_outerWin() && _outerWin().fetch),
+                    sameOrigin: probe,
+                    online: (typeof navigator !== 'undefined') ? navigator.onLine : '?',
+                    ua: (typeof navigator !== 'undefined') ? navigator.userAgent.slice(0, 100) : '',
+                });
+            } catch (_) {}
+            const why = _plainReason(msg);
+            container.innerHTML = `
+                <div class="ob-container"><div class="ob-error">
+                    <i class="fa-solid fa-heart-crack"></i>
+                    <div class="ob-error-big">現在連不上板子</div>
+                    <div class="ob-error-note">${why ? _esc(why) : '讀不到板子。'}${_esc(_restartHint())}</div>
+                    <div class="ob-error-host">剛才試的是 ${_esc(_hostLabel())}${_lastVia === 'both-failed' ? '，框裡框外都試過了' : ''}${_frameNote() ? ' · ' + _esc(_frameNote()) : ''}</div>
+                    ${why ? '' : '<code>' + _esc(msg) + '</code>'}
+                    <button class="ob-retry" type="button">重試</button>
+                </div></div>`;
+            const retry = container.querySelector('.ob-retry');
+            if (retry) retry.addEventListener('click', () => launch(container));
+        }
+    }
+
+    /** board.html 用：給一組連線（base＝橋的根網址，key＝密鑰） */
+    function setConnection(conn) {
+        _conn = conn && conn.base && conn.key
+            ? { base: String(conn.base).replace(/\/+$/, ''), key: String(conn.key) }
+            : null;
+    }
+
+    // miniMd：沒有 showdown 的地方（手機 PWA）房間私聊、群聊也用這支，markdown 只維護一份
+    win.OS_BOARD = { launch, setConnection, miniMd: _miniMd };
+    if (win !== window) window.OS_BOARD = win.OS_BOARD;
+
+    console.log('[Aurelia] 留言板載入完成');
+})();

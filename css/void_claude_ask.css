@@ -1,0 +1,133 @@
+/* ==========================================================
+ * Claude 房間 ASK marker：選項 + 自輸入 UI
+ * Clawd 在回覆嵌 [ASK|題目|選項1|選項2|...]、前端拆出來 render
+ * ========================================================== */
+
+.claude-ask {
+    margin-top: 8px;
+    padding: 12px;
+    background: rgba(251, 252, 254, 0.92);
+    border: 1px solid rgba(42, 74, 128, 0.25);
+    border-left: 3px solid #2a4a80;
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-self: stretch;
+    max-width: 90%;
+}
+
+.claude-bubble-wrap.from-claude .claude-ask {
+    margin-left: 0;
+}
+
+.claude-ask-q {
+    font-size: 13px;
+    font-weight: 500;
+    color: #1f3a68;
+    line-height: 1.5;
+}
+
+.claude-ask-opts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.claude-ask-opt {
+    padding: 7px 14px;
+    background: rgba(42, 74, 128, 0.1);
+    color: #2a4a80;
+    border: 1px solid rgba(42, 74, 128, 0.35);
+    border-radius: 16px;
+    font-size: 12px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.15s ease;
+}
+
+.claude-ask-opt:hover:not(:disabled) {
+    background: rgba(42, 74, 128, 0.22);
+    border-color: #2a4a80;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(42, 74, 128, 0.18);
+}
+
+.claude-ask-opt:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+.claude-ask-opt:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.claude-ask-other-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.claude-ask-other-input {
+    flex: 1;
+    padding: 6px 10px;
+    background: #fff;
+    border: 1px solid rgba(42, 74, 128, 0.3);
+    border-radius: 4px;
+    font-size: 12px;
+    color: #1f3a68;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s ease;
+}
+
+.claude-ask-other-input:focus {
+    border-color: #2a4a80;
+    box-shadow: 0 0 0 2px rgba(42, 74, 128, 0.12);
+}
+
+.claude-ask-other-input::placeholder {
+    color: rgba(70, 99, 155, 0.55);
+}
+
+.claude-ask-other-input:disabled {
+    opacity: 0.5;
+    background: rgba(251, 252, 254, 0.5);
+}
+
+.claude-ask-other-submit {
+    padding: 6px 12px;
+    background: #2a4a80;
+    color: #fff;
+    border: 1px solid #2a4a80;
+    border-radius: 4px;
+    font-size: 11px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.15s ease;
+}
+
+.claude-ask-other-submit:hover:not(:disabled) {
+    background: #1e3554;
+    border-color: #1e3554;
+}
+
+.claude-ask-other-submit:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.claude-ask-picked {
+    margin-top: 4px;
+    padding: 6px 10px;
+    background: rgba(42, 74, 128, 0.12);
+    border-radius: 4px;
+    font-size: 11px;
+    color: #2a4a80;
+    font-weight: 500;
+}
+
+.claude-ask.picked {
+    border-color: rgba(42, 74, 128, 0.15);
+    border-left-color: rgba(42, 74, 128, 0.45);
+}
