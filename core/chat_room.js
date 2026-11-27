@@ -542,6 +542,58 @@
         return ts;
     }
 
+    // 🔧 還在跑的那輪：同一顆摺疊盒，一叫工具就出現。標題寫他這一刻在幹嘛（轉圈＋第幾個），
+    //    點開是每一步，做完的打勾、正在跑的在轉。講完整則換成上面那顆（_buildToolSummary）。
+    //    doing：最後到的那個訊號——{kind:'tool'}（工具那則到了）／{kind:'think'|'write'|'tool', name, n}（橋的 now）／{kind:'write'}（字來了）。
+    //    now.n＝橋送那個訊號時已經叫完幾個工具：tool 且 n 追上清單長度＝下一個工具參數還在寫（寫大檔時會很久），還沒進清單。
+    //    同一顆重畫只換字（開著的不會被收起來、轉圈不重來）。
+    function _liveToolsState(tools, doing) {
+        const list = Array.isArray(tools) ? tools : [];
+        const d = doing || { kind: 'tool' };
+        const caught = typeof d.n === 'number' && d.n >= list.length;
+        if (d.kind === 'tool' && d.name && caught) {
+            return { label: _toolDoingLabel({ name: d.name }), prep: d.name, runLast: false, step: list.length + 1 };
+        }
+        if (d.kind === 'think' && (caught || typeof d.n !== 'number')) return { label: '思考中…', prep: null, runLast: false, step: list.length };
+        if (d.kind === 'write' && (caught || typeof d.n !== 'number')) return { label: '在寫回覆…', prep: null, runLast: false, step: list.length };
+        const last = list[list.length - 1];
+        return { label: last ? _toolDoingLabel(last) : '正在動手…', prep: null, runLast: !!last, step: list.length };
+    }
+    function _paintLiveTools(el, tools, doing) {
+        const list = Array.isArray(tools) ? tools : [];
+        const s = _liveToolsState(list, doing);
+        if (!el._built) {
+            el._built = true;
+            el.className = 'claude-tool-summary is-live';
+            el.innerHTML = '<div class="claude-tool-summary-header"><span class="claude-tool-summary-toggle">▶</span>'
+                + '<i class="claude-tool-live-spin"></i><span class="claude-tool-live-label"></span>'
+                + '<span class="claude-tool-live-step"></span></div><div class="claude-tool-summary-body"></div>';
+            el.addEventListener('click', () => el.classList.toggle('open'));
+        }
+        el.querySelector('.claude-tool-live-label').textContent = s.label;
+        el.querySelector('.claude-tool-live-step').textContent = s.step ? '第 ' + s.step + ' 個' : '';
+        const body = el.querySelector('.claude-tool-summary-body');
+        const rows = list.map(t => ({ name: (t && t.name) || 'unknown', detail: _toolDetailLine(t) || '' }));
+        if (s.prep) rows.push({ name: s.prep, detail: '準備中…' });
+        rows.forEach((r, i) => {
+            let item = body.children[i];
+            if (!item) {
+                item = document.createElement('div');
+                item.className = 'claude-tool-summary-item';
+                item.innerHTML = '<i class="claude-tool-live-mark"></i><span class="claude-tool-summary-name"></span>'
+                    + '<span class="claude-tool-summary-detail"></span>';
+                body.appendChild(item);
+            }
+            const running = (s.prep && i === rows.length - 1) || (s.runLast && i === rows.length - 1);
+            item.classList.toggle('is-run', !!running);
+            const nm = item.querySelector('.claude-tool-summary-name');
+            if (nm.textContent !== r.name) nm.textContent = r.name;
+            const dt = item.querySelector('.claude-tool-summary-detail');
+            if (dt.textContent !== r.detail) dt.textContent = r.detail;
+        });
+        while (body.children.length > rows.length) body.removeChild(body.lastChild);
+    }
+
     // 📋 他列的清單（橋的 plan_track.py 送來，Claude 的待辦、Codex 的計畫都是這一份）：
     //    一條一行，做完打勾、正在做的在轉、還沒輪到的是虛線圈；最下面一行寫他這一刻在做什麼、跑了多久。
     //    plan：{items:[{text,status,active}], now:{label,detail}}。
@@ -1392,7 +1444,7 @@
             else host.appendChild(el);
             if (pop) {
                 el.classList.add('claude-bubble-pop');
-                setTimeout(() => el.classList.remove('claude-bubble-pop'), 400);
+                setTimeout(() => el.classList.remove('claude-bubble-pop'), 520);   // 比動畫（0.42s）長一點；不綁 animationend（背景分頁不會觸發）
             }
             if (typeof onStep === 'function') { try { onStep(); } catch (_) {} }
         };
@@ -1880,6 +1932,7 @@
             calls: m.calls || 0,
             stopped: !!m.stopped,
             noScroll: true,
+            still: true,   // 歷史重畫不彈（進房整片一起彈會很吵）；只有新冒出來的才彈
             msg: m,
         }, extra || {}));
     }
@@ -2415,7 +2468,19 @@
             // streaming 漸進式 render：stream 期間每收到 text/tool 事件就 destroy 舊 wrapper
             // 重 render 一個（用 suppressMarkdown 跳過 markdown，避免每 chunk 重 render markdown 閃爍）
             // stream 結束後最終 render 才開 markdown
-            const acc = { text: '', tools: [], writing: false };   // writing：最近一個動作是在寫字（進度卡最下面那行寫「在寫回覆」）
+            const acc = { text: '', tools: [], writing: false, doing: null, cuts: [] };
+            // cuts：他寫到這裡就去動手了（字數）。橋把前後兩則的字直接接在一起，切泡泡時在這幾個地方補一個空行，
+            // 動手前那段才能先冒出來、後面寫的另起一顆
+            const _withCuts = (src) => {
+                src = String(src == null ? '' : src);
+                let out = '', prev = 0;
+                acc.cuts.forEach(c => { if (c > prev && c <= src.length) { out += src.slice(prev, c) + '\n\n'; prev = c; } });
+                return out + src.slice(prev);
+            };
+            const _cutHere = () => {
+                const n = acc.text.length, last = acc.cuts.length ? acc.cuts[acc.cuts.length - 1] : 0;
+                if (n > last && /\S/.test(acc.text.slice(last))) acc.cuts.push(n);
+            };   // writing：最近一個動作是在寫字（進度卡最下面那行寫「在寫回覆」）；doing：工具摺疊盒標題照哪個訊號（_liveToolsState）
             let _typingSwitched = false;
             const stream = _el('claude-chat-stream');
 
@@ -2461,18 +2526,22 @@
                 // 切走又切回來：房間重畫過、原本那個殼不在畫面上了，重新起一個（已經寫完的段落從頭放）
                 if (streamWrap && !streamWrap.isConnected) { streamWrap = null; _streamToolEl = null; _streamPlanEl = null; }
                 _ensureStreamShell();
-                // 最後一段可能還在寫，只放前面寫完的
-                const segs = _replySegments(acc.text, true);
-                if (segs.length - 1 > _revealer.count) _revealer.push(segs.slice(_revealer.count, segs.length - 1));
+                // 最後一段可能還在寫，只放前面寫完的。
+                // 不過他已經去動手了（在想、叫工具）或那段後面空了一行＝那段寫完了，也放：
+                // 不然「我看一下那支檔。」要等他整串工具跑完、開始寫下一段才冒出來
+                const segs = _replySegments(_withCuts(acc.text), true);
+                // 🚨 還沒寫字時（一開始就在想）切出來是一顆空段，算進去的話他真正的第一段會被當成放過了
+                const lastDone = /\S/.test(acc.text) && (!acc.writing || /\n[ \t]*\n\s*$/.test(acc.text));
+                const upto = lastDone ? segs.length : segs.length - 1;
+                if (upto > _revealer.count) _revealer.push(segs.slice(_revealer.count, upto));
                 const hasPlan = !!(_plan && Array.isArray(_plan.items) && _plan.items.length);
                 if (hasPlan) {
-                    // 📋 列了清單：卡片最下面那行就是「他現在在做什麼」，原本那行收掉
-                    if (_streamToolEl && _streamToolEl.parentNode) _streamToolEl.parentNode.removeChild(_streamToolEl);
-                    _streamToolEl = null;
                     if (!_streamPlanEl) {
                         _streamPlanEl = document.createElement('div');
                         _streamPlanEl.className = 'claude-plan-card';
-                        streamWrap.appendChild(_streamPlanEl);   // 跟那行一樣掛在泡泡下面（她的視線在最新一行）
+                        // 掛在泡泡下面（她的視線在最新一行）；工具摺疊盒排在卡下面，跟講完畫的順序一樣
+                        if (_streamToolEl && _streamToolEl.parentNode === streamWrap) streamWrap.insertBefore(_streamPlanEl, _streamToolEl);
+                        else streamWrap.appendChild(_streamPlanEl);
                     }
                     _paintPlanCard(_streamPlanEl, _plan, { live: true, t0: _planT0, writing: acc.writing });
                     if (!_planTick) {
@@ -2481,19 +2550,18 @@
                             if (t) t.textContent = _planSecsText((Date.now() - _planT0) / 1000);
                         }, 1000);
                     }
-                } else if (acc.tools.length) {
+                }
+                // 🔧 一叫工具就出現那顆摺疊盒（以前只有一行「🔧 正在…」，清單要講完才看得到）
+                const preparing = !!(acc.doing && acc.doing.kind === 'tool' && acc.doing.name);
+                if (acc.tools.length || preparing) {
                     if (!_streamToolEl) {
                         _streamToolEl = document.createElement('div');
-                        _streamToolEl.className = 'claude-stream-doing';
-                        // 🚨 掛在氣泡「下面」，不是上面。原本是 insertBefore：他已經講了一段、
-                        // 接著去跑工具時，提示會出現在她剛讀完那段的上方，而她的視線在下面等下一句，
-                        // 加上串流會自動捲到底 —— 等於那行提示永遠在視野外。她的話是
-                        // 「看起來像第一段輸出了、以為說完了」。掛下面才在她眼睛正在看的位置。
+                        // 🚨 掛在氣泡「下面」，不是上面：他講了一段接著去跑工具時，掛上面會在她剛讀完那段的上方，
+                        // 她的視線在下面等下一句、串流又一直捲到底，等於永遠在視野外，看起來像講完了。
                         streamWrap.appendChild(_streamToolEl);
                     }
-                    const last = acc.tools[acc.tools.length - 1];
-                    const more = acc.tools.length > 1 ? `（第 ${acc.tools.length} 個）` : '';
-                    _streamToolEl.textContent = `🔧 ${_toolDoingLabel(last)}${more}` + (acc.callN > 1 ? '・第 ' + acc.callN + ' 通' : '');
+                    _paintLiveTools(_streamToolEl, acc.tools, acc.doing);
+                    if (acc.callN > 1) _streamToolEl.querySelector('.claude-tool-live-step').textContent += '・第 ' + acc.callN + ' 通';
                 }
                 // 自動黏底:streaming 中持續滾到最新
                 if (stream) stream.scrollTop = stream.scrollHeight;
@@ -2513,10 +2581,19 @@
                     }
                     acc.text = ev.accumulated || (acc.text + (ev.delta || ''));
                     acc.writing = true;
+                    acc.doing = { kind: 'write' };
                     rerenderStreaming();
                 } else if (ev.type === 'tool_use' && ev.tool) {
+                    if (acc.writing) _cutHere();
                     acc.tools.push(ev.tool);
                     acc.writing = false;
+                    acc.doing = { kind: 'tool' };
+                    rerenderStreaming();
+                } else if (ev.type === 'now' && ev.now) {
+                    // 橋逐字那條才有：在想／開始叫工具（參數還在寫）／在寫字
+                    if (acc.writing && ev.now.kind !== 'write') _cutHere();
+                    acc.doing = ev.now;
+                    acc.writing = ev.now.kind === 'write';
                     rerenderStreaming();
                 } else if (ev.type === 'plan' && ev.plan) {
                     // 卡換了＝他在動清單或換了工具，都是在動手（Codex 的指令一開始跑就送卡，工具那則要跑完才來）
@@ -2540,7 +2617,10 @@
             });
             held.forEach(m => { delete m.held; });
             if (here()) _paintHeld();
-            const reply = result.reply;
+            // 他中途去動手的地方補空行（_withCuts）：講完那則、存起來的也分段，不然放完的泡泡最後又併回一顆。
+            // reply 是整串去掉頭尾空白；開頭本來就有空白時字數對不上，照原樣
+            const reply = (acc.cuts.length && acc.text === acc.text.trimStart() && result.reply === acc.text.trim())
+                ? _withCuts(result.reply) : result.reply;
             const thinking = result.thinking || null;
             const usage = result.usage || null;
             const toolsUsed = (Array.isArray(result.toolsUsed) && result.toolsUsed.length) ? result.toolsUsed : null;
@@ -2566,13 +2646,19 @@
             if (here() && String(reply || '').trim()) {
                 if (streamWrap && !streamWrap.isConnected) { streamWrap = null; _streamToolEl = null; _streamPlanEl = null; }
                 _ensureStreamShell();
-                if (_streamToolEl && _streamToolEl.parentNode) _streamToolEl.parentNode.removeChild(_streamToolEl);
+                // 🔧 摺疊盒停在做完的樣子（全打勾、不轉），泡泡在上面放完，接著整則換成講完那顆
+                if (_streamToolEl) {
+                    _paintLiveTools(_streamToolEl, acc.tools, { kind: 'write', n: acc.tools.length });
+                    _streamToolEl.classList.add('is-done');
+                }
                 // 📋 卡先停在做完的樣子（不轉了），泡泡在上面放完
                 if (_streamPlanEl && plan) _paintPlanCard(_streamPlanEl, plan, { live: false, secs: plan.secs });
                 _revealer.push(_replySegments(reply, false).slice(_revealer.count));
                 await _revealer.drain();
             }
 
+            // 她在跑的時候把摺疊盒點開了：講完那顆也開著（不然一換就收起來，像被關掉）
+            const _foldWasOpen = !!(_streamToolEl && _streamToolEl.classList.contains('open'));
             // 移除 stream 期間最後一個 placeholder wrap，下面做最終 render（含 markdown）
             if (streamWrap && streamWrap.parentNode) {
                 streamWrap.parentNode.removeChild(streamWrap);
@@ -2622,6 +2708,12 @@
                 _renderClaudeBubble('assistant', reply, { thinking, usage, toolsUsed, attachments: images, props, plan, still: true, calls: xj ? xj.calls : 0, stopped: !!(xj && xj.stopped), msg: assistantRecord });
                 _setClaudePortraitState('happy');
                 setTimeout(() => _setClaudePortraitState('living'), 600);
+            }
+            if (_foldWasOpen) {
+                const _st = _el('claude-chat-stream');
+                const _lastWrap = _st && _st.lastElementChild;
+                const _ts = _lastWrap && _lastWrap.querySelector && _lastWrap.querySelector('.claude-tool-summary');
+                if (_ts) _ts.classList.add('open');
             }
             _scheduleSave();
             if (xj && xj.memErr) _renderClaudeNotice(xj.memErr);   // 小機的記憶這一句出了狀況（奧瑞亞 OS_XIAOJI_MEM）：照實說
@@ -2737,6 +2829,7 @@
     VoidClaudeRoom.DOTS_HTML          = DOTS_HTML;
     VoidClaudeRoom.renderUserSticker  = _renderUserSticker;   // 群聊她送的表情包也畫成圖
     VoidClaudeRoom.toolDoingLabel     = _toolDoingLabel;
+    VoidClaudeRoom.paintLiveTools     = _paintLiveTools;   // 群聊借：還在跑那輪的工具摺疊盒
     VoidClaudeRoom.buildPlanCard      = _buildPlanCard;    // 📋 跑完那張進度卡（msg.plan）
     VoidClaudeRoom.paintPlanCard      = _paintPlanCard;    // 📋 還在跑那張（群聊串流中也用這支畫）
 

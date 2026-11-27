@@ -2363,6 +2363,9 @@ ${withOthers}
                             if (chunk.plan && typeof chunk.plan === 'object' && typeof onProgress === 'function') {
                                 try { onProgress({ type: 'plan', plan: chunk.plan }); } catch (_) {}
                             }
+                            if (chunk.now && typeof chunk.now === 'object' && typeof onProgress === 'function') {
+                                try { onProgress({ type: 'now', now: chunk.now }); } catch (_) {}
+                            }
                             if (chunk.session_id !== undefined) newSid = chunk.session_id;
                             if (chunk.usage_meta) usageMeta = chunk.usage_meta;
                             if (typeof chunk.thinking === 'string' && chunk.thinking.trim()) thinking = chunk.thinking;
@@ -2487,6 +2490,7 @@ ${withOthers}
         let newSid = null, usageMeta = null, imagesAcc = null, fails = 0;
         let thinking = ''; const toolsUsed = [];
         let planRev = null;   // 進度卡：橋每次給整張，rev 變了才往上送
+        let nowKey = null;    // 他這一刻在幹嘛（橋 --include-partial-messages 才有）：變了才往上送
         while (true) {
             if (signal && signal.aborted) {
                 _turnFetch(base + '/v1/turn/cancel', 'POST', cfg.key, { id: turnId }).catch(function () {});
@@ -2533,6 +2537,16 @@ ${withOthers}
                 planRev = st.plan.rev;
                 if (typeof onProgress === 'function') {
                     try { onProgress({ type: 'plan', plan: st.plan }); } catch (_) {}
+                }
+            }
+            // 排在工具後面：同一次輪詢拿到「Read 叫完了」和「接著在想」時，畫面要停在後面那個
+            if (st.now && typeof st.now === 'object') {
+                const k = JSON.stringify(st.now);
+                if (k !== nowKey) {
+                    nowKey = k;
+                    if (typeof onProgress === 'function') {
+                        try { onProgress({ type: 'now', now: st.now }); } catch (_) {}
+                    }
                 }
             }
             if (st.sessionId !== undefined && st.sessionId !== null) newSid = st.sessionId;
@@ -2635,6 +2649,9 @@ ${withOthers}
                         }
                         if (chunk.plan && typeof chunk.plan === 'object' && typeof onProgress === 'function') {
                             try { onProgress({ type: 'plan', plan: chunk.plan }); } catch (_) {}
+                        }
+                        if (chunk.now && typeof chunk.now === 'object' && typeof onProgress === 'function') {
+                            try { onProgress({ type: 'now', now: chunk.now }); } catch (_) {}
                         }
                         if (chunk.session_id !== undefined) newSid = chunk.session_id;
                         if (chunk.usage_meta) usageMeta = chunk.usage_meta;

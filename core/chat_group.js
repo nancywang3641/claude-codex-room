@@ -585,8 +585,19 @@
         wrap.appendChild(hdr);
         wrap.appendChild(b);
         _streamEl.appendChild(wrap);
+        _popIn(wrap);
         _scrollBottom();
         return wrap;
+    }
+
+    // 🫧 新冒出來的泡泡彈一下（樣子在 room_content.css 的 .claude-bubble-pop，跟私聊同一個）。
+    //   .cg-bubble 本身沒有進場動畫，所以歷史重畫不會整片一起彈；只有呼叫這支的才彈。
+    function _popIn(wrap) {
+        if (!wrap || !wrap.querySelectorAll) return;
+        wrap.querySelectorAll('.cg-bubble').forEach(function (el) {
+            el.classList.add('claude-bubble-pop');
+            setTimeout(function () { el.classList.remove('claude-bubble-pop'); }, 520);
+        });
     }
 
     // ⏭ 等他太久可以跳過（待修 #293）：他一次想好幾分鐘時整桌都在等，看起來像當掉。
@@ -1087,7 +1098,8 @@
             if (!planEl) {
                 planEl = document.createElement('div');
                 planEl.className = 'claude-plan-card';
-                typingWrap.insertBefore(planEl, typingWrap.querySelector('.cg-wait'));
+                // 排在工具摺疊盒上面（講完畫的順序也是卡在上、工具在下）
+                typingWrap.insertBefore(planEl, (toolsEl && toolsEl.parentNode === typingWrap) ? toolsEl : typingWrap.querySelector('.cg-wait'));
                 planTick = setInterval(_planPaint, 1000);
             }
             const rows = planEl.querySelectorAll('.claude-plan-step').length;
@@ -1108,8 +1120,64 @@
             return saved;
         }
 
+        // 🔧 一叫工具就出現的摺疊盒（同私聊那顆 VoidClaudeRoom.paintLiveTools）：掛在點點泡泡下面、「跳過他」那行上面。
+        //    liveDoing：最後到的訊號（工具那則／橋的 now：在想、開始叫工具、在寫字／字來了），標題照它寫
+        let liveTools = [], liveDoing = null, toolsEl = null;
+        const _liveOk = !!(_room && typeof _room.paintLiveTools === 'function');
+        function _toolsPaint() {
+            if (!_liveOk || !typingWrap) return;
+            const prep = !!(liveDoing && liveDoing.kind === 'tool' && liveDoing.name);
+            if (!liveTools.length && !prep) return;
+            if (!toolsEl) {
+                toolsEl = document.createElement('div');
+                typingWrap.insertBefore(toolsEl, typingWrap.querySelector('.cg-wait'));
+            }
+            const rows = toolsEl.querySelectorAll('.claude-tool-summary-item').length;
+            _room.paintLiveTools(toolsEl, liveTools, liveDoing);
+            if (toolsEl.querySelectorAll('.claude-tool-summary-item').length !== rows) _scrollBottom();
+        }
+        /** 這一輪收了：停在做完的樣子（全打勾、不轉） */
+        function _toolsFreeze() {
+            if (!toolsEl || !_liveOk) return;
+            _room.paintLiveTools(toolsEl, liveTools, { kind: 'write', n: liveTools.length });
+            toolsEl.classList.add('is-done');
+        }
+
+        // 他寫到哪裡就去動手了（字數，同私聊 _withCuts）：橋把前後兩則的字直接接起來，切泡泡時在這幾處補空行，
+        // 動手前那段先冒出來、後面寫的另起一顆；收尾存的那份也照這樣分段，不然放完又併回一顆
+        let cuts = [], writing = false;
+        function _withCuts(src) {
+            src = String(src == null ? '' : src);
+            let out = '', prev = 0;
+            cuts.forEach(function (c) { if (c > prev && c <= src.length) { out += src.slice(prev, c) + '\n\n'; prev = c; } });
+            return out + src.slice(prev);
+        }
+        function _cutHere() {
+            const last = cuts.length ? cuts[cuts.length - 1] : 0;
+            if (acc.length > last && /\S/.test(acc.slice(last))) cuts.push(acc.length);
+        }
+        /** 把寫完的段落交給 revealer。done：最後那段也寫完了（他去動手了／後面空了一行） */
+        function _pushSegs(done) {
+            const rv = _ensureRevealer();
+            if (!bubbleEl || !rv) return;
+            const segs = _room.splitReplySegments(_stripForDisplay(_withCuts(acc), true));
+            // 🚨 還沒寫字時切出來是一顆空段，算進去的話真正的第一段會被當成放過了
+            const upto = (done && /\S/.test(acc)) ? segs.length : segs.length - 1;
+            if (upto > rv.count) rv.push(segs.slice(rv.count, upto));
+        }
+        /** 他停筆去動手（想、叫工具）：補切點、寫完的那段放出來 */
+        function _stopWriting() {
+            if (!writing) return;
+            writing = false;
+            _cutHere();
+            _pushSegs(true);
+        }
+
         function _send(sid) {
             acc = '';
+            cuts = []; writing = false;
+            if (toolsEl && toolsEl.parentNode) toolsEl.parentNode.removeChild(toolsEl);
+            toolsEl = null; liveTools = []; liveDoing = null;
             // 換一條 session 重送：上一次那張卡不算
             if (planTick) { clearInterval(planTick); planTick = null; }
             if (planEl && planEl.parentNode) planEl.parentNode.removeChild(planEl);
@@ -1127,6 +1195,7 @@
                 onProgress: function (ev) {
                     if (ev && ev.type === 'text') {
                         acc = ev.accumulated || (acc + (ev.delta || ''));
+                        writing = true;
                         const rv = _ensureRevealer();
                         if (bubbleEl && rv) {
                             // 寫到一半的那段不畫（會露出 ** 跟 -）。剛才在寫「正在動手」的話換回點點
@@ -1135,8 +1204,7 @@
                                 bubbleEl.classList.add('claude-bubble-dots');
                                 bubbleEl.innerHTML = _room.DOTS_HTML;
                             }
-                            const segs = _room.splitReplySegments(_stripForDisplay(acc, true));
-                            if (segs.length - 1 > rv.count) rv.push(segs.slice(rv.count, segs.length - 1));
+                            _pushSegs(/\n[ \t]*\n\s*$/.test(acc));   // 後面空了一行＝那段寫完了
                         } else if (bubbleEl) {
                             bubbleEl.classList.remove('cg-typing');
                             bubbleEl.classList.remove('cg-doing');
@@ -1147,6 +1215,15 @@
                         }
                         planWriting = true;   // 進度卡最下面那行寫「在寫回覆」
                         if (plan) _planPaint();
+                        liveDoing = { kind: 'write' };
+                        if (toolsEl) _toolsPaint();
+                    } else if (ev && ev.type === 'now' && ev.now) {
+                        // 橋逐字那條才有：在想／開始叫工具（參數還在寫）／在寫字
+                        if (ev.now.kind !== 'write') _stopWriting();
+                        liveDoing = ev.now;
+                        planWriting = ev.now.kind === 'write';
+                        if (plan) _planPaint();
+                        _toolsPaint();
                     } else if (ev && ev.type === 'plan' && ev.plan) {
                         // 卡換了＝他在動清單或換了工具，都是在動手。點點泡泡剛才寫成「正在動手…」的話換回點點，在做什麼看卡
                         planWriting = false;
@@ -1159,7 +1236,12 @@
                         _planPaint();
                     } else if (ev && ev.type === 'tool_use') {
                         planWriting = false;
-                        if (plan) { _planPaint(); return; }   // 📋 列了清單：在做什麼寫在卡上
+                        _stopWriting();
+                        if (ev.tool) liveTools.push(ev.tool);
+                        liveDoing = { kind: 'tool' };
+                        if (plan) _planPaint();
+                        if (_liveOk) { _toolsPaint(); return; }   // 🔧 在做什麼寫在摺疊盒上，點點照舊
+                        if (plan) return;   // 📋 列了清單：在做什麼寫在卡上
                         // 他在動手（跑命令、生圖）。生圖那種要等三十秒以上，畫面上卻只有
                         // 「正在輸入…」—— 看起來像卡住。這裡把他正在做什麼寫在氣泡上，
                         // 等真的有文字回來再換掉。只在還沒有任何文字時顯示：他一開口就換成內容，
@@ -1179,11 +1261,12 @@
         function _fail(err) {
             wait.stop();
             _planFreeze();   // 📋 列過清單：卡停在這一刻（按跳過的話看得到做到哪；這則不存，同私聊按停）
+            _toolsFreeze();
             // 她按了跳過：拿掉點點（他已經講出來的那幾顆留著），寫一行說跳過了；沒送到的這段下一輪補給他
             if (skipped) {
                 if (revealer) revealer.stop();
                 const said = revealer && revealer.count > 0;
-                if (said || planEl) { if (bubbleEl && bubbleEl.parentNode) bubbleEl.parentNode.removeChild(bubbleEl); }
+                if (said || planEl || toolsEl) { if (bubbleEl && bubbleEl.parentNode) bubbleEl.parentNode.removeChild(bubbleEl); }
                 else if (typingWrap && typingWrap.parentNode) typingWrap.parentNode.removeChild(typingWrap);
                 _renderSystemLine('跳過了' + _labelOf(rid) + '，換下一位（這段他下次輪到時會補看到）');
                 return { spoke: false, failed: true, skipped: true, markers: {} };
@@ -1232,7 +1315,12 @@
             }
         }
         wait.stop();
+        // 他中途去動手的地方補空行（_withCuts）：存的、最後畫的都分段，跟串流當下冒出來的一樣
+        if (cuts.length && result && typeof result.reply === 'string' && acc === acc.trimStart() && result.reply === acc.trim()) {
+            result.reply = _withCuts(result.reply);
+        }
         const planSaved = _planFreeze();   // 📋 他做完那一刻清單的樣子＋花了多久（跟著這則存）
+        _toolsFreeze();                    // 🔧 泡泡放完前先停在全打勾；放完換成講完那顆（_attachTools）
         if (result.sessionId) _lsSet(_sidKey(rid), result.sessionId);
 
         const reply = (result.reply || '').trim();
@@ -1320,7 +1408,15 @@
                 const box = _buildAttachmentsBox(imgAtts);
                 if (box) lastB.appendChild(box);
             }
+            // 跑的時候她點開了摺疊盒：講完那顆也開著
+            const foldOpen = !!(toolsEl && toolsEl.classList.contains('open'));
+            if (toolsEl && toolsEl.parentNode) toolsEl.parentNode.removeChild(toolsEl);
+            toolsEl = null;
             _attachTools(lastB, result.toolsUsed);
+            if (foldOpen && typingWrap) {
+                const ts = typingWrap.querySelector('.claude-tool-summary');
+                if (ts) ts.classList.add('open');
+            }
             _attachThinking(bubbleEl, result.thinking);
         }
         const turnEntry = { speaker: rid, content: transcriptText, ts: Date.now(), usage: result.usage || null };
@@ -1768,6 +1864,7 @@
         if (!_game) entry.held = true;   // 對局中她的話由對局迴圈下一手帶到，不用等魔杖
         _transcript.push(entry);
         _renderBubble('rae', text, atts, null, null, entry);
+        _popIn(_streamEl && _streamEl.lastElementChild);
         _save();
         _paintHeld();
         return entry;

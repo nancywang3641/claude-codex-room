@@ -143,11 +143,7 @@
     padding: 10px 14px; border-radius: 16px;
     line-height: 1.55; font-size: 14px;
     word-break: break-word; white-space: pre-wrap;
-    animation: claude-bubble-in 0.25s ease-out;
-}
-@keyframes claude-bubble-in {
-    from { opacity: 0; transform: translateY(6px); }
-    to   { opacity: 1; transform: translateY(0); }
+    animation: claude-bubble-pop 0.42s cubic-bezier(0.25, 0.9, 0.35, 1) both;   /* 新冒出來的彈進來；keyframes 在「泡泡一顆一顆出來」那段 */
 }
 
 /* 使用者氣泡（Grenadine 深橘） */
@@ -291,10 +287,17 @@
     40%           { opacity: 0.9; }
 }
 .claude-bubble-still { animation: none; }
-.claude-bubble-pop { animation: claude-bubble-pop 0.28s ease-out both; }
+.claude-bubble-pop { animation: claude-bubble-pop 0.42s cubic-bezier(0.25, 0.9, 0.35, 1) both; }
+/* 彈進來：從講話那一側的下角長出來，稍微衝過頭再回來。
+   以前是 0.25s 往上滑 6px，幾乎看不出來；群聊泡泡（.cg-bubble）根本沒有進場動畫。
+   歷史重畫（進房、切回來）一律帶 still，不然整片一起彈。 */
+.claude-bubble.from-claude, .claude-bubble-dots, .cg-bubble { transform-origin: 0 100%; }
+.claude-bubble.from-user, .cg-bubble.cg-from-rae { transform-origin: 100% 100%; }
 @keyframes claude-bubble-pop {
-    from { opacity: 0; transform: scale(0.92); }
-    to   { opacity: 1; transform: none; }
+    0%   { opacity: 0; transform: scale(0.55) translateY(10px); }
+    55%  { opacity: 1; transform: scale(1.05); }
+    80%  { transform: scale(0.985); }
+    100% { opacity: 1; transform: none; }
 }
 @media (prefers-reduced-motion: reduce) {
     .claude-bubble-dots i { animation: none; opacity: 0.6; }
@@ -453,6 +456,30 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+/* 🔧 還在跑那輪的摺疊盒（_paintLiveTools）：標題＝轉圈＋他這一刻在幹嘛＋第幾個；裡面做完打勾、正在跑的在轉。
+   轉圈跟進度卡同一款（claude-plan-spin）。is-done＝講完了、泡泡還在放，停住全打勾 */
+.claude-tool-summary.is-live { margin-top: 4px; }
+.claude-tool-live-spin, .claude-tool-live-mark {
+    flex-shrink: 0; box-sizing: border-box; display: inline-block;
+    width: 11px; height: 11px; border-radius: 50%;
+}
+.claude-tool-live-spin, .claude-tool-summary-item.is-run .claude-tool-live-mark {
+    border: 1.5px solid rgba(42, 74, 128, 0.2);
+    border-top-color: var(--cl-grenadine, #2a4a80);
+    animation: claude-plan-spin 0.9s linear infinite;
+}
+.claude-tool-summary.is-done .claude-tool-live-spin { display: none; }
+.claude-tool-summary.is-done .claude-tool-summary-item.is-run .claude-tool-live-mark { animation: none; border: 0; }
+.claude-tool-summary-item:not(.is-run) .claude-tool-live-mark::before,
+.claude-tool-summary.is-done .claude-tool-summary-item .claude-tool-live-mark::before {
+    content: '✓'; display: block; font-size: 10px; line-height: 11px; text-align: center; color: #46639b;
+}
+.claude-tool-summary-item .claude-tool-live-mark { align-self: center; }
+.claude-tool-live-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.claude-tool-live-step { flex-shrink: 0; opacity: 0.6; font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) {
+    .claude-tool-live-spin, .claude-tool-summary-item.is-run .claude-tool-live-mark { animation-duration: 2.4s; }
 }
 
 /* mode-claude 蓋過 inline 書咖色：底部 chat-bar / 輸入框 / 送出按鈕 / 重試按鈕（全暖統一） */
